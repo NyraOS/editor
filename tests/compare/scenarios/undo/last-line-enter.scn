@@ -1,0 +1,14 @@
+# Typing, a new line and more typing at the end of the text, undone one step at a time.
+args: t.txt
+file t.txt:
+| one
+| two
+keys: {^End}
+keys: x{Enter}y
+keys: {M-u}
+keys: {M-u}
+keys: {M-u}
+keys: {^O}{Enter}
+keys: {M-e*2}
+keys: {^O}{Enter}
+keys: {^X}

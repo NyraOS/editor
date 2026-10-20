@@ -1,0 +1,12 @@
+# Undo a cut from the middle of a line: the cursor goes back to where it was.
+args: t.txt
+file t.txt:
+| one two
+| two
+| three
+keys: {Down}{End}
+keys: {^K}
+keys: {M-u}
+keys: {M-e}
+keys: {M-u}
+keys: {^X}

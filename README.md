@@ -12,7 +12,9 @@ Early development. What works, the same way as in GNU nano 8.4:
   (`M-\` `M-/`), ^Left and ^Right by words; long lines scroll sideways;
 - typing and deleting, Enter, Tab, Backspace and Delete (`^H` `^D`); UTF-8 with wide characters
   (CJK, emoji) and combining marks; tabs; DOS and Mac line ends, kept when saving;
-- cutting and pasting lines (`^K` `^U`), the position (`^C`);
+- cutting and pasting lines (`^K` `^U`), the position (`^C`), undo and redo (`M-U` `M-E`) with
+  nano's steps (typing in a row, deleting in a row, cutting in a row; a new line and a paste are
+  steps of their own);
 - searching (`^W` `^F` `F6`, backwards with `^Q` `^B`, again with `M-W` `M-Q`; `M-C` and `M-B` in the
   prompt, a history with `^P` `^N`) and going to a line and column (`^_` `M-G`); regular
   expressions and replacing come later;

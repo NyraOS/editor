@@ -1,0 +1,10 @@
+# Consecutive ^D and Delete keys are one step.
+args: t.txt
+file t.txt:
+| one two three
+keys: {Right*4}
+keys: {^D}{Del}{^D}
+keys: {M-u}
+keys: {M-e}
+keys: {M-u}
+keys: {^X}

@@ -1,0 +1,13 @@
+# Undo back to the saved text: the buffer is unmodified, ^X exits without asking.
+args: t.txt
+file t.txt:
+| one two
+keys: abc
+keys: {^O}{Enter}
+keys: def{Enter}
+keys: {M-u}
+keys: {M-u}
+keys: {M-e}
+keys: {M-u}
+keys: {M-u}
+keys: {^X}

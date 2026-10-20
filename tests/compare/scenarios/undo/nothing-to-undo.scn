@@ -1,0 +1,7 @@
+# Nothing was edited: M-U and M-E only say so, and the buffer stays unmodified.
+args: t.txt
+file t.txt:
+| one two
+keys: {M-u}
+keys: {M-e}
+keys: {^X}

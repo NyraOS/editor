@@ -1,0 +1,17 @@
+# Three ^K in a row are one step.
+args: t.txt
+file t.txt:
+| one
+| two
+| three
+| four
+| five
+keys: {^K}
+keys: {^K}
+keys: {^K}
+keys: {M-u}
+keys: {M-u}
+keys: {M-e}
+keys: {M-e}
+keys: {^X}
+keys: n

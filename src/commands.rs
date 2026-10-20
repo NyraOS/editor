@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! The editor's state and its commands: what each key does.
 
-use crate::buffer::{self, Buffer, Format, next_index, prev_index};
+use crate::buffer::{self, Buffer, Format, Kind, next_index, prev_index};
 use crate::config::Options;
 use crate::files::{self, Expected, Locking, Meta, SaveError, SaveOptions};
 use crate::keys::{Key, Mods, Named};
@@ -568,30 +568,57 @@ impl Editor {
             Key::Ctrl('_') | Key::Meta('g') => self.ask_goto(String::new()),
             // The main loop draws the whole screen again.
             Key::Ctrl('L') => {}
+            Key::Meta('u') => self.undo(),
+            Key::Meta('e') => self.redo(),
             _ => self.error("Not available in this version yet"),
         }
         self.scroll_to_cursor();
     }
 
     fn type_text(&mut self, s: &str) {
+        self.insert_text(s, if s == "\n" { Kind::Enter } else { Kind::Add });
+    }
+
+    fn insert_text(&mut self, s: &str, kind: Kind) {
         let last = self.buf.line + 1 == self.buf.lines();
+        let at = self.buf.pos();
         self.buf.insert(s);
-        if last {
-            self.magic_line();
+        self.buf.record(kind, at, String::new(), s.to_string(), at);
+        if last && self.magic_line() {
+            self.buf.record_final_newline();
         }
         self.buf.keep_column(self.opts.tabsize);
     }
 
     /// As in nano, the text ends with an empty line (the file with a newline), unless `-L`.
-    fn magic_line(&mut self) {
-        if !self.opts.nonewlines && !self.buf.ends_with_newline() {
+    /// Returns whether it added the newline.
+    fn magic_line(&mut self) -> bool {
+        let add = !self.opts.nonewlines && !self.buf.ends_with_newline();
+        if add {
             let end = self.buf.text.len_chars();
             self.buf.text.insert(end, "\n");
         }
+        add
     }
 
     fn enter(&mut self) {
         self.type_text("\n");
+    }
+
+    fn undo(&mut self) {
+        match self.buf.undo() {
+            Some(kind) => self.say(&format!("Undid {}", kind.name())),
+            None => self.error("Nothing to undo"),
+        }
+        self.buf.keep_column(self.opts.tabsize);
+    }
+
+    fn redo(&mut self) {
+        match self.buf.redo() {
+            Some(kind) => self.say(&format!("Redid {}", kind.name())),
+            None => self.error("Nothing to redo"),
+        }
+        self.buf.keep_column(self.opts.tabsize);
     }
 
     /// Deletes the code point before the cursor (as in nano, a combining mark on its own), or
@@ -606,11 +633,12 @@ impl Editor {
                 && buffer::raw_byte(b.text.char(pos - 2)).is_some();
             let n = if byte { 2 } else { 1 };
             b.x -= n;
-            b.remove(pos - n, pos);
+            b.erase(Kind::Back, pos - n, pos, pos);
         } else if b.line > 0 {
+            let before = b.pos();
             b.line -= 1;
             b.x = b.line_len(b.line);
-            self.delete();
+            self.delete_at(before);
         }
         self.buf.keep_column(self.opts.tabsize);
     }
@@ -618,17 +646,22 @@ impl Editor {
     /// Deletes the character under the cursor with its combining marks, or at the end of a
     /// line, joins the next line to it.
     fn delete(&mut self) {
+        self.delete_at(self.buf.pos());
+    }
+
+    /// `delete`, for the cursor that was at `before` (it is moved when Backspace joins lines).
+    fn delete_at(&mut self, before: usize) {
         let b = &mut self.buf;
         let len = b.line_len(b.line);
         let pos = b.pos();
         if b.x < len {
             let next = next_index(&b.line_text(b.line), b.x);
-            b.remove(pos, pos + next - b.x);
+            b.erase(Kind::Del, pos, pos + next - b.x, before);
         } else if b.line + 1 < b.lines() {
             // Joining a line with text to the empty last line would lose the final newline.
             let last_empty = b.line + 2 == b.lines() && b.line_len(b.line + 1) == 0;
             if !(last_empty && len > 0 && !self.opts.nonewlines) {
-                b.remove(pos, pos + 1);
+                b.erase(Kind::Join, pos, pos + 1, before);
             }
         }
     }
@@ -773,8 +806,9 @@ impl Editor {
             self.cut.clear();
         }
         self.cut.push_str(&String::from(b.text.slice(from..to)));
-        b.remove(from, to);
+        let before = b.pos();
         b.x = 0;
+        b.erase(Kind::Cut, from, to, before);
         b.keep_column(self.opts.tabsize);
         self.cutting = true;
         self.message = None;
@@ -785,7 +819,7 @@ impl Editor {
             return self.error("Cutbuffer is empty");
         }
         let text = self.cut.clone();
-        self.type_text(&text);
+        self.insert_text(&text, Kind::Paste);
         self.message = None;
     }
 
@@ -959,7 +993,7 @@ impl Editor {
         match files::save(Path::new(&name), &bytes, expected, &SaveOptions::default()) {
             Ok(saved) => {
                 self.meta = Some(saved.meta);
-                self.buf.modified = false;
+                self.buf.mark_saved();
                 if name != self.name {
                     // The lock goes with the name.
                     self.lock = None;

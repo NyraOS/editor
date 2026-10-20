@@ -1,0 +1,10 @@
+# Typed characters are one step: M-U takes them all back, M-E puts them back.
+args: t.txt
+file t.txt:
+| one two
+| two
+keys: abc
+keys: {M-u}
+keys: {M-e}
+keys: {^O}{Enter}
+keys: {^X}

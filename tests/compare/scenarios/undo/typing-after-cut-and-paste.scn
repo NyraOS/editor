@@ -1,0 +1,14 @@
+# Typing right after a cut or a paste is a step of its own.
+args: t.txt
+file t.txt:
+| one
+| two
+| three
+keys: {^K}x
+keys: {^U}y
+keys: {M-u}
+keys: {M-u}
+keys: {M-u}
+keys: {M-u}
+keys: {M-u}
+keys: {^X}

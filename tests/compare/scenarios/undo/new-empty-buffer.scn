@@ -1,0 +1,10 @@
+# Undo and redo in a new, empty buffer.
+keys: hello{Enter}world
+keys: {M-u}
+keys: {M-u}
+keys: {M-u}
+keys: {M-u}
+keys: {M-e}
+keys: {M-e*2}
+keys: {^X}
+keys: n

@@ -1,0 +1,15 @@
+# A new edit after an undo throws the redo steps away.
+args: t.txt
+file t.txt:
+| one two
+| two
+keys: abc
+keys: {Down}{^K}
+keys: {M-u}
+keys: {M-u}
+keys: x
+keys: {M-e}
+keys: {M-u}
+keys: {M-u}
+keys: {M-u}
+keys: {^X}

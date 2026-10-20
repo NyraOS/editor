@@ -1,0 +1,13 @@
+# Moving away and back to where the typing ended does not break the group, as in nano.
+args: t.txt
+file t.txt:
+| one two
+| two
+keys: abc
+keys: {Left}{Right}
+keys: def
+keys: {Down}{Up}{Right*2}{Left*2}
+keys: gh
+keys: {M-u}
+keys: {M-u}
+keys: {^X}

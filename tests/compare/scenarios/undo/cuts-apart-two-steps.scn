@@ -1,0 +1,14 @@
+# Two cuts with a move between them are two steps.
+args: t.txt
+file t.txt:
+| one
+| two
+| three
+| four
+keys: {^K}
+keys: {Down}{^K}
+keys: {M-u}
+keys: {M-u}
+keys: {M-e*2}
+keys: {^X}
+keys: n

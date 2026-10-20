@@ -1,0 +1,13 @@
+# ^D at the end of a line joins the next one; the deletion after it is a step of its own.
+args: t.txt
+file t.txt:
+| one two
+| two
+| three
+keys: {End}{^D}
+keys: {^D}
+keys: {M-u}
+keys: {M-u}
+keys: {M-e*2}
+keys: {^X}
+keys: n

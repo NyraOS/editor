@@ -1,0 +1,10 @@
+# Typing after moving to another place starts a new step.
+args: t.txt
+file t.txt:
+| one two
+keys: x{Left}y
+keys: {M-u}
+keys: {M-u}
+keys: {M-e}
+keys: {^X}
+keys: n

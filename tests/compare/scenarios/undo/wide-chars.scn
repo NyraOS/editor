@@ -1,0 +1,13 @@
+# Deleting and typing wide and combining characters, undone and redone.
+args: t.txt
+file t.txt:
+| café 日本 éx
+keys: {End}{Bsp*4}
+keys: {M-u}
+keys: {Home}{^D*3}
+keys: {M-u}
+keys: {M-e}
+keys: é日
+keys: {M-u}
+keys: {^X}
+keys: n

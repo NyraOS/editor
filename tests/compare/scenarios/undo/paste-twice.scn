@@ -1,0 +1,14 @@
+# Two pastes in a row are two steps.
+args: t.txt
+file t.txt:
+| one
+| two
+| three
+keys: {^K}
+keys: {Down}{^U}{^U}
+keys: {M-u}
+keys: {M-u}
+keys: {M-u}
+keys: {M-e*3}
+keys: {^X}
+keys: n

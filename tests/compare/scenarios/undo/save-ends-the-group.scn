@@ -1,0 +1,11 @@
+# Typing after a save is a new step, even right where the typing was.
+args: t.txt
+file t.txt:
+| one two
+keys: abc
+keys: {^O}{Enter}
+keys: def
+keys: {M-u}
+keys: {M-u}
+keys: {^X}
+keys: n

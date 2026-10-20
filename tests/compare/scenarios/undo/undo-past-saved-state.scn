@@ -1,0 +1,11 @@
+# Undo past the saved text makes the buffer modified again; redo back to it clears that.
+args: t.txt
+file t.txt:
+| one two
+keys: abc
+keys: {^O}{Enter}
+keys: {M-u}
+keys: {M-e}
+keys: {M-u}
+keys: {^X}
+keys: n
