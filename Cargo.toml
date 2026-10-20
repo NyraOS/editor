@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+[package]
+name = "nymo"
+version = "0.1.0"
+edition = "2024"
+# The Rust in Debian 13 (trixie).
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/NyraOS/nymo"
+description = "A nano-compatible terminal editor written from scratch in Rust"
+
+[dependencies]
