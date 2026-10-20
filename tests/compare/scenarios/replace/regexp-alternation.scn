@@ -1,0 +1,12 @@
+# Alternation with | and a group.
+args: t.txt
+file t.txt:
+| red green blue
+keys: {^\}
+keys: {M-r}
+keys: (red|blue){Enter}
+keys: <\1>{Enter}
+keys: a
+keys: {^X}
+keys: y
+keys: {Enter}

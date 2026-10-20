@@ -1,0 +1,13 @@
+# ^ and $ anchor the line; an empty match at the start of a line is replaced.
+args: t.txt
+file t.txt:
+| one
+| two
+keys: {^\}
+keys: {M-r}
+keys: ^{Enter}
+keys: > {Enter}
+keys: a
+keys: {^X}
+keys: y
+keys: {Enter}

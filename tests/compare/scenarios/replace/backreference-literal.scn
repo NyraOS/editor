@@ -1,0 +1,11 @@
+# Without regular expressions \1 is just text.
+args: t.txt
+file t.txt:
+| ab
+keys: {^\}
+keys: (a)b{Enter}
+keys: [\1]{Enter}
+keys: y
+keys: {^X}
+keys: y
+keys: {Enter}

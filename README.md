@@ -19,9 +19,12 @@ Early development. What works, the same way as in GNU nano 8.4:
   and a paste that gets no end for 2 s is ended);
 - the position (`^C`), undo and redo (`M-U` `M-E`) with nano's steps (typing in a row, deleting
   in a row, cutting in a row; a new line, a paste and a cut selection are steps of their own);
-- searching (`^W` `^F` `F6`, backwards with `^Q` `^B`, again with `M-W` `M-Q`; `M-C` and `M-B` in the
-  prompt, a history with `^P` `^N`) and going to a line and column (`^_` `M-G`); regular
-  expressions and replacing come later;
+- searching (`^W` `^F` `F6`, backwards with `^Q` `^B`, again with `M-W` `M-Q`; `M-C`, `M-R` (regular
+  expressions) and `M-B` in the prompt, a history with `^P` `^N`) and going to a line and column
+  (`^_` `M-G`); replacing (`^\` `M-R`: Yes, No, All or `^C` for each match, `\1` to `\9` in the
+  replacement, in the selection when there is one). Each replacement is a step of undo, as in
+  nano. The regular expressions are nano's (POSIX extended) translated to the `regex` crate; the
+  differences are in [docs/REGEX.md](docs/REGEX.md);
 - completing a word (`^]`): the fragment before the cursor takes the ending of a word of the
   text, and the next one on each `^]` in a row; one step of undo;
 - the title bar, the status bar and the help lines at any terminal size, the help screen (`^G`);

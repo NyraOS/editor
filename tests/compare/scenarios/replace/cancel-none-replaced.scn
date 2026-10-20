@@ -1,0 +1,9 @@
+# ^C at the first question, before anything was replaced.
+args: t.txt
+file t.txt:
+| a cat
+keys: {^\}
+keys: cat{Enter}
+keys: dog{Enter}
+keys: {^C}
+keys: {^X}

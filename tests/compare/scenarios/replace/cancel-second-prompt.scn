@@ -1,0 +1,9 @@
+# ^C at "Replace with" does nothing to the text.
+args: t.txt
+file t.txt:
+| a cat
+keys: {^\}
+keys: cat{Enter}
+keys: dog
+keys: {^C}
+keys: {^X}

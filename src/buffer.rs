@@ -22,7 +22,7 @@ pub enum Format {
 /// Each of the two on its own is itself. A real `MARK` right after one of those private-use
 /// characters (in a file, or put there by an edit) would read as a byte, so it is kept as its
 /// four bytes instead.
-const RAW_BASE: u32 = 0x10_FE00;
+pub const RAW_BASE: u32 = 0x10_FE00;
 pub const MARK: char = '\u{E01EF}';
 
 /// The two characters that stand for a byte that is not valid UTF-8.
@@ -121,6 +121,7 @@ pub enum Kind {
     Join,
     Cut,
     Paste,
+    Replace,
 }
 
 impl Kind {
@@ -132,6 +133,7 @@ impl Kind {
             Kind::Join => "line join",
             Kind::Cut => "cut",
             Kind::Paste => "paste",
+            Kind::Replace => "replacement",
         }
     }
 }
@@ -290,6 +292,16 @@ impl Buffer {
         self.record(kind, from, old, String::new(), before);
     }
 
+    /// Replaces `len` characters at `at` with `text`, as a step of undo of its own, and puts the
+    /// cursor after the new text.
+    pub fn substitute(&mut self, at: usize, len: usize, text: &str) {
+        let old = String::from(self.text.slice(at..at + len));
+        self.remove(at, at + len);
+        self.set_pos(at);
+        self.insert(text);
+        self.record(Kind::Replace, at, old, text.to_string(), at);
+    }
+
     /// Records an edit that has been made. Typed characters, and deletions with the same key, that
     /// follow one another make one step, as in nano; so do consecutive cuts. The edit ends where
     /// the cursor is.
@@ -394,7 +406,8 @@ impl Buffer {
         self.mark = None;
         self.replace(at, old_len, &new);
         self.done += 1;
-        self.finish(after);
+        // nano puts the cursor back before a replacement, not after it.
+        self.finish(if kind == Kind::Replace { at } else { after });
         Some(kind)
     }
 

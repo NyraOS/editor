@@ -1,0 +1,11 @@
+# A back-reference in the pattern is matched by nano. The editor does not support it (see
+# docs/REGEX.md): it says so on the status line, and the cursor shows there, so this is pending.
+pending: back-references in the pattern are not supported by the regex engine, on purpose
+args: t.txt
+file t.txt:
+| abab abba
+keys: {^\}
+keys: {M-r}
+keys: (a)(b)\2\1{Enter}
+keys: x{Enter}
+keys: {^X}

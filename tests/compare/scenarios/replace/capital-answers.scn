@@ -1,0 +1,13 @@
+# Capital Y, N and A answer like the small ones.
+args: t.txt
+file t.txt:
+| a cat a cat a cat
+keys: {^\}
+keys: cat{Enter}
+keys: dog{Enter}
+keys: N
+keys: Y
+keys: A
+keys: {^X}
+keys: y
+keys: {Enter}

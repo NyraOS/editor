@@ -1,0 +1,14 @@
+# A replacement that was undone is redone with M-E.
+args: t.txt
+file t.txt:
+| a cat sat
+keys: {^\}
+keys: cat{Enter}
+keys: elephant{Enter}
+keys: y
+keys: {M-u}
+keys: {M-e}
+keys: X
+keys: {^X}
+keys: y
+keys: {Enter}

@@ -1,0 +1,13 @@
+# \1 and \2 in the replacement are the groups of the match.
+args: t.txt
+file t.txt:
+| John Smith
+| Mary Jones
+keys: {^\}
+keys: {M-r}
+keys: ([A-Za-z]+) ([A-Za-z]+){Enter}
+keys: \2, \1{Enter}
+keys: a
+keys: {^X}
+keys: y
+keys: {Enter}

@@ -1,0 +1,17 @@
+# With a selection, the prompt says "in selection" and only matches inside it are replaced.
+args: t.txt
+file t.txt:
+| cat one
+| cat two
+| cat three
+| cat four
+keys: {Down}
+keys: {M-a}
+keys: {Down}
+keys: {^\}
+keys: cat{Enter}
+keys: dog{Enter}
+keys: a
+keys: {^X}
+keys: y
+keys: {Enter}

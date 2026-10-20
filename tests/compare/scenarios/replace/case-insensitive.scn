@@ -1,0 +1,11 @@
+# Without M-C the case does not matter, and the replacement is put in as typed.
+args: t.txt
+file t.txt:
+| Cat cat CAT
+keys: {^\}
+keys: cat{Enter}
+keys: dog{Enter}
+keys: a
+keys: {^X}
+keys: y
+keys: {Enter}

@@ -1,0 +1,13 @@
+# M-R in the main menu is the same as ^\.
+args: t.txt
+file t.txt:
+| the cat sat
+| on the mat
+keys: {M-r}
+keys: at{Enter}
+keys: og{Enter}
+keys: n
+keys: y
+keys: {^X}
+keys: y
+keys: {Enter}

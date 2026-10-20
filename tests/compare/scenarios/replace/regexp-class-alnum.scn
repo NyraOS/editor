@@ -1,0 +1,11 @@
+# [[:alnum:]] beyond ASCII.
+args: t.txt
+file t.txt:
+| abc 123 Ⅻ ٣٤ café café कागा ß ½ ²
+keys: {^\}
+keys: {M-r}
+keys: [[:alnum:]]+{Enter}
+keys: A{Enter}
+keys: a
+keys: {^O}{Enter}
+keys: {^X}

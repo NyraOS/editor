@@ -1,0 +1,8 @@
+# A search that finds nothing is reported after the replacement is typed.
+args: t.txt
+file t.txt:
+| a cat
+keys: {^\}
+keys: zebra{Enter}
+keys: dog{Enter}
+keys: {^X}

@@ -1,0 +1,10 @@
+# Answering N to every match replaces nothing.
+args: t.txt
+file t.txt:
+| a cat a cat
+keys: {^\}
+keys: cat{Enter}
+keys: dog{Enter}
+keys: n
+keys: n
+keys: {^X}

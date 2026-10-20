@@ -1,0 +1,8 @@
+# A bad regular expression is reported with the message of the regex library, once typed.
+args: t.txt
+file t.txt:
+| a(b
+keys: {^\}
+keys: {M-r}
+keys: a(b{Enter}
+keys: {^X}

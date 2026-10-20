@@ -1,0 +1,12 @@
+# A pattern that can match nothing is replaced between the characters too.
+args: t.txt
+file t.txt:
+| abc
+keys: {^\}
+keys: {M-r}
+keys: x*{Enter}
+keys: -{Enter}
+keys: a
+keys: {^X}
+keys: y
+keys: {Enter}

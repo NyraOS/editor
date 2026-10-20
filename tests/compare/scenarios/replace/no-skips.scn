@@ -1,0 +1,13 @@
+# N leaves a match as it is; the last answer ends the replacing with the count.
+args: t.txt
+file t.txt:
+| a cat, a cat, a cat
+keys: {^\}
+keys: cat{Enter}
+keys: bird{Enter}
+keys: n
+keys: y
+keys: n
+keys: {^X}
+keys: y
+keys: {Enter}

@@ -1,0 +1,17 @@
+# The replacement prompt has its own history: ^P brings back the last replacement.
+args: t.txt
+file t.txt:
+| a cat b cat
+keys: {^\}
+keys: cat{Enter}
+keys: dog{Enter}
+keys: y
+keys: {^\}
+keys: {^P}
+keys: {Enter}
+keys: {^P}
+keys: {Enter}
+keys: y
+keys: {^X}
+keys: y
+keys: {Enter}

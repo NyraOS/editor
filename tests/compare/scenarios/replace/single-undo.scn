@@ -1,0 +1,11 @@
+# A replacement is undone with M-U, and the cursor goes to its start.
+args: t.txt
+file t.txt:
+| a cat sat
+keys: {^\}
+keys: cat{Enter}
+keys: elephant{Enter}
+keys: y
+keys: {M-u}
+keys: {M-e}
+keys: {^X}

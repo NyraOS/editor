@@ -1,0 +1,15 @@
+# ^R in the search prompt turns it into a replace prompt, and back.
+args: t.txt
+file t.txt:
+| a cat
+keys: {^W}
+keys: {^R}
+keys: cat
+keys: {^R}
+keys: {^R}
+keys: {Enter}
+keys: x{Enter}
+keys: y
+keys: {^X}
+keys: y
+keys: {Enter}

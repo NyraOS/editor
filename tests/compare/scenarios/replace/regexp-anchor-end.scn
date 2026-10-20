@@ -1,0 +1,13 @@
+# $ matches the end of each line.
+args: t.txt
+file t.txt:
+| one
+| two
+keys: {^\}
+keys: {M-r}
+keys: ${Enter}
+keys: ;{Enter}
+keys: a
+keys: {^X}
+keys: y
+keys: {Enter}

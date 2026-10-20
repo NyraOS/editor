@@ -1,0 +1,12 @@
+# A group that does not exist, \0 and & stay as typed.
+args: t.txt
+file t.txt:
+| ab
+keys: {^\}
+keys: {M-r}
+keys: (a)b{Enter}
+keys: [\0\2&\1]{Enter}
+keys: y
+keys: {^X}
+keys: y
+keys: {Enter}

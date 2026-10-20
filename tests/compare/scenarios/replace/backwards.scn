@@ -1,0 +1,14 @@
+# M-B in the prompt replaces backwards from the cursor, and the prompt shows [Backwards].
+args: t.txt
+file t.txt:
+| a cat, a cat, a cat
+keys: {End}
+keys: {^\}
+keys: {M-b}
+keys: cat{Enter}
+keys: dog{Enter}
+keys: y
+keys: y
+keys: {^X}
+keys: y
+keys: {Enter}

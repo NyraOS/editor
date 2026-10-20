@@ -1,0 +1,19 @@
+# "All" in a selection that ends on another line, with a longer replacement; the cursor and the
+# selection go back where they were.
+args: t.txt
+file t.txt:
+| a cat
+| cat b
+| cat c
+keys: {Right*2}
+keys: {M-a}
+keys: {Down}
+keys: {End}
+keys: {^\}
+keys: cat{Enter}
+keys: kitten{Enter}
+keys: a
+keys: {^K}
+keys: {^X}
+keys: y
+keys: {Enter}

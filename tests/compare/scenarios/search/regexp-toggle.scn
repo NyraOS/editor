@@ -1,5 +1,4 @@
-# Regular expressions (M-R in the search prompt) come with the regular expression engine.
-pending: M-R (regular expressions) is not available yet
+# M-R in the search prompt turns regular expressions on; the prompt shows [Regexp].
 args: text.txt
 file text.txt:
 | the cat sat

@@ -1,0 +1,11 @@
+# The new text is not searched again, so a replacement that holds the match does not loop.
+args: t.txt
+file t.txt:
+| aaaa
+keys: {^\}
+keys: aa{Enter}
+keys: aaa{Enter}
+keys: a
+keys: {^X}
+keys: y
+keys: {Enter}
