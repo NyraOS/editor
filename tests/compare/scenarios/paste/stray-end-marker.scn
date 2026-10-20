@@ -1,0 +1,10 @@
+# An end marker without a start is ignored without a word.
+# GNU nano keeps showing "Flawed paste".
+args: t.txt
+file t.txt:
+| one
+differ: row 21: nano says "Flawed paste"
+keys: {M-[}201~
+keys: a
+keys: {^X}
+keys: n

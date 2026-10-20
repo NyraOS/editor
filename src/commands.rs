@@ -645,7 +645,13 @@ impl Editor {
                 self.buf.end_group();
                 self.message = None;
             }
-            Key::Paste(text) => self.insert_text(&text, Kind::Paste),
+            Key::Paste(text) => {
+                self.insert_text(&text, Kind::Paste);
+                // As nano: a paste taller than the screen puts the cursor's line in the middle.
+                if text.matches('\n').count() >= self.edit_rows() {
+                    self.buf.top = self.buf.line.saturating_sub(self.edit_rows() / 2);
+                }
+            }
             Key::PasteEnd { flawed } => {
                 self.buf.end_group();
                 if flawed {
@@ -657,6 +663,18 @@ impl Editor {
             _ => self.error("Not available in this version yet"),
         }
         self.scroll_to_cursor();
+    }
+
+    /// A paste is held across reads, `bytes` of it so far: the message goes when they are as many
+    /// as the keys it had left. The paste is counted again when it arrives.
+    pub fn message_worn_by(&mut self, bytes: usize) {
+        if self
+            .message
+            .as_ref()
+            .is_some_and(|m| usize::from(m.keys_left) <= bytes)
+        {
+            self.message = None;
+        }
     }
 
     fn type_text(&mut self, s: &str) {
@@ -694,6 +712,7 @@ impl Editor {
             Some(kind) => self.say(&format!("Undid {}", kind.name())),
             None => self.error("Nothing to undo"),
         }
+        self.center();
         self.buf.keep_column(self.opts.tabsize);
     }
 
@@ -702,6 +721,7 @@ impl Editor {
             Some(kind) => self.say(&format!("Redid {}", kind.name())),
             None => self.error("Nothing to redo"),
         }
+        self.center();
         self.buf.keep_column(self.opts.tabsize);
     }
 

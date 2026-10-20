@@ -108,6 +108,8 @@ fn edit(
             }
             continue;
         }
+        // As nano: what a paste held across reads has come to wears the message out.
+        ed.message_worn_by(reader.held_len());
         let mut frame = screen::compose(ed);
         if reader.pasting() {
             frame.cursor = None;
@@ -118,7 +120,11 @@ fn edit(
             PollFd::new(&stdin, PollFlags::IN),
             PollFd::new(winch, PollFlags::IN),
         ];
-        match poll(&mut fds, Some(&second)) {
+        // A paste that goes quiet is ended after 2 s: wake up for that.
+        let wait = reader.idle_wait().map_or(second, |left| {
+            Timespec::try_from(left).unwrap_or(second).min(second)
+        });
+        match poll(&mut fds, Some(&wait)) {
             Err(rustix::io::Errno::INTR) => continue,
             other => other?,
         };
@@ -139,6 +145,8 @@ fn edit(
                 return Err(io::ErrorKind::UnexpectedEof.into());
             }
             keys.extend(reader.feed(&buf[..n]));
+        } else {
+            keys.extend(reader.idle());
         }
     }
     Ok(())

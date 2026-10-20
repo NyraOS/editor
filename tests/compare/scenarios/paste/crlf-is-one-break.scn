@@ -1,0 +1,10 @@
+# A CR LF in a paste is one line break, so that a Windows clipboard does not double the lines.
+# GNU nano makes two of them.
+args: t.txt
+file t.txt:
+| one two three
+| four five
+differ: rows 1-6: the line breaks
+keys: {M-[}200~a{Enter}{^J}b{^J}c{Enter}d{M-[}201~{M-\}
+keys: {^X}
+keys: n

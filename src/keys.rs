@@ -2,6 +2,7 @@
 //! Keys: the bytes the terminal sends, read as keys the way xterm sends them.
 
 use crate::buffer;
+use std::time::{Duration, Instant};
 
 /// A key, with its modifiers; or a part of a bracketed paste.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -78,6 +79,9 @@ pub struct Reader {
     pasting: bool,
     held: String,
     after_cr: bool,
+    /// Whether something that is not text was dropped from the paste.
+    flawed: bool,
+    last_input: Option<Instant>,
     /// Escape was the last key: the next one comes with Alt, as in nano.
     escape: bool,
 }
@@ -90,6 +94,7 @@ impl Reader {
 
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<Key> {
         self.pending.extend_from_slice(bytes);
+        self.last_input = Some(Instant::now());
         let mut keys = Vec::new();
         let mut i = 0;
         while i < self.pending.len() {
@@ -97,6 +102,11 @@ impl Reader {
                 if !self.paste(&mut i, &mut keys) {
                     break;
                 }
+                continue;
+            }
+            // The end of a paste that is not there: nothing to do, and nothing to say.
+            if self.pending[i..].starts_with(PASTE_END) {
+                i += PASTE_END.len();
                 continue;
             }
             let Some((key, len)) = parse(&self.pending[i..]) else {
@@ -108,6 +118,7 @@ impl Reader {
                     self.escape = false;
                     self.pasting = true;
                     self.after_cr = false;
+                    self.flawed = false;
                 }
                 None => self.escape = true,
                 Some(key) if self.escape => {
@@ -124,13 +135,13 @@ impl Reader {
     /// Reads the text of a paste from `pending[*i..]` as far as it goes. Returns false when the
     /// rest is only the start of something and needs more bytes.
     fn paste(&mut self, i: &mut usize, keys: &mut Vec<Key>) -> bool {
-        let mut end = None;
+        let mut end = false;
         let mut complete = true;
         while *i < self.pending.len() {
             let b = &self.pending[*i..];
             if b.starts_with(PASTE_END) {
                 *i += PASTE_END.len();
-                end = Some(false);
+                end = true;
                 break;
             }
             if PASTE_END.starts_with(b) {
@@ -164,31 +175,92 @@ impl Reader {
                         break;
                     }
                 },
-                // A control character or an escape sequence: the paste stops, and the input
-                // that came with it is dropped.
+                // Nothing in a paste may run as a key: what is not text is dropped.
+                0x1b => match skip_escape(b) {
+                    Some(len) => {
+                        *i += len;
+                        self.flawed = true;
+                    }
+                    None => {
+                        complete = false;
+                        break;
+                    }
+                },
                 _ => {
-                    self.pending.clear();
-                    *i = 0;
-                    end = Some(true);
-                    break;
+                    *i += 1;
+                    self.flawed = true;
                 }
             }
             self.after_cr = false;
         }
-        if let Some(flawed) = end {
-            self.pasting = false;
-            keys.push(Key::PasteStart);
-            if !self.held.is_empty() {
-                keys.push(Key::Paste(std::mem::take(&mut self.held)));
-            }
-            keys.push(Key::PasteEnd { flawed });
+        if end {
+            self.finish_paste(keys);
         }
         complete
+    }
+
+    /// The paste is over, by its end marker or because the input stopped.
+    fn finish_paste(&mut self, keys: &mut Vec<Key>) {
+        let flawed = std::mem::take(&mut self.flawed);
+        self.pasting = false;
+        keys.push(Key::PasteStart);
+        if !self.held.is_empty() {
+            keys.push(Key::Paste(std::mem::take(&mut self.held)));
+        }
+        keys.push(Key::PasteEnd { flawed });
+    }
+
+    /// The bytes of the paste held so far.
+    pub fn held_len(&self) -> usize {
+        self.held.len()
+    }
+
+    /// How long until a paste that goes on without input is taken as over; `None` outside one.
+    pub fn idle_wait(&self) -> Option<Duration> {
+        let since = self.last_input?.elapsed();
+        self.pasting.then(|| PASTE_IDLE.saturating_sub(since))
+    }
+
+    /// When no input came for `PASTE_IDLE` inside a paste, the paste ends: its end marker was
+    /// lost, and the editor must not stay blind. What the paste held is never run as keys.
+    pub fn idle(&mut self) -> Vec<Key> {
+        let mut keys = Vec::new();
+        if self.pasting && self.last_input.is_some_and(|t| t.elapsed() >= PASTE_IDLE) {
+            self.pending.clear();
+            self.flawed = true;
+            self.finish_paste(&mut keys);
+        }
+        keys
     }
 }
 
 /// What ends a bracketed paste.
 const PASTE_END: &[u8] = b"\x1b[201~";
+
+/// How long a paste may go without input before it is taken as over.
+const PASTE_IDLE: Duration = Duration::from_secs(2);
+
+/// The length of the escape sequence at the start of `b`, which is dropped from a paste; `None`
+/// when it is not complete yet.
+fn skip_escape(b: &[u8]) -> Option<usize> {
+    match b.get(1)? {
+        b'[' => {
+            // Parameters and intermediate bytes, then the final byte; anything else ends it, so
+            // that it never swallows the end marker.
+            let n = b[2..].iter().position(|c| !(0x20..=0x3f).contains(c));
+            match n {
+                Some(n) if (0x40..=0x7e).contains(&b[2 + n]) => Some(n + 3),
+                Some(n) => Some(n + 2),
+                None => None,
+            }
+        }
+        b'O' => (b.len() >= 3).then_some(3),
+        // A lone ESC, before something that is text or the end marker.
+        0x1b | 0x80.. => Some(1),
+        // ESC and a key: Alt and the key.
+        _ => Some(2),
+    }
+}
 
 fn with_alt(key: Key) -> Key {
     match key {
@@ -388,14 +460,40 @@ mod tests {
     }
 
     #[test]
-    fn a_control_key_makes_the_paste_flawed() {
+    fn what_is_not_text_is_dropped_from_a_paste_across_reads() {
+        let mut r = Reader::default();
+        assert_eq!(r.feed(b"\x1b[200~ab\x01\x1bx\x1b[1;5"), []);
+        assert_eq!(r.feed(b"C\x1b[200~\x1b\x1bOA\x1b"), []);
         assert_eq!(
-            keys(b"\x1b[200~ab\x0bcd\x1b[201~z"),
+            r.feed(b"[201~z"),
+            [
+                Key::PasteStart,
+                Key::Paste("ab".into()),
+                Key::PasteEnd { flawed: true },
+                Key::Char('z'),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_paste_without_its_end_marker_ends_when_the_input_stops() {
+        let mut r = Reader::default();
+        assert_eq!(r.feed(b"\x1b[200~ab\x0f"), []);
+        assert_eq!(r.idle(), []);
+        r.last_input = Some(Instant::now() - PASTE_IDLE);
+        assert_eq!(
+            r.idle(),
             [
                 Key::PasteStart,
                 Key::Paste("ab".into()),
                 Key::PasteEnd { flawed: true },
             ]
         );
+        assert_eq!(r.feed(b"\x0f"), [Key::Ctrl('O')]);
+    }
+
+    #[test]
+    fn an_end_marker_outside_a_paste_is_ignored() {
+        assert_eq!(keys(b"a\x1b[201~b"), [Key::Char('a'), Key::Char('b')]);
     }
 }

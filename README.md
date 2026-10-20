@@ -14,7 +14,9 @@ Early development. What works, the same way as in GNU nano 8.4:
   (CJK, emoji) and combining marks; tabs; DOS and Mac line ends, kept when saving;
 - the mark (`M-A` or `^^`) and selecting with Shift and the cursor keys; cutting (`^K`), copying
   (`M-6`) and pasting (`^U`) the selection or lines, `M-T` to cut to the end; a bracketed paste
-  goes in as text, in one step of undo, without running any key in it;
+  goes in as text, in one step of undo; unlike nano, nothing between its start and its end is ever
+  run as a key (control characters and escape sequences are dropped, a CR LF is one line break,
+  and a paste that gets no end for 2 s is ended);
 - the position (`^C`), undo and redo (`M-U` `M-E`) with nano's steps (typing in a row, deleting
   in a row, cutting in a row; a new line, a paste and a cut selection are steps of their own);
 - searching (`^W` `^F` `F6`, backwards with `^Q` `^B`, again with `M-W` `M-Q`; `M-C` and `M-B` in the
