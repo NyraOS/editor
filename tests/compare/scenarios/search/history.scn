@@ -1,0 +1,18 @@
+# Up and Down (or ^P and ^N) in the prompt go through the searches made; what was typed is kept.
+args: text.txt
+file text.txt:
+| one two three
+keys: {^W}one{Enter}
+keys: {^W}two{Enter}
+keys: {^W}three{Enter}
+keys: {^W}zz
+keys: {Up}
+keys: {Up}
+keys: {^P}
+keys: {Up}
+keys: {Down}
+keys: {^N}
+keys: {Down}
+keys: {Down}
+keys: {Enter}
+keys: {^X}

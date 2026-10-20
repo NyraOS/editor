@@ -9,6 +9,7 @@ mod config;
 mod files;
 mod keys;
 mod screen;
+mod search;
 
 use commands::Editor;
 use config::Command;

@@ -1,0 +1,9 @@
+# Repeating a search before any was made, and an empty answer with nothing to repeat.
+args: text.txt
+file text.txt:
+| the cat sat
+keys: {M-w}
+keys: {M-q}
+keys: {^W}{Enter}
+keys: {^Q}{Enter}
+keys: {^X}

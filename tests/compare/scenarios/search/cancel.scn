@@ -1,0 +1,9 @@
+# ^C leaves the search prompt with "Cancelled" and the text typed is not remembered.
+args: text.txt
+file text.txt:
+| the cat sat
+keys: {^W}cat
+keys: {^C}
+keys: {^W}
+keys: {^C}
+keys: {^X}

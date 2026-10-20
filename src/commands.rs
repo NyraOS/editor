@@ -5,6 +5,7 @@ use crate::buffer::{self, Buffer, Format, next_index, prev_index};
 use crate::config::Options;
 use crate::files::{self, Expected, Locking, Meta, SaveError, SaveOptions};
 use crate::keys::{Key, Mods, Named};
+use crate::search::{self, Pattern};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -63,19 +64,38 @@ impl Question {
 
 pub struct Prompt {
     pub kind: PromptKind,
+    /// What the prompt asks, without its colon.
     pub label: String,
     pub answer: String,
     /// The cursor in the answer, in characters.
     pub x: usize,
+    /// For a search: the place in the search history that the answer shows (the history's length
+    /// for the text typed), and that text while an older search is shown.
+    older: usize,
+    typed: String,
+}
+
+impl Prompt {
+    fn new(kind: PromptKind, label: String, answer: String, older: usize) -> Self {
+        Self {
+            kind,
+            label,
+            x: answer.chars().count(),
+            answer,
+            older,
+            typed: String::new(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum PromptKind {
     /// The file name to write to; then exit if it was for ^X.
-    Write {
-        exit: bool,
-    },
-    Search,
+    Write { exit: bool },
+    /// The text to search for.
+    Search { backwards: bool },
+    /// The line and column to go to.
+    Goto,
 }
 
 pub struct Editor {
@@ -92,7 +112,10 @@ pub struct Editor {
     /// The lines cut with ^K, and whether the last key was a ^K (the next one adds to them).
     cut: String,
     cutting: bool,
-    last_search: Option<String>,
+    /// The searches so far, the oldest first, and whether case matters (kept from search to
+    /// search, as in nano).
+    history: Vec<String>,
+    case_sensitive: bool,
     /// What the last search found, highlighted until the next key: line, from, to (characters).
     pub spot: Option<(usize, usize, usize)>,
     /// The file as read or written last, to notice changes on disk; None for a new file.
@@ -204,6 +227,16 @@ const SEARCH_MENU: &[(&str, &str)] = &[
     ("^T", "Go To Line"),
 ];
 
+const GOTO_MENU: &[(&str, &str)] = &[
+    ("^G", "Help"),
+    ("^C", "Cancel"),
+    ("^W", "Begin of Paragr."),
+    ("^O", "End of Paragraph"),
+    ("^Y", "First Line"),
+    ("^V", "Last Line"),
+    ("^T", "Go To Text"),
+];
+
 /// The help lines for a mode.
 pub fn menu(mode: &Mode) -> &'static [(&'static str, &'static str)] {
     match mode {
@@ -211,7 +244,8 @@ pub fn menu(mode: &Mode) -> &'static [(&'static str, &'static str)] {
         Mode::Help(_) => HELP_MENU,
         Mode::Prompt(p) => match p.kind {
             PromptKind::Write { .. } => WRITE_MENU,
-            PromptKind::Search => SEARCH_MENU,
+            PromptKind::Search { .. } => SEARCH_MENU,
+            PromptKind::Goto => GOTO_MENU,
         },
     }
 }
@@ -287,7 +321,8 @@ impl Editor {
             message: None,
             cut: String::new(),
             cutting: false,
-            last_search: None,
+            history: Vec::new(),
+            case_sensitive: false,
             spot: None,
             meta: None,
             lock: None,
@@ -304,7 +339,7 @@ impl Editor {
             }
         }
         if let Some((line, col)) = ed.opts.start {
-            ed.goto(line, col);
+            ed.goto(Some(line), Some(col));
         }
         ed
     }
@@ -366,20 +401,33 @@ impl Editor {
         files::emergency_save(name, &self.buf.to_bytes()).ok()
     }
 
-    /// `+LINE,COLUMN`, 1-based; negative numbers count from the end.
-    fn goto(&mut self, line: i64, col: i64) {
-        let from_end = |n: i64, len: usize| {
-            if n < 0 {
-                (len as i64 + n).max(0) as usize
-            } else {
-                (n.max(1) - 1) as usize
-            }
+    /// Puts the cursor on a line and a screen column, 1-based; negative numbers count from the end
+    /// (of the text, or of the line). What is left out stays: the line, or the column the cursor
+    /// keeps when it moves up and down. Out of range is the nearest line or column.
+    fn goto(&mut self, line: Option<i64>, col: Option<i64>) {
+        let tab = self.opts.tabsize;
+        self.spot = None;
+        let lines = self.buf.lines() as i64;
+        let line = line.unwrap_or(self.buf.line as i64 + 1);
+        let line = if line < 0 {
+            lines.saturating_add(line) + 1
+        } else {
+            line
         };
-        self.buf.line = from_end(line, self.buf.lines()).min(self.buf.lines() - 1);
-        let len = self.buf.line_len(self.buf.line);
-        self.buf.x = from_end(col, len + 1).min(len);
-        self.buf.keep_column(self.opts.tabsize);
-        self.center();
+        self.buf.line = (line.clamp(1, lines) - 1) as usize;
+        let text = self.buf.line_text(self.buf.line);
+        let col = col.unwrap_or(self.buf.want as i64 + 1);
+        let col = if col < 0 {
+            let width = buffer::column_of(&text, text.chars().count(), tab) as i64;
+            (width + 2).saturating_add(col)
+        } else {
+            col
+        };
+        let col = col.max(1);
+        self.buf.x = buffer::index_at(&text, col as usize - 1, tab);
+        self.buf.want = col as usize - 1;
+        let rows = self.edit_rows();
+        self.buf.top = self.buf.line.saturating_sub(rows / 2);
     }
 
     pub fn display_name(&self) -> &str {
@@ -442,7 +490,15 @@ impl Editor {
                 m.keys_left -= n;
             }
         }
-        self.spot = None;
+        // The match stays marked while the next search is asked for.
+        let asks_search = matches!(
+            key,
+            Key::Ctrl('W' | 'F' | 'Q' | 'B') | Key::Named(Named::F(6), _)
+        );
+        if !(matches!(self.mode, Mode::Prompt(_)) || asks_search && matches!(self.mode, Mode::Edit))
+        {
+            self.spot = None;
+        }
         let cutting = std::mem::take(&mut self.cutting);
         match &mut self.mode {
             Mode::Edit => self.edit_key(key, cutting),
@@ -503,8 +559,13 @@ impl Editor {
                 let loc = self.location();
                 self.say(&loc);
             }
-            Key::Ctrl('F') | Key::Ctrl('W') | Key::Named(F(6), _) => self.ask_search(),
-            Key::Meta('w') => self.search_again(),
+            Key::Ctrl('F') | Key::Ctrl('W') | Key::Named(F(6), _) => {
+                self.ask_search(false, String::new());
+            }
+            Key::Ctrl('Q') | Key::Ctrl('B') => self.ask_search(true, String::new()),
+            Key::Meta('w') | Key::Meta('f') => self.search(false),
+            Key::Meta('q') | Key::Meta('b') => self.search(true),
+            Key::Ctrl('_') | Key::Meta('g') => self.ask_goto(String::new()),
             // The main loop draws the whole screen again.
             Key::Ctrl('L') => {}
             _ => self.error("Not available in this version yet"),
@@ -815,6 +876,7 @@ impl Editor {
 
     fn cancel(&mut self) {
         self.mode = Mode::Edit;
+        self.spot = None;
         self.say("Cancelled");
     }
 
@@ -824,17 +886,17 @@ impl Editor {
             Format::Dos => " [DOS Format]",
             Format::Mac => " [Mac Format]",
         };
-        format!("Write to File{format}:")
+        format!("Write to File{format}")
     }
 
     fn ask_name(&mut self, exit: bool) {
         self.message = None;
-        self.mode = Mode::Prompt(Prompt {
-            kind: PromptKind::Write { exit },
-            label: self.write_label(),
-            answer: self.name.clone(),
-            x: self.name.chars().count(),
-        });
+        self.mode = Mode::Prompt(Prompt::new(
+            PromptKind::Write { exit },
+            self.write_label(),
+            self.name.clone(),
+            0,
+        ));
     }
 
     fn save_now(&mut self) {
@@ -934,18 +996,43 @@ impl Editor {
         }
     }
 
-    fn ask_search(&mut self) {
-        let label = match &self.last_search {
-            Some(s) => format!("Search [{s}]:"),
-            None => "Search:".to_string(),
-        };
+    /// The text of the last search.
+    fn last_search(&self) -> Option<&String> {
+        self.history.last()
+    }
+
+    /// The prompt for a search, with the answer typed so far.
+    fn ask_search(&mut self, backwards: bool, answer: String) {
         self.message = None;
-        self.mode = Mode::Prompt(Prompt {
-            kind: PromptKind::Search,
-            label,
-            answer: String::new(),
-            x: 0,
-        });
+        let mut prompt = Prompt::new(
+            PromptKind::Search { backwards },
+            String::new(),
+            answer,
+            self.history.len(),
+        );
+        prompt.label = self.search_label(backwards);
+        self.mode = Mode::Prompt(prompt);
+    }
+
+    /// "Search", the toggles that are on, and the last search (cut when long) in brackets.
+    fn search_label(&self, backwards: bool) -> String {
+        let mut label = "Search".to_string();
+        if self.case_sensitive {
+            label.push_str(" [Case Sensitive]");
+        }
+        if backwards {
+            label.push_str(" [Backwards]");
+        }
+        if let Some(last) = self.last_search() {
+            label.push_str(&format!(" [{}]", search::shorten(last, self.cols / 3)));
+        }
+        label
+    }
+
+    fn ask_goto(&mut self, answer: String) {
+        self.message = None;
+        let label = "Enter line number, column number".to_string();
+        self.mode = Mode::Prompt(Prompt::new(PromptKind::Goto, label, answer, 0));
     }
 
     fn prompt_key(&mut self, key: Key) {
@@ -954,31 +1041,104 @@ impl Editor {
         };
         let len = p.answer.chars().count();
         let byte = |s: &str, x: usize| s.char_indices().nth(x).map_or(s.len(), |(i, _)| i);
-        match key {
-            Key::Char(c) => {
+        match (key, p.kind) {
+            (Key::Char(c), _) => {
                 p.answer.insert(byte(&p.answer, p.x), c);
                 p.x += 1;
             }
-            Key::Named(Named::Left, _) => p.x = p.x.saturating_sub(1),
-            Key::Named(Named::Right, _) => p.x = (p.x + 1).min(len),
-            Key::Ctrl('A') | Key::Named(Named::Home, _) => p.x = 0,
-            Key::Ctrl('E') | Key::Named(Named::End, _) => p.x = len,
-            Key::Ctrl('H') | Key::Named(Named::Backspace, _) if p.x > 0 => {
+            (Key::Named(Named::Left, _), _) => p.x = p.x.saturating_sub(1),
+            (Key::Named(Named::Right, _), _) => p.x = (p.x + 1).min(len),
+            (Key::Ctrl('A') | Key::Named(Named::Home, _), _) => p.x = 0,
+            (Key::Ctrl('E') | Key::Named(Named::End, _), _) => p.x = len,
+            (Key::Ctrl('H') | Key::Named(Named::Backspace, _), _) if p.x > 0 => {
                 p.x -= 1;
                 p.answer.remove(byte(&p.answer, p.x));
             }
-            Key::Ctrl('D') | Key::Named(Named::Delete, _) if p.x < len => {
+            (Key::Ctrl('D') | Key::Named(Named::Delete, _), _) if p.x < len => {
                 p.answer.remove(byte(&p.answer, p.x));
             }
-            Key::Ctrl('C') => self.cancel(),
-            Key::Ctrl('M') => {
-                let kind = p.kind;
+            (Key::Ctrl('C'), _) => self.cancel(),
+            (Key::Ctrl('M'), kind) => {
                 let answer = std::mem::take(&mut p.answer);
                 self.mode = Mode::Edit;
                 self.accept(kind, answer);
             }
+            (Key::Meta('c'), PromptKind::Search { backwards }) => {
+                self.case_sensitive = !self.case_sensitive;
+                self.ask_search_again(backwards);
+            }
+            (Key::Meta('b'), PromptKind::Search { backwards }) => self.ask_search_again(!backwards),
+            (Key::Ctrl('P') | Key::Named(Named::Up, _), PromptKind::Search { .. }) => {
+                self.older_search();
+            }
+            (Key::Ctrl('N') | Key::Named(Named::Down, _), PromptKind::Search { .. }) => {
+                self.newer_search();
+            }
+            (Key::Ctrl('T'), PromptKind::Search { .. }) => {
+                let answer = std::mem::take(&mut p.answer);
+                self.ask_goto(answer);
+            }
+            (Key::Ctrl('T'), PromptKind::Goto) => {
+                let answer = std::mem::take(&mut p.answer);
+                self.ask_search(false, answer);
+            }
+            (Key::Ctrl('Y'), PromptKind::Goto) => {
+                self.mode = Mode::Edit;
+                self.first_line();
+                self.center();
+            }
+            (Key::Ctrl('V'), PromptKind::Goto) => {
+                self.mode = Mode::Edit;
+                self.last_line();
+                self.center();
+            }
             _ => {}
         }
+    }
+
+    /// The search prompt again after a toggle, with the same answer and history place.
+    fn ask_search_again(&mut self, backwards: bool) {
+        let Mode::Prompt(old) = std::mem::replace(&mut self.mode, Mode::Edit) else {
+            return;
+        };
+        let label = self.search_label(backwards);
+        self.mode = Mode::Prompt(Prompt {
+            kind: PromptKind::Search { backwards },
+            label,
+            ..old
+        });
+    }
+
+    /// An older search in the answer; the text typed is kept for coming back to it.
+    fn older_search(&mut self) {
+        let Mode::Prompt(p) = &mut self.mode else {
+            return;
+        };
+        if p.older == 0 {
+            return;
+        }
+        if p.older == self.history.len() {
+            p.typed = std::mem::take(&mut p.answer);
+        }
+        p.older -= 1;
+        p.answer = self.history[p.older].clone();
+        p.x = p.answer.chars().count();
+    }
+
+    fn newer_search(&mut self) {
+        let Mode::Prompt(p) = &mut self.mode else {
+            return;
+        };
+        if p.older == self.history.len() {
+            return;
+        }
+        p.older += 1;
+        p.answer = if p.older == self.history.len() {
+            std::mem::take(&mut p.typed)
+        } else {
+            self.history[p.older].clone()
+        };
+        p.x = p.answer.chars().count();
     }
 
     fn accept(&mut self, kind: PromptKind, answer: String) {
@@ -993,64 +1153,54 @@ impl Editor {
                 }
                 self.save_as(answer, exit);
             }
-            PromptKind::Search => {
-                let needle = if answer.is_empty() {
-                    match self.last_search.clone() {
-                        Some(s) => s,
-                        None => return self.cancel(),
-                    }
-                } else {
-                    answer
-                };
-                self.last_search = Some(needle.clone());
-                self.search(&needle);
-            }
-        }
-    }
-
-    fn search_again(&mut self) {
-        match self.last_search.clone() {
-            Some(s) => self.search(&s),
-            None => self.error("No current search pattern"),
-        }
-    }
-
-    /// Searches forward from the cursor, ignoring case, wrapping around at the end.
-    fn search(&mut self, needle: &str) {
-        let lower = |s: &str| -> Vec<char> {
-            s.chars()
-                .map(|c| c.to_lowercase().next().unwrap_or(c))
-                .collect()
-        };
-        let text = lower(&String::from(&self.buf.text));
-        let pat = lower(needle);
-        let start = self.buf.pos();
-        let find = |range: std::ops::Range<usize>| {
-            range
-                .into_iter()
-                .find(|&i| text.get(i..i + pat.len()) == Some(&pat[..]))
-        };
-        let hit = find(start + 1..text.len())
-            .map(|i| (i, false))
-            .or_else(|| find(0..start + 1).map(|i| (i, true)));
-        match hit {
-            None => self.error(&format!("\"{needle}\" not found")),
-            Some((i, wrapped)) => {
-                self.buf.set_pos(i);
-                self.buf.keep_column(self.opts.tabsize);
-                let line_start = self.buf.text.line_to_char(self.buf.line);
-                let end = (i + pat.len()).min(
-                    self.buf.text.line_to_char(self.buf.line) + self.buf.line_len(self.buf.line),
-                );
-                self.spot = Some((self.buf.line, i - line_start, end - line_start));
-                if i == start {
-                    self.say("This is the only occurrence");
-                } else if wrapped {
-                    self.say("Search Wrapped");
+            PromptKind::Search { backwards } => {
+                if !answer.is_empty() {
+                    self.history.retain(|old| *old != answer);
+                    self.history.push(answer);
+                } else if self.history.is_empty() {
+                    return self.cancel();
                 }
-                self.center();
+                self.search(backwards);
+            }
+            PromptKind::Goto => {
+                if answer.is_empty() {
+                    return self.cancel();
+                }
+                match search::position(&answer) {
+                    Some((line, col)) => self.goto(line, col),
+                    None => self.error("Invalid line or column number"),
+                }
             }
         }
+    }
+
+    /// Searches for the last search again.
+    fn search(&mut self, backwards: bool) {
+        self.message = None;
+        self.spot = None;
+        let Some(needle) = self.last_search().cloned() else {
+            return self.error("No current search pattern");
+        };
+        let pattern = Pattern::new(&needle, self.case_sensitive);
+        let Some(found) = search::find(&self.buf, &pattern, backwards) else {
+            let shown = search::shorten(&needle, self.cols / 2);
+            return self.error(&format!("\"{shown}\" not found"));
+        };
+        let start = (self.buf.line, self.buf.x);
+        self.buf.line = found.line;
+        self.buf.x = found.x;
+        self.buf.keep_column(self.opts.tabsize);
+        let len = needle
+            .chars()
+            .count()
+            .min(self.buf.line_len(found.line) - found.x);
+        self.spot = Some((found.line, found.x, found.x + len));
+        if (found.line, found.x) == start {
+            self.say("This is the only occurrence");
+        } else if found.wrapped {
+            self.say("Search Wrapped");
+        }
+        self.center();
     }
 
     fn help_key(&mut self, key: Key) {

@@ -1,0 +1,13 @@
+# Blanks and a plus sign before a number are fine, as in C's strtol.
+args: lines.txt
+file lines.txt:
+| first
+| second
+| third
+keys: {^_} 2{Enter}
+keys: {^C}
+keys: {^_}+3{Enter}
+keys: {^C}
+keys: {^_}{Space}{Space}1,{Space}3{Enter}
+keys: {^C}
+keys: {^X}

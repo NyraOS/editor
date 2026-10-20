@@ -1,0 +1,9 @@
+# A single match, found again from where the cursor already is: "This is the only occurrence".
+args: text.txt
+file text.txt:
+| the cat sat
+| on the mat
+keys: {^W}cat{Enter}
+keys: {M-w}
+keys: {M-q}
+keys: {^X}

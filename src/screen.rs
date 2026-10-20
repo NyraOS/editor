@@ -282,12 +282,21 @@ fn message_row(cols: usize, text: &str, style: u8) -> Row {
     row
 }
 
-/// A prompt in the status bar, the whole row inverse; returns it and the cursor column. An
+/// A prompt in the status bar, the whole row inverse; returns it and the cursor column. A label
+/// wider than the row less five columns is cut there, before its colon. An
 /// answer too long for the row scrolls in steps, as in nano, with `<` just before it and `>` at
 /// the end of the row when there is more.
 fn prompt_row(cols: usize, prompt: &Prompt) -> (Row, usize) {
     let mut row = vec![Cell::new(' ', INVERSE); cols];
-    let start = (put(&mut row, 0, &prompt.label, INVERSE) + 1).min(cols);
+    let label: String = prompt
+        .label
+        .chars()
+        .scan(0, |w, c| {
+            *w += width_at(c, 0, 1);
+            (*w <= cols.saturating_sub(5)).then_some(c)
+        })
+        .collect();
+    let start = (put(&mut row, 0, &format!("{label}:"), INVERSE) + 1).min(cols);
     let room = cols - start;
     let before: String = prompt.answer.chars().take(prompt.x).collect();
     let x = text_width(&before);

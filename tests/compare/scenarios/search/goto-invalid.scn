@@ -1,0 +1,18 @@
+# Answers that are not a line and a column: "Invalid line or column number", the cursor stays.
+args: lines.txt
+file lines.txt:
+| first line
+| second
+| third
+keys: {Down}{Right*2}
+keys: {^_}x{Enter}
+keys: {^_}1,{Enter}
+keys: {^_}1 2{Enter}
+keys: {^_}2 {Enter}
+keys: {^_}1,2,3{Enter}
+keys: {^_}3;2{Enter}
+keys: {^_}-{Enter}
+keys: {^_}99999999999999999999{Enter}
+keys: {^_},{Enter}
+keys: {^C}
+keys: {^X}

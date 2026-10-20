@@ -1,0 +1,9 @@
+# A match far along a long line scrolls the line sideways, and the highlight follows.
+args: long.txt
+file long.txt:
+| 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 needle here and more
+keys: {^W}needle{Enter}
+keys: {^C}
+keys: {^Q}{Enter}
+keys: {^_}1,95{Enter}
+keys: {^X}

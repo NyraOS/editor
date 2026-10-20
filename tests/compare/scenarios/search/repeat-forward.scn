@@ -1,0 +1,13 @@
+# M-W repeats the search forward; matches may overlap, and the cursor moves one match at a time.
+args: text.txt
+file text.txt:
+| aaaa
+| a aa a
+keys: {^W}aa{Enter}
+keys: {M-w}
+keys: {M-w}
+keys: {M-w}
+keys: {M-w}
+keys: {M-w}
+keys: {^C}
+keys: {^X}

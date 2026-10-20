@@ -1,0 +1,12 @@
+# ^Q searches backwards: from the start of the text it wraps to the last match.
+args: text.txt
+file text.txt:
+| the cat sat
+| on the mat
+| with the hat
+keys: {^Q}
+keys: {^Q}at{Enter}
+keys: {^C}
+keys: {^Q}{Enter}
+keys: {^C}
+keys: {^X}

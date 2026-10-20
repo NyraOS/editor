@@ -1,0 +1,18 @@
+# The search prompt's ^T goes to the go-to-line prompt with the text typed; the go-to-line prompt
+# has no history, and the search prompt after ^T still shows the last search.
+args: lines.txt
+file lines.txt:
+| first
+| second
+| third
+keys: {^W}third{Enter}
+keys: {^W}
+keys: {^T}
+keys: {Up}
+keys: 2{Enter}
+keys: {^C}
+keys: {^_}
+keys: {^T}
+keys: {Up}
+keys: {^C}
+keys: {^X}

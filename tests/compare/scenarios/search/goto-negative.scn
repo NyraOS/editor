@@ -1,0 +1,18 @@
+# A negative line counts from the end of the text, a negative column from the end of the line.
+args: lines.txt
+file lines.txt:
+| first line
+| second
+| third line here
+| fourth
+keys: {^_}-1{Enter}
+keys: {^C}
+keys: {^_}-2{Enter}
+keys: {^C}
+keys: {^_}-4,-3{Enter}
+keys: {^C}
+keys: {^_}3,-1{Enter}
+keys: {^C}
+keys: {^_}1,-4{Enter}
+keys: {^C}
+keys: {^X}

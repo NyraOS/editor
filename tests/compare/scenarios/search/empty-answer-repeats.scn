@@ -1,0 +1,13 @@
+# An empty answer searches for the last text again, which the prompt shows in brackets.
+args: text.txt
+file text.txt:
+| the cat sat
+| on the mat
+keys: {^W}at{Enter}
+keys: {^W}
+keys: {Enter}
+keys: {^C}
+keys: {^W}
+keys: {Enter}
+keys: {^C}
+keys: {^X}

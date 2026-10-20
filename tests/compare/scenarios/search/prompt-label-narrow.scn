@@ -1,0 +1,15 @@
+# On a narrow terminal the prompt's label is cut to the width less five columns, before its colon.
+args: text.txt
+size: 30x12
+file text.txt:
+| the cat sat
+keys: {^W}0123456789abcdefghij{Enter}
+keys: {^W}
+keys: {M-c}
+keys: {M-b}
+keys: {^C}
+keys: {^_}
+keys: {^C}
+keys: {^O}
+keys: {^C}
+keys: {^X}
