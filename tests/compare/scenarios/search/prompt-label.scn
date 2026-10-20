@@ -1,0 +1,13 @@
+# The prompt's label: the toggles that are on, then the last search.
+args: text.txt
+file text.txt:
+| the cat sat
+keys: {^W}
+keys: {M-c}
+keys: {M-b}
+keys: x
+keys: {^C}
+keys: {^W}at{Enter}
+keys: {^Q}
+keys: {^C}
+keys: {^X}

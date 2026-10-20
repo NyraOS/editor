@@ -1,0 +1,17 @@
+# In the prompt, ^Y goes to the first line and ^V to the last; ^T swaps for the search prompt and
+# back, keeping what was typed.
+args: lines.txt
+file lines.txt:
+| first
+| second
+| third
+keys: {Down}{Right*3}
+keys: {^_}{^V}
+keys: {^C}
+keys: {^_}{^Y}
+keys: {^C}
+keys: {^_}2{^T}
+keys: {^T}
+keys: {^T}
+keys: {^C}
+keys: {^X}

@@ -1,0 +1,14 @@
+# The last search in the prompt is cut to a third of the width, with "..." after it.
+args: text.txt
+file text.txt:
+| the cat sat
+keys: {^W}0123456789abcdefghij0123456789abcdefghij0123456789abcdefghij{Enter}
+keys: {^W}
+keys: {^C}
+keys: {^W}abcdefghijklmnopqrstuvwxyz{Enter}
+keys: {^W}
+keys: {^C}
+keys: {^W}abcdefghijklmnopqrstuvwxy{Enter}
+keys: {^W}
+keys: {^C}
+keys: {^X}

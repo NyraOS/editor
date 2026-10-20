@@ -1,0 +1,13 @@
+# ^_ (^/) asks for a line number and goes there; an empty answer cancels.
+args: lines.txt
+file lines.txt:
+| first
+| second line
+| third
+| fourth
+keys: {^_}
+keys: 3{Enter}
+keys: {^C}
+keys: {^_}{Enter}
+keys: {^_}{^C}
+keys: {^X}

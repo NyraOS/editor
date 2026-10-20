@@ -1,0 +1,21 @@
+# Numbers out of range go to the nearest line or column; 0 is the first.
+args: lines.txt
+file lines.txt:
+| first line
+| second
+| third
+keys: {^_}99{Enter}
+keys: {^C}
+keys: {^_}2,99{Enter}
+keys: {^C}
+keys: {^_}0{Enter}
+keys: {^C}
+keys: {^_}-99{Enter}
+keys: {^C}
+keys: {^_}2,0{Enter}
+keys: {^C}
+keys: {^_}0,-99{Enter}
+keys: {^C}
+keys: {^_}2,-99{Enter}
+keys: {^C}
+keys: {^X}

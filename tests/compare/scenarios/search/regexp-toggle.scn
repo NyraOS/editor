@@ -1,0 +1,13 @@
+# Regular expressions (M-R in the search prompt) come with the regular expression engine.
+pending: M-R (regular expressions) is not available yet
+args: text.txt
+file text.txt:
+| the cat sat
+| on the mat
+keys: {^W}
+keys: {M-r}
+keys: [cm]at{Enter}
+keys: {^C}
+keys: {M-w}
+keys: {^C}
+keys: {^X}

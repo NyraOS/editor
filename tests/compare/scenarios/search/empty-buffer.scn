@@ -1,0 +1,7 @@
+# A search in an empty buffer finds nothing.
+args: empty.txt
+file empty.txt:
+keys: {^W}a{Enter}
+keys: {^Q}{Enter}
+keys: {^_}5,5{Enter}
+keys: {^X}

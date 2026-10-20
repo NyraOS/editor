@@ -1,0 +1,12 @@
+# Wide characters and combining marks are found and highlighted by columns.
+args: text.txt
+file text.txt:
+| 日本語 日本 e\xcc\x81a
+| 語
+keys: {^W}日本{Enter}
+keys: {M-w}
+keys: {M-w}
+keys: {^W}語{Enter}
+keys: {^Q}{Enter}
+keys: {^C}
+keys: {^X}

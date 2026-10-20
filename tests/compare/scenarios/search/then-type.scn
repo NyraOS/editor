@@ -1,0 +1,10 @@
+# After a search, typing goes in at the start of the match, and the highlight is gone.
+args: text.txt
+file text.txt:
+| the cat sat
+| on the mat
+keys: {^W}mat{Enter}
+keys: [
+keys: {^O}
+keys: {Enter}
+keys: {^X}

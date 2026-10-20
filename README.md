@@ -12,7 +12,10 @@ Early development. What works, the same way as in GNU nano 8.4:
   (`M-\` `M-/`), ^Left and ^Right by words; long lines scroll sideways;
 - typing and deleting, Enter, Tab, Backspace and Delete (`^H` `^D`); UTF-8 with wide characters
   (CJK, emoji) and combining marks; tabs; DOS and Mac line ends, kept when saving;
-- cutting and pasting lines (`^K` `^U`), a simple search (`^W` `^F` `M-W`), the position (`^C`);
+- cutting and pasting lines (`^K` `^U`), the position (`^C`);
+- searching (`^W` `^F` `F6`, backwards with `^Q` `^B`, again with `M-W` `M-Q`; `M-C` and `M-B` in the
+  prompt, a history with `^P` `^N`) and going to a line and column (`^_` `M-G`); regular
+  expressions and replacing come later;
 - the title bar, the status bar and the help lines at any terminal size, the help screen (`^G`);
 - writing the file (`^O` `^S`) and exiting (`^X`).
 

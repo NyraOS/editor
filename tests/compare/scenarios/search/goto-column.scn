@@ -1,0 +1,17 @@
+# M-G is the same as ^_, and the column is a second number after a comma, a point or a colon.
+args: lines.txt
+file lines.txt:
+| first line
+| second line
+| third line
+keys: {M-g}
+keys: 2,4{Enter}
+keys: {^C}
+keys: {M-g}3.6{Enter}
+keys: {^C}
+keys: {M-g}1:9{Enter}
+keys: {^C}
+keys: {M-g}
+keys: ,2{Enter}
+keys: {^C}
+keys: {^X}

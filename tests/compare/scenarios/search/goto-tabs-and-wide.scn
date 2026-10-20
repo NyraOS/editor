@@ -1,0 +1,22 @@
+# The column is a screen column: tabs and wide characters count as wide; the cursor goes to the
+# character that covers it.
+args: lines.txt
+file lines.txt:
+| \tx\tyz
+| 日本語日本語
+| a\tb
+keys: {^_}1,5{Enter}
+keys: {^C}
+keys: {^_}1,12{Enter}
+keys: {^C}
+keys: {^_}2,4{Enter}
+keys: {^C}
+keys: {^_}2,7{Enter}
+keys: {^C}
+keys: {^_}1,-8{Enter}
+keys: {^C}
+keys: {^_}2,-2{Enter}
+keys: {^C}
+keys: {^_}3,9{Enter}
+keys: {^C}
+keys: {^X}

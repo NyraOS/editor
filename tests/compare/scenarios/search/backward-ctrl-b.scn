@@ -1,0 +1,10 @@
+# ^B (Where Was) is also a search backwards, and the prompt shows [Backwards].
+args: text.txt
+file text.txt:
+| the cat sat
+| on the mat
+| with the hat
+keys: {^B}
+keys: at{Enter}
+keys: {^C}
+keys: {^X}

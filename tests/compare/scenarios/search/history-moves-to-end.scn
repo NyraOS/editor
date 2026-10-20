@@ -1,0 +1,19 @@
+# A search made again moves to the end of the history; an empty answer adds nothing; an older
+# search picked, edited and entered is a new one.
+args: text.txt
+file text.txt:
+| a b c
+keys: {^W}a{Enter}
+keys: {^W}b{Enter}
+keys: {^W}a{Enter}
+keys: {^W}{Enter}
+keys: {^W}{Up}
+keys: {Up}
+keys: {Up}
+keys: {Up}
+keys: {Left}x{Enter}
+keys: {^W}{Up}
+keys: {Up}
+keys: {Up}
+keys: {^C}
+keys: {^X}

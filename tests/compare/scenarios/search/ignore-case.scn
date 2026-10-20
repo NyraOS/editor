@@ -1,0 +1,12 @@
+# The search ignores case unless told otherwise, also for letters beyond ASCII.
+args: text.txt
+file text.txt:
+| The CAT
+| é É é
+keys: {^W}cat{Enter}
+keys: {^C}
+keys: {^W}É{Enter}
+keys: {^C}
+keys: {M-w}
+keys: {^C}
+keys: {^X}

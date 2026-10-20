@@ -1,0 +1,16 @@
+# M-F and M-B repeat the search like M-W and M-Q.
+args: text.txt
+file text.txt:
+| the cat sat
+| on the mat
+| with the hat
+keys: {^W}the{Enter}
+keys: {M-f}
+keys: {^C}
+keys: {M-f}
+keys: {^C}
+keys: {M-b}
+keys: {^C}
+keys: {M-b}
+keys: {^C}
+keys: {^X}

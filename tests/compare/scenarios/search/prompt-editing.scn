@@ -1,0 +1,13 @@
+# The cursor keys and delete keys edit the text asked for, as in the other prompts.
+args: text.txt
+file text.txt:
+| the cat sat
+| on the mat
+keys: {^W}xcatz
+keys: {Left}{Bsp}
+keys: {Home}{Del}
+keys: {End}{Bsp}
+keys: {^A}{^E}{Left*2}{^D}
+keys: {Enter}
+keys: {^C}
+keys: {^X}

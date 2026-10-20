@@ -1,0 +1,22 @@
+# Without a column, the cursor goes to the column it kept for moving up and down; a column asked
+# for becomes that column, also when the line is shorter.
+args: lines.txt
+file lines.txt:
+| abcdefghij
+| ab
+| abcdefghij
+keys: {^_}1,6{Enter}
+keys: {^_}2{Enter}
+keys: {^C}
+keys: {^_}3{Enter}
+keys: {^C}
+keys: {^_}2,9{Enter}
+keys: {Up}
+keys: {^C}
+keys: {^_}1,4{Enter}
+keys: {Down}
+keys: {^C}
+keys: {^_}2{Enter}
+keys: {^_}3{Enter}
+keys: {^C}
+keys: {^X}

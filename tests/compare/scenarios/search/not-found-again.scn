@@ -1,0 +1,10 @@
+# M-W and M-Q after a search that found nothing look for the same text and fail again; the
+# cursor stays.
+args: text.txt
+file text.txt:
+| the cat sat
+keys: {^W}dog{Enter}
+keys: {M-w}
+keys: {M-q}
+keys: {^C}
+keys: {^X}

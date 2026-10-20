@@ -1,0 +1,18 @@
+# M-C in the prompt turns case matching on: the prompt says so, the setting stays for the next
+# searches (also M-W), and M-C again turns it off.
+args: text.txt
+file text.txt:
+| Cat cat CAT
+| the Cat
+keys: {^W}{M-c}
+keys: cat{Enter}
+keys: {^C}
+keys: {M-w}
+keys: {^C}
+keys: {M-w}
+keys: {^C}
+keys: {^W}
+keys: {M-c}
+keys: {M-c}
+keys: {^C}
+keys: {^X}

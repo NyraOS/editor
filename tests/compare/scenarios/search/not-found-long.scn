@@ -1,0 +1,9 @@
+# A text that is not there is cut in the message at half the width, with "..." when longer.
+args: text.txt
+file text.txt:
+| the cat sat
+keys: {^W}0123456789012345678901234567890123456789{Enter}
+keys: {^W}01234567890123456789012345678901234567890{Enter}
+keys: {^W}
+keys: {^C}
+keys: {^X}

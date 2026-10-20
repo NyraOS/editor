@@ -1,0 +1,43 @@
+# The match is shown in the middle of the screen when it was off the screen, wherever it was
+# found, forward, backward or wrapped; one on the screen does not scroll it.
+args: --linenumbers text.txt
+size: 40x12
+file text.txt:
+| l1
+| l2
+| l3
+| l4
+| l5
+| l6
+| l7
+| l8
+| l9
+| l10
+| l11
+| l12
+| l13 target
+| l14
+| l15
+| l16
+| l17
+| l18
+| l19
+| l20
+| l21
+| l22
+| l23 target
+| l24
+| l25
+| l26
+| l27
+| l28
+| l29
+| l30
+keys: {^W}target{Enter}
+keys: {M-w}
+keys: {M-w}
+keys: {M-q}
+keys: {M-q}
+keys: {^_}1{Enter}
+keys: {M-w}
+keys: {^X}

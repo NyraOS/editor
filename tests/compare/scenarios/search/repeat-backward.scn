@@ -1,0 +1,16 @@
+# M-Q repeats the search backwards, whichever way it was made, and M-W goes forward again.
+args: text.txt
+file text.txt:
+| the cat sat
+| on the mat
+| with the hat
+keys: {^Q}the{Enter}
+keys: {M-q}
+keys: {^C}
+keys: {M-q}
+keys: {^C}
+keys: {M-q}
+keys: {^C}
+keys: {M-w}
+keys: {^C}
+keys: {^X}
