@@ -3,10 +3,10 @@
 
 use crate::buffer::{self, Buffer, Format, next_index, prev_index};
 use crate::config::Options;
-use crate::files;
+use crate::files::{self, Expected, Locking, Meta, SaveError, SaveOptions};
 use crate::keys::{Key, Mods, Named};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// How many keys a message stays for, as in nano.
 const MESSAGE_KEYS: u8 = 20;
@@ -27,18 +27,34 @@ pub enum Mode {
     Ask(Question),
 }
 
+/// The questions that write a file carry its name and whether to exit after writing it.
 pub enum Question {
     /// ^X on a modified buffer.
     SaveOnExit,
-    /// Writing under another name than the file's: the name, and whether to exit after.
+    /// Writing under another name than the file's.
     OtherName(String, bool),
+    /// Writing under a name another file has.
+    Overwrite(String, bool),
+    /// The file changed on disk since it was read or written.
+    Changed(String, bool),
+    /// Another editor holds the lock file.
+    Locked(files::LockInfo),
 }
 
 impl Question {
-    pub fn text(&self) -> &'static str {
+    /// The question as nano words it, with the space after it where nano has one.
+    pub fn text(&self, name: &str) -> String {
         match self {
-            Question::SaveOnExit => "Save modified buffer?",
-            Question::OtherName(..) => "Save file under DIFFERENT NAME?",
+            Question::SaveOnExit => "Save modified buffer? ".into(),
+            Question::OtherName(..) => "Save file under DIFFERENT NAME? ".into(),
+            Question::Overwrite(file, _) => format!("File \"{file}\" exists; OVERWRITE? "),
+            Question::Changed(..) => {
+                "File was modified since you opened it; continue saving? ".into()
+            }
+            Question::Locked(info) => format!(
+                "File {name} is being edited by {} (with {}, PID {}); open anyway?",
+                info.user, info.program, info.pid
+            ),
         }
     }
 }
@@ -77,6 +93,13 @@ pub struct Editor {
     last_search: Option<String>,
     /// What the last search found, highlighted until the next key: line, from, to (characters).
     pub spot: Option<(usize, usize, usize)>,
+    /// The file as read or written last, to notice changes on disk; None for a new file.
+    meta: Option<Meta>,
+    /// The lock file held, and whether it says the buffer is modified.
+    lock: Option<files::Lock>,
+    lock_says_modified: bool,
+    /// A warning shown for a moment, with nothing else, before this question (as nano does).
+    pub warning: Option<Question>,
     /// The editor is done: it exits.
     pub done: bool,
 }
@@ -264,12 +287,19 @@ impl Editor {
             cutting: false,
             last_search: None,
             spot: None,
+            meta: None,
+            lock: None,
+            lock_says_modified: false,
+            warning: None,
             done: false,
         };
         if ed.name.is_empty() {
             ed.say("For basic help, type Ctrl+G.");
         } else {
             ed.read_file();
+            if !ed.name.is_empty() {
+                ed.take_lock(false);
+            }
         }
         if let Some((line, col)) = ed.opts.start {
             ed.goto(line, col);
@@ -278,15 +308,11 @@ impl Editor {
     }
 
     fn read_file(&mut self) {
-        let path = Path::new(&self.name);
-        if path.is_dir() {
-            let name = std::mem::take(&mut self.name);
-            return self.error(&format!("\"{name}\" is a directory"));
-        }
-        match files::read(path) {
-            Ok(bytes) => {
-                let (text, format) = buffer::convert_line_ends(buffer::decode(bytes));
+        match files::read(Path::new(&self.name)) {
+            Ok(loaded) => {
+                let (text, format) = buffer::convert_line_ends(buffer::decode(loaded.bytes));
                 self.buf = Buffer::new(&text, format);
+                self.meta = Some(loaded.meta);
                 let mut msg = format!("Read {}", plural(self.buf.file_lines(), "line"));
                 self.magic_line();
                 match format {
@@ -297,8 +323,45 @@ impl Editor {
                 self.say(&msg);
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => self.say("New File"),
+            // A directory or a device: nano says so and edits a new buffer.
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::IsADirectory | io::ErrorKind::InvalidInput
+                ) =>
+            {
+                let name = std::mem::take(&mut self.name);
+                self.error(&format!("\"{name}\" {e}"));
+            }
             Err(e) => self.error(&format!("Error reading {}: {}", self.name, error_text(&e))),
         }
+    }
+
+    /// Locks the file, as nano does with `--locking` (here always). When the lock file cannot
+    /// be made (a directory without write permission), the file is edited without one.
+    fn take_lock(&mut self, force: bool) {
+        match files::lock(Path::new(&self.name), force) {
+            Ok(Locking::Locked(lock)) => {
+                let _ = lock.set_modified(self.buf.modified);
+                self.lock_says_modified = self.buf.modified;
+                self.lock = Some(lock);
+            }
+            Ok(Locking::Busy(info)) => self.mode = Mode::Ask(Question::Locked(info)),
+            Ok(Locking::Bad(path)) => {
+                self.error(&format!("Bad lock file is ignored: {}", path.display()));
+            }
+            Err(_) => {}
+        }
+    }
+
+    /// Writes the emergency copy of a modified buffer (the terminal went away, or SIGHUP or
+    /// SIGTERM came); returns where.
+    pub fn emergency_save(&mut self) -> Option<PathBuf> {
+        if !self.buf.modified {
+            return None;
+        }
+        let name = (!self.name.is_empty()).then(|| Path::new(&self.name));
+        files::emergency_save(name, &self.buf.to_bytes()).ok()
     }
 
     /// `+LINE,COLUMN`, 1-based; negative numbers count from the end.
@@ -367,7 +430,7 @@ impl Editor {
     pub fn key(&mut self, key: Key) {
         // nano counts the bytes of a typed character as keys.
         let n = match key {
-            Key::Char(c) if buffer::raw_byte(c).is_none() => c.len_utf8() as u8,
+            Key::Char(c) => c.len_utf8() as u8,
             _ => 1,
         };
         if let Some(m) = &mut self.message {
@@ -385,6 +448,12 @@ impl Editor {
             Mode::Prompt(_) => self.prompt_key(key),
             Mode::Ask(_) => self.ask_key(key),
         }
+        if let Some(lock) = &self.lock {
+            if self.buf.modified != self.lock_says_modified {
+                let _ = lock.set_modified(self.buf.modified);
+                self.lock_says_modified = self.buf.modified;
+            }
+        }
     }
 
     fn edit_key(&mut self, key: Key, cutting: bool) {
@@ -396,6 +465,7 @@ impl Editor {
         };
         match key {
             Key::Char(c) => self.type_text(&c.to_string()),
+            Key::Byte(b) => self.type_text(&buffer::raw(b)),
             Key::Ctrl('I') => self.type_text("\t"),
             Key::Ctrl('M') => self.enter(),
             Key::Ctrl('H') | Key::Named(Backspace, _) => self.backspace(),
@@ -467,8 +537,13 @@ impl Editor {
         let b = &mut self.buf;
         if b.x > 0 {
             let pos = b.pos();
-            b.x -= 1;
-            b.remove(pos - 1, pos);
+            // A byte that is not valid UTF-8 goes as a whole, with its mark.
+            let byte = b.x >= 2
+                && b.text.char(pos - 1) == buffer::MARK
+                && buffer::raw_byte(b.text.char(pos - 2)).is_some();
+            let n = if byte { 2 } else { 1 };
+            b.x -= n;
+            b.remove(pos - n, pos);
         } else if b.line > 0 {
             b.line -= 1;
             b.x = b.line_len(b.line);
@@ -686,7 +761,23 @@ impl Editor {
         let yes = match key {
             Key::Char('y' | 'Y') => true,
             Key::Char('n' | 'N') => false,
-            Key::Ctrl('C') => return self.cancel(),
+            // As nano: cancelling the question about a locked file leaves at once, and the one
+            // about a file changed on disk goes back to its name.
+            Key::Ctrl('C') if matches!(question, Question::Locked(_)) => {
+                self.done = true;
+                return;
+            }
+            Key::Ctrl('C') => {
+                if let Question::Changed(name, exit) = question {
+                    self.ask_name(exit);
+                    if let Mode::Prompt(p) = &mut self.mode {
+                        p.x = name.chars().count();
+                        p.answer = name;
+                    }
+                    return;
+                }
+                return self.cancel();
+            }
             _ => {
                 self.mode = Mode::Ask(question);
                 return;
@@ -695,17 +786,30 @@ impl Editor {
         match (question, yes) {
             (Question::SaveOnExit, true) => self.ask_name(true),
             (Question::SaveOnExit, false) => self.done = true,
-            (Question::OtherName(name, exit), true) => {
-                if self.save(&name) && exit {
-                    self.done = true;
-                }
-            }
-            (Question::OtherName(name, exit), false) => {
+            (Question::OtherName(name, exit), true) => self.save_as(name, exit),
+            (Question::OtherName(name, exit) | Question::Overwrite(name, exit), false) => {
                 self.ask_name(exit);
                 if let Mode::Prompt(p) = &mut self.mode {
                     p.x = name.chars().count();
                     p.answer = name;
                 }
+            }
+            (Question::Overwrite(name, exit) | Question::Changed(name, exit), true) => {
+                // Over the file as it is now.
+                let expected = match files::stat(Path::new(&name)) {
+                    Ok(Some(meta)) => Expected::File(meta),
+                    _ => Expected::Absent,
+                };
+                self.save(name, expected, exit);
+            }
+            (Question::Changed(..), false) => {}
+            (Question::Locked(_), true) => self.take_lock(true),
+            // As nano: the file is not opened; a new buffer is.
+            (Question::Locked(_), false) => {
+                self.buf = Buffer::new("", Format::Unix);
+                self.name.clear();
+                self.meta = None;
+                self.say("For basic help, type Ctrl+G.");
             }
         }
     }
@@ -738,25 +842,74 @@ impl Editor {
         if self.name.is_empty() {
             self.ask_name(false);
         } else {
-            let name = self.name.clone();
-            self.save(&name);
+            self.save_as(self.name.clone(), false);
         }
     }
 
-    /// Writes the text to `name`; true when it worked.
-    fn save(&mut self, name: &str) -> bool {
+    /// Writes the text to `name` (then exits, with `exit`), asking first, as nano does, when
+    /// another file has that name or the file changed on disk.
+    fn save_as(&mut self, name: String, exit: bool) {
+        let now = files::stat(Path::new(&name));
+        if name != self.name {
+            match now {
+                Ok(Some(_)) => self.mode = Mode::Ask(Question::Overwrite(name, exit)),
+                _ => self.save(name, Expected::Absent, exit),
+            }
+            return;
+        }
+        match (self.meta, now) {
+            (Some(meta), Ok(Some(now))) if now.changed_since(&meta) => self.changed(name, exit),
+            (Some(meta), Ok(Some(_))) => self.save(name, Expected::File(meta), exit),
+            // Gone from the disk, or never there: written as a new file.
+            _ => self.save(name, Expected::Absent, exit),
+        }
+    }
+
+    /// The file changed on disk: nano warns for a moment, then asks whether to save anyway.
+    fn changed(&mut self, name: String, exit: bool) {
+        self.error("File on disk has changed");
+        self.warning = Some(Question::Changed(name, exit));
+    }
+
+    /// After the moment of a warning: its question.
+    pub fn warned(&mut self) {
+        if let Some(question) = self.warning.take() {
+            self.message = None;
+            self.mode = Mode::Ask(question);
+        }
+    }
+
+    /// Writes the text to `name`, which must still be the `expected` file.
+    fn save(&mut self, name: String, expected: Expected, exit: bool) {
         self.magic_line();
-        match files::write(Path::new(name), &self.buf.to_bytes()) {
-            Ok(()) => {
-                self.name = name.to_string();
+        let bytes = self.buf.to_bytes();
+        match files::save(Path::new(&name), &bytes, expected, &SaveOptions::default()) {
+            Ok(saved) => {
+                self.meta = Some(saved.meta);
                 self.buf.modified = false;
+                if name != self.name {
+                    // The lock goes with the name.
+                    self.lock = None;
+                    self.name = name;
+                    if let Ok(Locking::Locked(lock)) = files::lock(Path::new(&self.name), false) {
+                        self.lock = Some(lock);
+                        self.lock_says_modified = false;
+                    }
+                }
                 let lines = self.buf.file_lines();
                 self.say(&format!("Wrote {}", plural(lines, "line")));
-                true
+                self.done = exit;
             }
-            Err(e) => {
-                self.error(&format!("Error writing {name}: {}", error_text(&e)));
-                false
+            Err(SaveError::Changed) => self.changed(name, exit),
+            Err(SaveError::Backup(e)) => {
+                self.error(&format!("Error writing backup file: {}", error_text(&e)));
+            }
+            Err(SaveError::Write { error, copy }) => {
+                let mut text = format!("Error writing {name}: {}", error_text(&error));
+                if let Some(copy) = copy {
+                    text.push_str(&format!(" (the old contents are in {})", copy.display()));
+                }
+                self.error(&text);
             }
         }
     }
@@ -818,9 +971,7 @@ impl Editor {
                     self.mode = Mode::Ask(Question::OtherName(answer, exit));
                     return;
                 }
-                if self.save(&answer) && exit {
-                    self.done = true;
-                }
+                self.save_as(answer, exit);
             }
             PromptKind::Search => {
                 let needle = if answer.is_empty() {

@@ -2,8 +2,8 @@
 //! The screen: how characters show, what goes on each row (the title bar, the text, the status
 //! bar and the help lines), and the terminal, which is sent only the rows that changed.
 
-use crate::buffer::{column_of, raw_byte};
-use crate::commands::{Editor, Mode, Prompt};
+use crate::buffer::{MARK, column_of, raw_byte};
+use crate::commands::{Editor, Mode, Prompt, Question};
 use rustix::termios::{self, OptionalActions, Termios};
 use std::io::{self, Write};
 use unicode_width::UnicodeWidthChar;
@@ -65,11 +65,18 @@ pub fn width_at(c: char, col: usize, tabsize: usize) -> usize {
         tabsize - col % tabsize
     } else if is_control(c) {
         2
-    } else if raw_byte(c).is_some() {
+    } else if raw_byte(c).is_some() || is_noncharacter(c) {
+        // Private-use characters, also standing for bytes that are not valid UTF-8.
         1
     } else {
         c.width().unwrap_or(1)
     }
+}
+
+/// The 66 noncharacters (U+FDD0 to U+FDEF, and the last two of each plane): nano shows each as
+/// one blank column.
+fn is_noncharacter(c: char) -> bool {
+    ('\u{fdd0}'..='\u{fdef}').contains(&c) || (c as u32) & 0xfffe == 0xfffe
 }
 
 /// A combining mark or another character that takes no column: it goes with the one before.
@@ -80,7 +87,7 @@ pub fn is_zero_width(c: char) -> bool {
 /// The text of each cell `c` takes, from column `col`; empty for the right half of a wide one.
 fn pieces(c: char, col: usize, tabsize: usize) -> Vec<String> {
     let w = width_at(c, col, tabsize);
-    if c == '\t' {
+    if c == '\t' || is_noncharacter(c) {
         vec![" ".into(); w]
     } else if is_control(c) {
         vec!["^".into(), control_letter(c).to_string()]
@@ -347,6 +354,8 @@ pub fn compose(ed: &Editor) -> Frame {
         {
             screen[1 + r] = line_cells(line, 0, cols, 8);
         }
+    } else if matches!(ed.mode, Mode::Ask(Question::Locked(_))) {
+        // As nano: the question about a locked file comes before anything of the file.
     } else {
         screen[0] = title_row(cols, &ed.program, ed.display_name(), ed.buf.modified);
         let margin = ed.margin();
@@ -396,9 +405,9 @@ pub fn compose(ed: &Editor) -> Frame {
             Mode::Ask(question) => {
                 let mut row = vec![Cell::new(' ', INVERSE); cols];
                 let room = cols.saturating_sub(1);
-                let col = put(&mut row[..room], 0, question.text(), INVERSE);
+                let col = put(&mut row[..room], 0, &question.text(&ed.name), INVERSE);
                 screen[status] = row;
-                cursor = Some((status, (col + 1).min(cols.saturating_sub(1))));
+                cursor = Some((status, col.min(cols.saturating_sub(1))));
             }
             _ => {
                 if let Some(m) = &ed.message {
@@ -414,7 +423,11 @@ pub fn compose(ed: &Editor) -> Frame {
         cursor = None;
     }
 
-    if !ed.opts.nohelp && rows >= 3 {
+    // A warning shows alone for a moment.
+    if ed.warning.is_some() {
+        cursor = None;
+    }
+    if !ed.opts.nohelp && rows >= 3 && ed.warning.is_none() {
         let bars = match &ed.mode {
             Mode::Ask(_) => yes_no_rows(cols),
             mode => help_rows(crate::commands::menu(mode), cols),
@@ -523,14 +536,14 @@ fn draw_row(out: &mut String, r: usize, row: &[Cell]) {
             style = cell.style;
             out.push_str(sgr(style));
         }
-        for c in cell.text.chars() {
-            // A byte that is not valid UTF-8 shows as the replacement character: sending it as
-            // it is could make the terminal read it as a control.
-            out.push(if raw_byte(c).is_some() {
-                char::REPLACEMENT_CHARACTER
+        // A byte that is not valid UTF-8 shows as the replacement character, as in nano.
+        let mut chars = cell.text.chars().peekable();
+        while let Some(c) = chars.next() {
+            if raw_byte(c).is_some() && chars.next_if_eq(&MARK).is_some() {
+                out.push(char::REPLACEMENT_CHARACTER);
             } else {
-                c
-            });
+                out.push(c);
+            }
         }
     }
     out.push_str("\x1b[0m");

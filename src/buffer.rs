@@ -16,25 +16,39 @@ pub enum Format {
     Mac,
 }
 
-/// The first of 256 private-use characters that stand for the bytes of a file that are not
-/// valid UTF-8, so that they survive editing and saving unchanged.
-const RAW_BASE: u32 = 0x10_FF00;
+/// A byte of the file that is not valid UTF-8 is kept as two characters, so that it survives
+/// editing and saving unchanged: a private-use character for the byte (U+10FE00 + the byte), then
+/// `MARK`, a variation selector, which takes no column and goes with it like a combining mark.
+/// Each of the two on its own is itself. A real `MARK` right after one of those private-use
+/// characters (in a file, or put there by an edit) would read as a byte, so it is kept as its
+/// four bytes instead.
+const RAW_BASE: u32 = 0x10_FE00;
+pub const MARK: char = '\u{E01EF}';
 
-/// The byte a raw-byte character stands for.
+/// The two characters that stand for a byte that is not valid UTF-8.
+pub fn raw(b: u8) -> String {
+    let c = char::from_u32(RAW_BASE + u32::from(b)).unwrap_or(char::REPLACEMENT_CHARACTER);
+    [c, MARK].into_iter().collect()
+}
+
+/// The byte `c` stands for when a `MARK` follows it.
 pub fn raw_byte(c: char) -> Option<u8> {
-    (c as u32).checked_sub(RAW_BASE).map(|b| b as u8)
+    (c as u32)
+        .checked_sub(RAW_BASE)
+        .and_then(|b| u8::try_from(b).ok())
 }
 
-fn raw_char(b: u8) -> char {
-    char::from_u32(RAW_BASE + u32::from(b)).unwrap_or(char::REPLACEMENT_CHARACTER)
+/// `MARK` as its four bytes, for a real one that would otherwise read as part of a byte.
+fn escaped_mark() -> String {
+    MARK.to_string().bytes().map(raw).collect()
 }
 
-/// Bytes to text: invalid UTF-8 becomes raw-byte characters, and so does any character of the
-/// raw-byte range itself (byte by byte), so that `encode` gives back exactly the same bytes.
+/// Bytes to text: invalid UTF-8 becomes raw bytes, so that `encode` gives back exactly the same
+/// bytes.
 pub fn decode(bytes: Vec<u8>) -> String {
     match String::from_utf8(bytes) {
         // The usual case, without a copy.
-        Ok(s) if !s.chars().any(|c| raw_byte(c).is_some()) => s,
+        Ok(s) if !s.contains(MARK) => s,
         Ok(s) => decode_slow(s.as_bytes()),
         Err(e) => decode_slow(e.as_bytes()),
     }
@@ -43,8 +57,8 @@ pub fn decode(bytes: Vec<u8>) -> String {
 fn decode_slow(bytes: &[u8]) -> String {
     fn push(out: &mut String, s: &str) {
         for c in s.chars() {
-            if raw_byte(c).is_some() {
-                out.extend(c.to_string().bytes().map(raw_char));
+            if c == MARK && out.chars().next_back().and_then(raw_byte).is_some() {
+                out.push_str(&escaped_mark());
             } else {
                 out.push(c);
             }
@@ -62,7 +76,7 @@ fn decode_slow(bytes: &[u8]) -> String {
                 let (good, bad) = rest.split_at(e.valid_up_to());
                 push(&mut out, std::str::from_utf8(good).unwrap_or_default());
                 let n = e.error_len().unwrap_or(bad.len());
-                out.extend(bad[..n].iter().copied().map(raw_char));
+                out.extend(bad[..n].iter().copied().map(raw));
                 rest = &bad[n..];
             }
         }
@@ -72,10 +86,14 @@ fn decode_slow(bytes: &[u8]) -> String {
 /// Text to bytes: the inverse of `decode`.
 pub fn encode(text: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len());
-    for c in text.chars() {
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
         match raw_byte(c) {
-            Some(b) => out.push(b),
-            None => out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes()),
+            Some(b) if chars.peek() == Some(&MARK) => {
+                chars.next();
+                out.push(b);
+            }
+            _ => out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes()),
         }
     }
     out
@@ -173,7 +191,10 @@ impl Buffer {
     pub fn insert(&mut self, s: &str) {
         let pos = self.pos();
         self.text.insert(pos, s);
-        self.set_pos(pos + s.chars().count());
+        let end = pos + s.chars().count();
+        self.seam(end);
+        let end = end + self.seam(pos);
+        self.set_pos(end);
         self.modified = true;
     }
 
@@ -181,8 +202,26 @@ impl Buffer {
     pub fn remove(&mut self, from: usize, to: usize) {
         if from < to {
             self.text.remove(from..to);
+            self.seam(from);
             self.modified = true;
         }
+    }
+
+    /// Where an edit joined two pieces of text at `at`: a real `MARK` that now follows a
+    /// private-use character of the raw-byte range would read as a byte, so it becomes its four
+    /// bytes. Returns how many characters were added.
+    fn seam(&mut self, at: usize) -> usize {
+        let joined = at > 0
+            && at < self.text.len_chars()
+            && self.text.char(at) == MARK
+            && raw_byte(self.text.char(at - 1)).is_some();
+        if !joined {
+            return 0;
+        }
+        let escaped = escaped_mark();
+        self.text.remove(at..at + 1);
+        self.text.insert(at, &escaped);
+        escaped.chars().count() - 1
     }
 
     /// Whether the last line is empty: the text ends with a newline, or is empty.
@@ -256,10 +295,44 @@ mod tests {
 
     #[test]
     fn invalid_utf8_survives() {
-        let bytes = b"ok \xff\xfe \xc3 x \xf4\x8f\xbc\x81 end\n";
-        let text = decode(bytes.to_vec());
-        assert_eq!(text.chars().filter(|&c| raw_byte(c).is_some()).count(), 7);
+        // Invalid bytes, characters of the raw-byte range, MARK, and MARK after one of them.
+        let bytes = [
+            b"ok \xff\xfe \xc3 x ".as_slice(),
+            "\u{10fe41} \u{10ffff} \u{E01EF} \u{10fe42}\u{E01EF} end\n".as_bytes(),
+        ]
+        .concat();
+        let text = decode(bytes.clone());
+        assert!(text.contains("\u{10fe41} \u{10ffff} \u{E01EF} "));
         assert_eq!(encode(&text), bytes);
+        assert_eq!(encode("\u{10fe42}"), "\u{10fe42}".as_bytes());
+        assert_eq!(encode(&raw(0x42)), b"B");
+    }
+
+    #[test]
+    fn edits_never_make_a_byte() {
+        // A raw-range character and a real MARK brought together by deleting what was between.
+        let mut b = Buffer::new("\u{10fe42}x\u{E01EF}\n", Format::Unix);
+        b.remove(1, 2);
+        assert_eq!(
+            encode(&String::from(&b.text)),
+            "\u{10fe42}\u{E01EF}\n".as_bytes()
+        );
+        // Or by typing one next to the other.
+        let mut b = Buffer::new("\u{10fe42}\n", Format::Unix);
+        b.x = 1;
+        b.insert("\u{E01EF}");
+        assert_eq!(
+            encode(&String::from(&b.text)),
+            "\u{10fe42}\u{E01EF}\n".as_bytes()
+        );
+        assert_eq!(b.line_len(0), b.x);
+        let mut b = Buffer::new("\u{E01EF}\n", Format::Unix);
+        b.insert("\u{10fe42}");
+        assert_eq!(
+            encode(&String::from(&b.text)),
+            "\u{10fe42}\u{E01EF}\n".as_bytes()
+        );
+        assert_eq!(b.x, 1);
     }
 
     #[test]

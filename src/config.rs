@@ -110,6 +110,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
 
 /// Short flags and their long names.
 const SHORT: &[(char, &str)] = &[
+    ('G', "locking"),
     ('I', "ignorercfiles"),
     ('L', "nonewlines"),
     ('c', "constantshow"),
@@ -122,6 +123,8 @@ fn flag(o: &mut Options, name: &str) -> Option<()> {
     match name {
         // No nanorc is read yet, so there is nothing to ignore.
         "ignorercfiles" => {}
+        // Files are always locked.
+        "locking" => {}
         "nonewlines" => o.nonewlines = true,
         "constantshow" => o.constantshow = true,
         "linenumbers" => o.linenumbers = true,
@@ -164,6 +167,7 @@ Options:
  -c, --constantshow   Show the cursor position all the time
  -l, --linenumbers    Show line numbers in front of the text
  -x, --nohelp         Do not show the two help lines
+ -G, --locking        Lock the file while editing it (always on)
  -I, --ignorercfiles  Do not read nanorc files
  -h, --help           Show this help and exit
  -V, --version        Show the version and exit

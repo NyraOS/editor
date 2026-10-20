@@ -4,18 +4,23 @@
 mod buffer;
 mod commands;
 mod config;
+// Parts of its API are for options still to come (backups: -B, -C).
+#[allow(dead_code, unused_imports)]
 mod files;
 mod keys;
 mod screen;
 
 use commands::Editor;
 use config::Command;
-use rustix::event::{PollFd, PollFlags, poll};
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::fd::OwnedFd;
 use rustix::pipe::{PipeFlags, pipe_with};
 use screen::Terminal;
+use std::collections::VecDeque;
 use std::io;
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -52,6 +57,7 @@ fn main() -> ExitCode {
 
 fn run(opts: config::Options) -> io::Result<()> {
     let winch = winch_pipe()?;
+    let stop = files::watch_signals()?;
     let (cols, rows) = Terminal::size();
     let mut ed = Editor::open(opts, cols, rows);
     let mut term = Terminal::start()?;
@@ -61,22 +67,53 @@ fn run(opts: config::Options) -> io::Result<()> {
         let _ = io::Write::write_all(&mut io::stdout(), b"\x1b[0m\x1b[?25h\x1b[?1049l");
         hook(info);
     }));
-    let result = edit(&mut ed, &mut term, &winch);
+    let result = edit(&mut ed, &mut term, &winch, &stop);
     term.stop();
+    // The terminal went away, or SIGHUP or SIGTERM came: the changes go to an emergency copy.
+    if result.is_err() || stop.load(Ordering::Relaxed) {
+        if let Some(path) = ed.emergency_save() {
+            eprintln!("Buffer written to {}", path.display());
+        }
+    }
     result
 }
 
-fn edit(ed: &mut Editor, term: &mut Terminal, winch: &OwnedFd) -> io::Result<()> {
+fn edit(
+    ed: &mut Editor,
+    term: &mut Terminal,
+    winch: &OwnedFd,
+    stop: &AtomicBool,
+) -> io::Result<()> {
     let mut reader = keys::Reader::default();
     let mut buf = [0u8; 4096];
-    while !ed.done {
+    // The wait for keys ends every second to look at `stop`.
+    let second = Timespec {
+        tv_sec: 1,
+        tv_nsec: 0,
+    };
+    // Keys read but not handled yet: the screen is drawn when none are left.
+    let mut keys = VecDeque::new();
+    while !ed.done && !stop.load(Ordering::Relaxed) {
+        if let Some(key) = keys.pop_front() {
+            if key == keys::Key::Ctrl('L') {
+                term.invalidate();
+            }
+            ed.key(key);
+            if ed.warning.is_some() {
+                // As nano: a warning stays alone on the screen for a moment.
+                term.draw(&screen::compose(ed))?;
+                std::thread::sleep(Duration::from_millis(1500));
+                ed.warned();
+            }
+            continue;
+        }
         term.draw(&screen::compose(ed))?;
         let stdin = io::stdin();
         let mut fds = [
             PollFd::new(&stdin, PollFlags::IN),
             PollFd::new(winch, PollFlags::IN),
         ];
-        match poll(&mut fds, None) {
+        match poll(&mut fds, Some(&second)) {
             Err(rustix::io::Errno::INTR) => continue,
             other => other?,
         };
@@ -94,17 +131,9 @@ fn edit(ed: &mut Editor, term: &mut Terminal, winch: &OwnedFd) -> io::Result<()>
             };
             // The terminal is gone (end of input): nothing more can be typed.
             if n == 0 {
-                return Ok(());
+                return Err(io::ErrorKind::UnexpectedEof.into());
             }
-            for key in reader.feed(&buf[..n]) {
-                if key == keys::Key::Ctrl('L') {
-                    term.invalidate();
-                }
-                ed.key(key);
-                if ed.done {
-                    break;
-                }
-            }
+            keys.extend(reader.feed(&buf[..n]));
         }
     }
     Ok(())

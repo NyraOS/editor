@@ -16,8 +16,10 @@ Early development. What works, the same way as in GNU nano 8.4:
 - the title bar, the status bar and the help lines at any terminal size, the help screen (`^G`);
 - writing the file (`^O` `^S`) and exiting (`^X`).
 
-Saving is still the simple kind (the file is written in place); safe saving, emergency saves,
-locking and backups come next.
+Saving is safe (a new file renamed over the old one, or a copy first when the file must be
+written in place), and a file changed on disk since it was read is noticed, as in nano. Files are
+always locked (nano's `--locking`, vim-style `.NAME.swp`); SIGHUP, SIGTERM or a closed terminal
+write the changes to `NAME.save`.
 
 ## Build and test
 
@@ -26,6 +28,14 @@ Rust 1.85 or newer:
 ```sh
 cargo build
 cargo test
+```
+
+The tests of saving (`src/files`) cover more as root: bind mounts, a full file system, files of
+other users, and each test again as an ordinary user (uid 4242). CI runs them as root in a
+privileged container; to run them so locally:
+
+```sh
+sudo "$(cargo test --bin nyra-editor --no-run 2>&1 | sed -n 's/^ *Executable .*(\(.*\))$/\1/p')" files::
 ```
 
 The comparison tests run every scenario on GNU nano 8.4 and on the editor, and compare the screens

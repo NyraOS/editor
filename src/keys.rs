@@ -4,8 +4,10 @@
 /// A key, with its modifiers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
-    /// A typed character; also a byte that is not valid UTF-8, as a raw-byte character.
+    /// A typed character.
     Char(char),
+    /// A typed byte that is not valid UTF-8.
+    Byte(u8),
     /// Ctrl with a key, by the ASCII character it is written with: `^A` is 'A', `^/` is '_'.
     /// Tab is ^I and Enter is ^M, as in nano.
     Ctrl(char),
@@ -130,10 +132,7 @@ fn parse_utf8(b: &[u8]) -> Option<(Option<Key>, usize)> {
         .and_then(|s| s.chars().next())
     {
         Some(c) if len > 0 => Some((Some(Key::Char(c)), len)),
-        _ => {
-            let text = crate::buffer::decode(b[..1].to_vec());
-            Some((text.chars().next().map(Key::Char), 1))
-        }
+        _ => Some((Some(Key::Byte(b[0])), 1)),
     }
 }
 
@@ -268,14 +267,6 @@ mod tests {
                 }
             )]
         );
-        assert_eq!(
-            r.feed(b"\xff"),
-            [Key::Char(
-                crate::buffer::decode(b"\xff".to_vec())
-                    .chars()
-                    .next()
-                    .unwrap()
-            )]
-        );
+        assert_eq!(r.feed(b"\xff"), [Key::Byte(0xff)]);
     }
 }

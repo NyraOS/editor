@@ -28,6 +28,32 @@ jobs:
       - run: rustup toolchain install 1.85 --profile minimal
       - run: cargo +1.85 test --locked
 
+  # The safe-saving tests (src/files) as root, in a privileged container: bind mounts, a full file
+  # system, files of other users, and each test again as an ordinary user. The rust job above runs
+  # them as the runner's ordinary user. The test binary is built here and run in Debian 13.
+  files-root:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the tests
+        run: |
+          bin=$(cargo test --locked --bin nyra-editor --no-run --message-format=json \
+            | jq -r 'select(.reason == "compiler-artifact" and .profile.test) | .executable')
+          mkdir "$RUNNER_TEMP/t"
+          cp "$bin" "$RUNNER_TEMP/t/files-tests"
+          chmod 755 "$RUNNER_TEMP/t" "$RUNNER_TEMP/t/files-tests"
+      # debian:trixie-slim, pinned by its multi-arch index digest, from Google's mirror of Docker
+      # Hub (no pull limits per runner IP).
+      - name: Run them as root in a container
+        run: >-
+          docker run --rm --privileged -v "$RUNNER_TEMP/t:/t:ro"
+          mirror.gcr.io/library/debian@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
+          /t/files-tests files:: --nocapture
+
   # The comparison tests (tests/compare) against GNU nano 8.4, built by tools/build-nano.sh from
   # the GNU tarball pinned by its SHA-256 and cached; with $NANO set, they fail on any other version.
   # They run twice: GNU nano as the editor under test, then the editor itself.
