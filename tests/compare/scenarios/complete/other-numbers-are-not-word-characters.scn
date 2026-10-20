@@ -1,0 +1,13 @@
+# Fractions, circled digits and superscripts are not word characters (nano: iswalnum).
+args: n.txt
+file n.txt:
+| ½a ½b ①x ①y stra²x strab
+keys: {End}
+keys: {Enter}½
+keys: {^]}
+keys: {Enter}stra
+keys: {^]}
+keys: {^]}
+keys: {^]}
+keys: {^X}
+keys: n

@@ -736,11 +736,11 @@ impl Editor {
     fn complete_word(&mut self, completion: Option<Completion>) {
         // There is no `wordchars` option yet: the default is none.
         let wordchars = "";
-        let completion = match completion {
-            Some(mut c) => {
+        let first = completion.is_none();
+        let mut completion = match completion {
+            Some(c) => {
                 // Takes back the last ending: the one edit made, and nothing to redo of it.
                 self.buf.undo();
-                c.next += 1;
                 c
             }
             None => {
@@ -751,22 +751,18 @@ impl Editor {
                     self.error("No word fragment");
                     return;
                 }
-                let fragment = String::from(text.slice(start..cursor));
-                let mut endings = Vec::new();
-                complete::collect_endings(text, &fragment, Some(start), wordchars, &mut endings);
-                if endings.is_empty() {
-                    self.error("No matches");
-                    return;
-                }
-                Completion { endings, next: 0 }
+                Completion::new(String::from(text.slice(start..cursor)), start)
             }
         };
-        let Some(ending) = completion.endings.get(completion.next) else {
+        let Some(ending) = completion.next_ending(&self.buf.text, wordchars) else {
             self.buf.keep_column(self.opts.tabsize);
-            self.error("No further matches");
+            self.error(if first {
+                "No matches"
+            } else {
+                "No further matches"
+            });
             return;
         };
-        let ending = ending.clone();
         // As in nano, a message still shown goes.
         self.message = None;
         self.buf.end_group();
