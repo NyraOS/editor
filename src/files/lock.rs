@@ -138,11 +138,18 @@ pub fn lock(path: &Path, force: bool) -> io::Result<Locking> {
     }))
 }
 
-/// The permissions of the file for its owner, `0600` for anyone else; `0666` (less the umask) for
+/// The permissions of the file (only the owner's with an ACL) for its owner, `0600` for anyone else; `0666` (less the umask) for
 /// a new file.
 fn mode_for(path: &Path) -> u32 {
     match fs::statx(CWD, path, AtFlags::empty(), fs::StatxFlags::BASIC_STATS) {
-        Ok(st) if st.stx_uid == sys::euid() => sys::mode(&st) & 0o666,
+        Ok(st) if st.stx_uid == sys::euid() => {
+            let mut acl = [0u8; 0];
+            let acl = !matches!(
+                fs::getxattr(path, sys::ACL, &mut acl),
+                Err(Errno::NODATA | Errno::NOTSUP)
+            );
+            sys::copy_mode(&st, acl) & 0o666
+        }
         Ok(_) => 0o600,
         Err(_) => 0o666,
     }
@@ -194,9 +201,13 @@ fn read_existing(dir: &OwnedFd, name: &OsString) -> io::Result<Option<LockInfo>>
     if len < SIZE || !data.starts_with(b"b0") {
         return Ok(None);
     }
+    // Shown on the screen: control characters (C0, DEL, C1, such as escape sequences) become `?`.
     let text = |field: &[u8]| {
         let end = field.iter().position(|&b| b == 0).unwrap_or(field.len());
-        String::from_utf8_lossy(&field[..end]).into_owned()
+        let text = String::from_utf8_lossy(&field[..end]);
+        text.chars()
+            .map(|c| if c.is_control() { '?' } else { c })
+            .collect()
     };
     Ok(Some(LockInfo {
         program: text(&data[2..12]),

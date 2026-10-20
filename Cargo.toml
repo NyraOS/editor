@@ -11,7 +11,7 @@ description = "A nano-compatible terminal editor written from scratch in Rust"
 
 [dependencies]
 # The system calls of the files module (reading, safe saving, locks, backups), without unsafe code.
-rustix = { version = "1.1.5", features = ["fs", "process", "system"] }
+rustix = { version = "1.1.5", features = ["fs", "process", "rand", "system"] }
 # SIGHUP and SIGTERM set a flag, so the editor writes its emergency copies (0.3: the version crossterm uses).
 signal-hook = { version = "0.3.18", default-features = false }
 

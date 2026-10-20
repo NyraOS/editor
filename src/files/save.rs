@@ -31,6 +31,15 @@ pub enum Method {
     InPlace,
 }
 
+/// What the editor expects to find at the path it saves to: the file it read or saved last (the
+/// same device and inode), or nothing, for a new buffer. For "Save As" over an existing file the
+/// user agreed to replace, the [`stat`](super::stat) of that file.
+#[derive(Clone, Copy, Debug)]
+pub enum Expected {
+    Absent,
+    File(Meta),
+}
+
 #[derive(Debug)]
 pub struct Saved {
     pub method: Method,
@@ -42,6 +51,12 @@ pub struct Saved {
 
 #[derive(Debug)]
 pub enum SaveError {
+    /// The path no longer names the file the editor expected (another file, a symlink to another
+    /// file, or no file, or a file where there was none); nothing was written. nano asks "File on
+    /// disk has changed; continue saving?", and the editor saves again with the new [`stat`].
+    ///
+    /// [`stat`]: super::stat
+    Changed,
     /// The backup could not be made; nothing was written. nano asks whether to save without it.
     Backup(io::Error),
     /// The file could not be saved. `copy` is a copy of the old contents kept because the write
@@ -64,6 +79,7 @@ impl SaveError {
 impl fmt::Display for SaveError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            SaveError::Changed => write!(f, "File on disk has changed"),
             SaveError::Backup(e) => write!(f, "Cannot make backup: {e}"),
             SaveError::Write { error, copy: None } => write!(f, "{error}"),
             SaveError::Write {
@@ -76,8 +92,15 @@ impl fmt::Display for SaveError {
 
 impl std::error::Error for SaveError {}
 
-/// Saves `bytes` as the file at `path`; see the module documentation for the guarantees.
-pub fn save(path: &Path, bytes: &[u8], opts: &SaveOptions) -> Result<Saved, SaveError> {
+/// Saves `bytes` as the file at `path`, if it is still the `expected` one; see the module
+/// documentation for the guarantees. The path is checked once, after it is opened: from then on
+/// the save works on what was opened, so the file cannot be swapped under it.
+pub fn save(
+    path: &Path,
+    bytes: &[u8],
+    expected: Expected,
+    opts: &SaveOptions,
+) -> Result<Saved, SaveError> {
     let target = resolve(path).map_err(SaveError::write)?;
     let old = match fs::openat(
         &target.dir,
@@ -86,7 +109,12 @@ pub fn save(path: &Path, bytes: &[u8], opts: &SaveOptions) -> Result<Saved, Save
         Mode::empty(),
     ) {
         Ok(fd) => fd,
-        Err(Errno::NOENT) => return save_new(&target, bytes),
+        Err(Errno::NOENT) => {
+            return match expected {
+                Expected::Absent => save_new(&target, bytes),
+                Expected::File(_) => Err(SaveError::Changed),
+            };
+        }
         // A file we may write but not read: open it only to look at it.
         Err(Errno::ACCESS) => fs::openat(
             &target.dir,
@@ -98,6 +126,11 @@ pub fn save(path: &Path, bytes: &[u8], opts: &SaveOptions) -> Result<Saved, Save
         Err(e) => return Err(SaveError::write(e)),
     };
     let st = sys::stat(&old).map_err(SaveError::write)?;
+    let same = |m: Meta| (m.dev, m.ino) == ((st.stx_dev_major, st.stx_dev_minor), st.stx_ino);
+    match expected {
+        Expected::File(m) if same(m) => {}
+        _ => return Err(SaveError::Changed),
+    }
     super::regular(&st).map_err(SaveError::write)?;
 
     let backup = if opts.backup {
@@ -176,6 +209,20 @@ fn fill_and_rename(
     step("metadata copied");
     fs::fsync(tmp_fd).map_err(Replace::Failed)?;
     step("temporary file synced");
+    // Set-user-ID and set-group-ID bits and file capabilities only now, just before the rename,
+    // so a save killed earlier never leaves a privileged copy behind.
+    let privileged = sys::mode(st) & 0o6000 != 0;
+    if privileged {
+        fs::fchmod(tmp_fd, Mode::from_raw_mode(sys::mode(st))).map_err(Replace::Failed)?;
+    }
+    let capability = match sys::copy_capability(old, tmp_fd) {
+        Ok(had) => had,
+        Err(_) => return Err(Replace::InPlace),
+    };
+    if privileged || capability {
+        fs::fsync(tmp_fd).map_err(Replace::Failed)?;
+        step("privileges given");
+    }
     match fs::renameat(&target.dir, tmp, &target.dir, &target.name) {
         Ok(()) => {}
         // A mount point the check above did not see, or a sticky directory where only the
@@ -192,14 +239,22 @@ fn fill_and_rename(
         .map_err(Replace::Failed)
 }
 
-/// Gives the new file the owner, group, permissions, extended attributes (ACLs, security labels,
-/// capabilities) and inode flags of the original; false when one of them cannot be had.
+/// Gives the new file the owner, group, extended attributes (ACLs, security labels), permissions
+/// (without set-user-ID bits) and inode flags of the original; false when one of them cannot be
+/// had. The ACL comes before the permissions, so the file, still `0600` until then, never lets
+/// anyone in that the original's ACL keeps out.
 fn copy_metadata(old: &OwnedFd, st: &Statx, tmp: &OwnedFd) -> bool {
     let uid = fs::Uid::from_raw(st.stx_uid);
     let gid = fs::Gid::from_raw(st.stx_gid);
-    fs::fchown(tmp, Some(uid), Some(gid)).is_ok()
-        && fs::fchmod(tmp, Mode::from_raw_mode(sys::mode(st))).is_ok()
-        && sys::copy_xattrs(old, tmp).is_ok()
+    if fs::fchown(tmp, Some(uid), Some(gid)).is_err() {
+        return false;
+    }
+    step("owner copied");
+    if sys::copy_xattrs(old, tmp).is_err() {
+        return false;
+    }
+    step("extended attributes copied");
+    fs::fchmod(tmp, Mode::from_raw_mode(sys::mode(st) & 0o1777)).is_ok()
         && sys::same_inode_flags(old, tmp)
 }
 
@@ -275,7 +330,7 @@ fn safety_copy(target: &Target, old: &OwnedFd, st: &Statx) -> Result<Option<OsSt
     };
     let result = (|| {
         sys::write_all(&fd, &data)?;
-        sys::copy_owner_and_mode(&fd, st)?;
+        sys::copy_owner_and_mode(&fd, st, sys::has_acl(old))?;
         fs::fsync(&fd)?;
         sys::sync_dir(&target.dir)
     })();

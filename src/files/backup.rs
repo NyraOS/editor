@@ -2,8 +2,8 @@
 //! Backups (`-B`, `-C`), as GNU nano makes them: `NAME~` next to the file, replaced at every
 //! save; or, with a backup directory, a new numbered file there at every save, named after the
 //! file's full path with `/` written as `!` (`!etc!hosts~`, `!etc!hosts~.1`, ...). A backup has
-//! the owner, permissions and times of the old file, but never more than `0600` when it cannot
-//! have its owner and group.
+//! the owner, permissions and times of the old file, but only the owner's permissions when the
+//! file has an ACL, and never more than `0600` when it cannot have its owner and group.
 
 use std::ffi::OsString;
 use std::os::fd::{AsFd, OwnedFd};
@@ -24,6 +24,7 @@ pub(super) fn make(
     backup_dir: Option<&Path>,
 ) -> Result<PathBuf> {
     let data = sys::read_all(old)?;
+    let acl = sys::has_acl(old);
     match backup_dir {
         None => {
             let mut name = target.name.clone();
@@ -31,7 +32,7 @@ pub(super) fn make(
             // Written under a temporary name, then renamed over any older backup: never written
             // through a symlink planted as NAME~.
             let (fd, tmp) = sys::create_temp(&target.dir, &name, 0o600)?;
-            let result = fill(&fd, &data, st)
+            let result = fill(&fd, &data, st, acl)
                 .and_then(|()| fs::renameat(&target.dir, &tmp, &target.dir, &name));
             if let Err(e) = result {
                 let _ = fs::unlinkat(&target.dir, &tmp, AtFlags::empty());
@@ -53,7 +54,7 @@ pub(super) fn make(
                     Err(Errno::EXIST) => continue,
                     Err(e) => return Err(e),
                 };
-                if let Err(e) = fill(&fd, &data, st) {
+                if let Err(e) = fill(&fd, &data, st, acl) {
                     let _ = fs::unlinkat(&dir_fd, &name, AtFlags::empty());
                     return Err(e);
                 }
@@ -84,9 +85,9 @@ fn flat_name(target: &Target) -> OsString {
     OsString::from_vec(flat)
 }
 
-fn fill(fd: &OwnedFd, data: &[u8], st: &Statx) -> Result<()> {
+fn fill(fd: &OwnedFd, data: &[u8], st: &Statx, acl: bool) -> Result<()> {
     sys::write_all(fd, data)?;
-    sys::copy_owner_and_mode(fd, st)?;
+    sys::copy_owner_and_mode(fd, st, acl)?;
     let time = |t: &fs::StatxTimestamp| Timespec {
         tv_sec: t.tv_sec,
         tv_nsec: t.tv_nsec.into(),

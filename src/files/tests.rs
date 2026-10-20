@@ -72,7 +72,24 @@ fn child() {
                     _ => {}
                 }
             }
-            match save(path.as_deref().unwrap(), &input.unwrap(), &opts) {
+            let path = path.as_deref().unwrap();
+            // What the editor read: given by the test, or the file there now.
+            let expected = match std::env::var("FILES_TEST_EXPECT").as_deref() {
+                Ok("absent") => Expected::Absent,
+                Ok(id) => {
+                    let n: Vec<u64> = id.split(':').map(|n| n.parse().unwrap()).collect();
+                    let mut meta = super::stat(Path::new("/")).unwrap().unwrap();
+                    meta.dev = (n[0] as u32, n[1] as u32);
+                    meta.ino = n[2];
+                    Expected::File(meta)
+                }
+                // A path that cannot be looked at: the save reports why.
+                Err(_) => match super::stat(path).ok().flatten() {
+                    Some(meta) => Expected::File(meta),
+                    None => Expected::Absent,
+                },
+            };
+            match save(path, &input.unwrap(), expected, &opts) {
                 Ok(saved) => {
                     let method = match saved.method {
                         Method::Replaced => "replaced",
@@ -236,7 +253,20 @@ impl Scratch {
 
     /// Runs an operation in a child process as `self.who`.
     fn run(&self, op: &str, path: Option<&Path>, input: &[u8], opts: &str) -> String {
-        let out = self.run_with(op, path, input, opts, None, None);
+        self.run_expecting(op, path, input, opts, None)
+    }
+
+    /// Runs a save that expects `expect` at the path (`absent`, or `MAJOR:MINOR:INODE`).
+    fn run_expecting(
+        &self,
+        op: &str,
+        path: Option<&Path>,
+        input: &[u8],
+        opts: &str,
+        expect: Option<&str>,
+    ) -> String {
+        let expect = expect.map(|e| ("FILES_TEST_EXPECT", e.to_string()));
+        let out = self.run_with(op, path, input, opts, expect.as_slice());
         assert!(out.killed.is_none());
         out.result.expect("the child gave no result")
     }
@@ -247,20 +277,15 @@ impl Scratch {
         path: Option<&Path>,
         input: &[u8],
         opts: &str,
-        kill_at: Option<usize>,
-        umask: Option<&str>,
+        env: &[(&str, String)],
     ) -> Outcome {
         let input_path = self.base.join("input");
         stdfs::write(&input_path, input).unwrap();
         set_mode(&input_path, 0o644);
         let mut cmd = self.command(op, path, &input_path);
         cmd.env("FILES_TEST_OPTS", opts);
-        if let Some(n) = kill_at {
-            cmd.env("FILES_TEST_KILL_AT", n.to_string());
-        }
-        if let Some(mask) = umask {
-            cmd.env("FILES_TEST_UMASK", mask);
-        }
+        // FILES_TEST_KILL_AT, FILES_TEST_UMASK, FILES_TEST_EXPECT.
+        cmd.envs(env.iter().map(|(k, v)| (k, v)));
         let output = cmd.output().unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
         let line = |prefix: &str| {
@@ -320,10 +345,21 @@ impl Drop for Scratch {
     }
 }
 
+fn kill_at(n: usize) -> (&'static str, String) {
+    ("FILES_TEST_KILL_AT", n.to_string())
+}
+
 struct Outcome {
     /// The step the child was killed at.
     killed: Option<String>,
     result: Option<String>,
+}
+
+/// `.NAME.` and 16 hexadecimal digits and `.tmp`.
+fn random_temp(name: &str, file: &str) -> bool {
+    name.strip_prefix(&format!(".{file}."))
+        .and_then(|rest| rest.strip_suffix(".tmp"))
+        .is_some_and(|hex| hex.len() == 16 && hex.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 fn set_mode(path: &Path, mode: u32) {
@@ -396,6 +432,7 @@ fn acl(entries: &[(u16, u16, u32)]) -> Vec<u8> {
     v
 }
 
+const ACL: &str = "system.posix_acl_access";
 const ACL_USER_OBJ: u16 = 0x01;
 const ACL_USER: u16 = 0x02;
 const ACL_GROUP_OBJ: u16 = 0x04;
@@ -426,7 +463,7 @@ fn kill_at_every_step(
     for n in 1.. {
         let s = Scratch::new(who);
         let path = setup(&s);
-        let out = s.run_with("save", Some(&path), &new(), opts, Some(n), None);
+        let out = s.run_with("save", Some(&path), &new(), opts, &[kill_at(n)]);
         match out.killed {
             Some(step) => {
                 println!("{who:?}: killed at step {n}: {step}");
@@ -463,10 +500,11 @@ fn sigkill_replace_leaves_old_or_new_whole() {
                 let m = meta(path);
                 assert_eq!(m.mode() & 0o7777, 0o640, "{who:?}: mode after {step}");
                 assert_eq!(m.uid(), who.uid());
-                // Only the file and, killed before the rename, a hidden temporary file.
+                // Only the file and, killed before the rename, a hidden temporary file with a
+                // random name.
                 for name in names(&s.dir) {
                     assert!(
-                        name == "f" || name.starts_with(".f."),
+                        name == "f" || random_temp(&name, "f"),
                         "{name} after {step}"
                     );
                 }
@@ -912,7 +950,13 @@ fn new_files_follow_the_umask() {
     for who in everyone() {
         let s = Scratch::new(who);
         let path = s.path("new");
-        let out = s.run_with("save", Some(&path), &new(), "", None, Some("027"));
+        let out = s.run_with(
+            "save",
+            Some(&path),
+            &new(),
+            "",
+            &[("FILES_TEST_UMASK", "027".into())],
+        );
         assert_eq!(out.result.as_deref(), Some("replaced"));
         let m = meta(&path);
         assert_eq!(
@@ -1332,4 +1376,225 @@ fn no_lock_in_a_directory_without_write_permission() {
         let result = s.run("lock", Some(&s.path("f")), b"", "");
         assert_eq!(result, format!("locked {}", s.path(".f.swp").display()));
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// After the security review.
+
+/// Mode 0660 with `group::---`: the group bits are the mask; the owning group may not read it.
+fn acl_denying_the_group() -> Vec<u8> {
+    acl(&[
+        (ACL_USER_OBJ, 6, NO_ID),
+        (ACL_USER, 6, OTHER),
+        (ACL_GROUP_OBJ, 0, NO_ID),
+        (ACL_MASK, 6, NO_ID),
+        (ACL_OTHER, 0, NO_ID),
+    ])
+}
+
+/// A file with that ACL; false when the file system has no ACLs.
+fn file_with_acl(s: &Scratch, path: &Path, uid: u32) -> bool {
+    s.file(path, &old(), 0o600, uid);
+    match setxattr(path, ACL, &acl_denying_the_group(), XattrFlags::empty()) {
+        Ok(()) => {
+            assert_eq!(meta(path).mode() & 0o777, 0o660);
+            true
+        }
+        Err(e) if unsupported(e, "ACLs") => false,
+        Err(e) => panic!("{e}"),
+    }
+}
+
+/// Nobody but the owner may use a copy of a file with an ACL: the copies get no ACL.
+fn owner_only(path: &Path) {
+    assert_eq!(meta(path).mode() & 0o077, 0, "{}", path.display());
+    assert!(xattr(path, ACL).is_none());
+}
+
+#[test]
+fn copies_of_a_file_with_an_acl_are_for_the_owner_only() {
+    for who in everyone() {
+        let s = Scratch::new(who);
+        let path = s.path("f");
+        if !file_with_acl(&s, &path, who.uid()) {
+            return;
+        }
+        // The backup.
+        let result = s.run("save", Some(&path), &new(), "backup");
+        assert!(result.starts_with("replaced"), "{who:?}: {result}");
+        owner_only(&s.path("f~"));
+        assert_eq!(xattr(&path, ACL), Some(acl_denying_the_group()));
+        // The emergency copy.
+        let copy = s.run("emergency", Some(&path), b"unsaved", "");
+        assert_eq!(copy, format!("{}.save", path.display()), "{who:?}");
+        owner_only(Path::new(&copy));
+        // The lock file.
+        let result = s.run("lock", Some(&path), b"", "");
+        assert!(result.starts_with("locked"), "{result}");
+        // The child has ended and removed it: take it here to look at it.
+        if who == Who::Me {
+            let Locking::Locked(lock) = lock(&path, false).unwrap() else {
+                panic!("not locked");
+            };
+            owner_only(lock.path());
+        }
+        // The hidden copy made before writing in place, kept when the save is killed.
+        stdfs::hard_link(&path, s.path("link")).unwrap();
+        let out = s.run_with("save", Some(&path), &new(), "", &[kill_at(3)]);
+        let killed = out.killed.unwrap();
+        let copies: Vec<_> = names(&s.dir)
+            .into_iter()
+            .filter(|n| random_temp(n, "f"))
+            .collect();
+        assert_eq!(copies.len(), 1, "{who:?}: killed at {killed}");
+        owner_only(&s.path(&copies[0]));
+    }
+}
+
+#[test]
+fn sigkill_never_leaves_a_temporary_file_more_open_than_the_original() {
+    for who in everyone() {
+        // An ACL that keeps the owning group out.
+        let mut acl_steps = 0;
+        let s = Scratch::new(who);
+        if file_with_acl(&s, &s.path("probe"), who.uid()) {
+            acl_steps = kill_at_every_step(
+                who,
+                "",
+                |s| {
+                    let path = s.path("f");
+                    file_with_acl(s, &path, who.uid());
+                    path
+                },
+                |s, _, step| {
+                    for name in names(&s.dir).iter().filter(|n| random_temp(n, "f")) {
+                        let tmp = s.path(name);
+                        let acl = xattr(&tmp, ACL);
+                        let open = meta(&tmp).mode() & 0o077 != 0;
+                        assert!(
+                            !open || acl == Some(acl_denying_the_group()),
+                            "{who:?}: {name} open to others without the ACL after {step}"
+                        );
+                    }
+                },
+            );
+        }
+        // Set-user-ID: only in the last moment before the rename.
+        let suid_steps = kill_at_every_step(
+            who,
+            "",
+            |s| {
+                let path = s.path("f");
+                s.file(&path, &old(), 0o4755, who.uid());
+                path
+            },
+            |s, path, step| {
+                for name in names(&s.dir).iter().filter(|n| random_temp(n, "f")) {
+                    let suid = meta(&s.path(name)).mode() & 0o6000 != 0;
+                    assert!(
+                        !suid || step == "privileges given",
+                        "{who:?}: {name} after {step}"
+                    );
+                }
+                assert_eq!(meta(path).mode() & 0o7777, 0o4755);
+            },
+        );
+        assert!(suid_steps > 9 && (acl_steps == 0 || acl_steps > 9));
+    }
+}
+
+#[test]
+fn a_file_swapped_under_the_editor_is_not_saved() {
+    for who in everyone() {
+        let s = Scratch::new(who);
+        let path = s.path("f");
+        s.file(&path, &old(), 0o644, who.uid());
+        // What the editor read.
+        let m = super::stat(&path).unwrap().unwrap();
+        let id = format!("{}:{}:{}", m.dev.0, m.dev.1, m.ino);
+        // The name now points somewhere else (as a user who owns the directory could do).
+        let victim = s.base.join("victim");
+        s.file(&victim, b"victim", 0o666, who.uid());
+        // Moved away, not removed: its inode number is not given to another file.
+        stdfs::rename(&path, s.base.join("read")).unwrap();
+        std::os::unix::fs::symlink(&victim, &path).unwrap();
+        own(&path, who.uid());
+        let result = s.run_expecting("save", Some(&path), &new(), "", Some(&id));
+        assert_eq!(result, "error: File on disk has changed", "{who:?}");
+        assert_eq!(read(&victim), b"victim");
+        // Another file under the name.
+        stdfs::remove_file(&path).unwrap();
+        s.file(&path, b"other", 0o644, who.uid());
+        let result = s.run_expecting("save", Some(&path), &new(), "", Some(&id));
+        assert_eq!(result, "error: File on disk has changed");
+        assert_eq!(read(&path), b"other");
+        // A new buffer, and a file appeared under its name.
+        let result = s.run_expecting("save", Some(&path), &new(), "", Some("absent"));
+        assert_eq!(result, "error: File on disk has changed");
+        // The file the editor read is gone.
+        stdfs::remove_file(&path).unwrap();
+        let result = s.run_expecting("save", Some(&path), &new(), "", Some(&id));
+        assert_eq!(result, "error: File on disk has changed");
+        assert!(!path.exists());
+        // Told so, the editor saves again with what is there now.
+        let result = s.run_expecting("save", Some(&path), &new(), "", Some("absent"));
+        assert_eq!((result.as_str(), read(&path)), ("replaced", new()));
+    }
+}
+
+#[test]
+fn emergency_copies_only_next_to_the_file_in_the_users_own_directory() {
+    if !needs_root("emergency_copies_only_next_to_the_file_in_the_users_own_directory") {
+        return;
+    }
+    // Root edits, through a symlink in a user's directory, a root file in a private directory.
+    let s = Scratch::new(Who::Me);
+    let private = s.base.join("private");
+    s.mkdir(&private, 0o700, 0);
+    let file = private.join("f");
+    s.file(&file, b"saved", 0o644, 0);
+    let user_dir = s.base.join("user");
+    s.mkdir(&user_dir, 0o755, USER);
+    let link = user_dir.join("link");
+    std::os::unix::fs::symlink(&file, &link).unwrap();
+    own(&link, USER);
+    let copy = s.run("emergency", Some(&link), b"unsaved", "");
+    assert_eq!(copy, s.home.join("link.save").display().to_string());
+    // Root's own file in a user's directory: also home.
+    let own_file = user_dir.join("g");
+    s.file(&own_file, b"saved", 0o644, 0);
+    let copy = s.run("emergency", Some(&own_file), b"unsaved", "");
+    assert_eq!(copy, s.home.join("g.save").display().to_string());
+    assert_eq!(names(&user_dir), ["g", "link"]);
+    // A buffer without a name, in a user's directory as the current one.
+    let mut cmd = s.command("emergency", None, &s.base.join("input"));
+    stdfs::write(s.base.join("input"), b"unsaved").unwrap();
+    let out = cmd.current_dir(&user_dir).output().unwrap();
+    assert!(String::from_utf8_lossy(&out.stdout).contains(&s.home.display().to_string()));
+    assert_eq!(names(&user_dir), ["g", "link"]);
+
+    // A user's own file in a directory another user owns.
+    let s = Scratch::new(Who::User);
+    let shared = s.base.join("shared");
+    s.mkdir(&shared, 0o777, OTHER);
+    let path = shared.join("f");
+    s.file(&path, b"saved", 0o644, USER);
+    let copy = s.run("emergency", Some(&path), b"unsaved", "");
+    assert_eq!(copy, s.home.join("f.save").display().to_string());
+    assert_eq!(names(&shared), ["f"]);
+}
+
+#[test]
+fn control_characters_in_a_lock_file_are_not_shown() {
+    let s = Scratch::new(Who::Me);
+    let path = s.path("f");
+    s.file(&path, b"text", 0o644, geteuid().as_raw());
+    let mut data = nano_lock("evil\x1b]0;t\x07\x1b[2J\u{9b}x", 7, "f");
+    data[2..12].copy_from_slice(b"n\x7fo\x1b[1m8.4");
+    stdfs::write(s.path(".f.swp"), data).unwrap();
+    let Locking::Busy(info) = lock(&path, false).unwrap() else {
+        panic!("not busy");
+    };
+    assert_eq!(info.user, "evil?]0;t??[2J?x");
+    assert_eq!(info.program, "n?o?[1m8.4");
 }

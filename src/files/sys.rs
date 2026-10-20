@@ -10,7 +10,6 @@ use std::ffi::{OsStr, OsString};
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use rustix::fs::{self, AtFlags, CWD, FileType, Mode, OFlags, Statx, StatxFlags, XattrFlags};
 use rustix::io::{self as rio, Errno};
@@ -114,18 +113,27 @@ pub(super) fn create_new(dir: impl AsFd, name: &OsStr, mode: u32) -> Result<Owne
     fs::openat(dir, name, CREATE, Mode::from_raw_mode(mode))
 }
 
-static COUNTER: AtomicU32 = AtomicU32::new(0);
-
-/// Creates a new hidden temporary file next to `name`: `.NAME.PID-N.tmp`.
+/// Creates a new hidden temporary file next to `name`: `.NAME.RANDOM.tmp`, with 64 random bits, so
+/// another user cannot guess the name and take it first.
 pub(super) fn create_temp(dir: impl AsFd, name: &OsStr, mode: u32) -> Result<(OwnedFd, OsString)> {
-    let pid = rustix::process::getpid().as_raw_nonzero();
     // Long names are cut so the temporary name stays under the 255-byte limit.
     let short = &name.as_bytes()[..name.len().min(200)];
     for _ in 0..100 {
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let mut random = [0u8; 8];
+        let mut filled = 0;
+        while filled < random.len() {
+            match rustix::rand::getrandom(
+                &mut random[filled..],
+                rustix::rand::GetRandomFlags::empty(),
+            ) {
+                Ok(n) => filled += n,
+                Err(Errno::INTR) => {}
+                Err(e) => return Err(e),
+            }
+        }
         let mut tmp = b".".to_vec();
         tmp.extend_from_slice(short);
-        tmp.extend_from_slice(format!(".{pid}-{n}.tmp").as_bytes());
+        tmp.extend_from_slice(format!(".{:016x}.tmp", u64::from_le_bytes(random)).as_bytes());
         let tmp = OsString::from_vec(tmp);
         match create_new(dir.as_fd(), &tmp, mode) {
             Ok(fd) => return Ok((fd, tmp)),
@@ -183,13 +191,37 @@ pub(super) fn sync_dir(dir: impl AsFd) -> Result<()> {
     }
 }
 
-/// Gives a copy the owner of the original if it can (root), and its permissions, but never more
-/// than `0600` when the copy cannot have the original's owner and group. No set-user-ID bits.
-pub(super) fn copy_owner_and_mode(fd: impl AsFd, st: &Statx) -> Result<()> {
+/// The POSIX access ACL, whose entries the mode's group bits do not show.
+pub(super) const ACL: &str = "system.posix_acl_access";
+
+/// Whether a file has an access ACL; when that cannot be read (a file opened only as a path),
+/// assume it has one.
+pub(super) fn has_acl(fd: impl AsFd) -> bool {
+    !matches!(
+        fs::fgetxattr(fd, ACL, &mut [0u8; 0]),
+        Err(Errno::NODATA | Errno::NOTSUP)
+    )
+}
+
+/// The mode for a copy of a file (a backup, an emergency copy, a lock file), which gets no ACL:
+/// with an ACL, the group bits are the ACL's mask, not what the owning group may do, so only the
+/// owner's bits are kept. Never set-user-ID bits.
+pub(super) fn copy_mode(st: &Statx, acl: bool) -> u32 {
+    if acl {
+        mode(st) & 0o700
+    } else {
+        mode(st) & 0o777
+    }
+}
+
+/// Gives a copy the owner of the original if it can (root), and its permissions (see
+/// [`copy_mode`]), but never more than `0600` when the copy cannot have the original's owner and
+/// group.
+pub(super) fn copy_owner_and_mode(fd: impl AsFd, st: &Statx, acl: bool) -> Result<()> {
     let uid = rustix::fs::Uid::from_raw(st.stx_uid);
     let gid = rustix::fs::Gid::from_raw(st.stx_gid);
     let mode = if fs::fchown(fd.as_fd(), Some(uid), Some(gid)).is_ok() {
-        mode(st) & 0o777
+        copy_mode(st, acl)
     } else {
         mode(st) & 0o600
     };
@@ -231,20 +263,36 @@ fn get_xattr(fd: impl AsFd, name: &OsStr) -> Result<Vec<u8>> {
     }
 }
 
-/// Makes the extended attributes of `to` (ACLs, security labels, capabilities, user attributes)
-/// the same as those of `from`, removing any `to` got on its own (such as a default ACL).
+/// File capabilities: given to a new file only once it is complete (see the save).
+pub(super) const CAPABILITY: &str = "security.capability";
+
+/// Makes the extended attributes of `to` (ACLs, security labels, user attributes) the same as
+/// those of `from`, removing any `to` got on its own (such as a default ACL); file capabilities
+/// are left out.
 pub(super) fn copy_xattrs(from: impl AsFd, to: impl AsFd) -> Result<()> {
     let names = list_xattrs(from.as_fd())?;
-    for name in &names {
+    for name in names.iter().filter(|n| *n != CAPABILITY) {
         let value = get_xattr(from.as_fd(), name)?;
         fs::fsetxattr(to.as_fd(), name, &value, XattrFlags::empty())?;
     }
     for name in list_xattrs(to.as_fd())? {
-        if !names.contains(&name) {
+        if !names.contains(&name) || name == CAPABILITY {
             fs::fremovexattr(to.as_fd(), &name)?;
         }
     }
     Ok(())
+}
+
+/// Gives `to` the file capabilities of `from`, if it has any; whether it had.
+pub(super) fn copy_capability(from: impl AsFd, to: impl AsFd) -> Result<bool> {
+    match get_xattr(from, OsStr::new(CAPABILITY)) {
+        Ok(value) => {
+            fs::fsetxattr(to, CAPABILITY, &value, XattrFlags::empty())?;
+            Ok(true)
+        }
+        Err(Errno::NODATA | Errno::NOTSUP) => Ok(false),
+        Err(e) => Err(e),
+    }
 }
 
 /// The inode flags (`chattr`) of two files are the same, or cannot be read.

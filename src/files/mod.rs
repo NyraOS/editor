@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: MIT
 //! Files: reading, saving without losing data, emergency copies, lock files and backups.
 //!
-//! [`save`] replaces a file in one step: it writes a new file next to it (`O_CREAT | O_EXCL`,
-//! mode `0600`), syncs it, gives it the owner, permissions, ACLs and extended attributes of the
-//! original, renames it over the original and syncs the directory. A crash or a `SIGKILL` at any
-//! point leaves the old file whole or the new one whole.
+//! [`save`] saves only over the file the editor expects (the one it read or saved, or none):
+//! another file, or a symlink to one, swapped in under the name is refused. It replaces a file in
+//! one step: it writes a new file next to it (`O_CREAT | O_EXCL`, mode `0600`), gives it the owner,
+//! the ACLs and other extended attributes, then the permissions of the original, so it never lets
+//! in anyone the original keeps out; syncs it, and only then gives it set-user-ID bits and file
+//! capabilities, so a save killed earlier never leaves a privileged copy; renames it over the
+//! original and syncs the directory. A crash or a `SIGKILL` at any point leaves the old file whole
+//! or the new one whole.
 //!
 //! When renaming would break something, it writes into the file itself, as GNU nano does, after a
 //! copy of the old contents (the backup, or a hidden copy next to the file that is removed once the
@@ -18,7 +22,9 @@
 //!
 //! Files the editor creates (temporary files, copies, backups, emergency copies, lock files) are
 //! always new files, created with `O_EXCL | O_NOFOLLOW` in a directory opened once, so no
-//! symlink or file planted under their names is ever written through.
+//! symlink or file planted under their names is ever written through. Temporary names have 64
+//! random bits. Copies never get an ACL, so when the original has one they keep only the owner's
+//! permission bits (the group bits of a file with an ACL are the ACL's mask).
 
 mod backup;
 mod emergency;
@@ -39,7 +45,7 @@ use rustix::io::Errno;
 
 pub use emergency::{emergency_save, watch_signals};
 pub use lock::{Lock, LockInfo, Locking, lock};
-pub use save::{Method, SaveError, SaveOptions, Saved, save};
+pub use save::{Expected, Method, SaveError, SaveOptions, Saved, save};
 
 /// What the editor remembers about a file it read or saved, to notice later that it changed on
 /// disk.
