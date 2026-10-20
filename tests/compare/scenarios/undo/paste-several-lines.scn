@@ -1,0 +1,13 @@
+# Cut three lines, paste them back, then undo and redo the paste.
+args: t.txt
+file t.txt:
+| one
+| two
+| three
+keys: {^K}{^K}{^K}
+keys: {^U}
+keys: {M-u}
+keys: {M-e}
+keys: {M-u}
+keys: {M-u}
+keys: {^X}

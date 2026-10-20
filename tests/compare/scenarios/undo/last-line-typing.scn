@@ -1,0 +1,12 @@
+# Typing on the empty last line, and undoing it, leaves no extra line behind.
+args: t.txt
+file t.txt:
+| one
+| two
+keys: {^End}
+keys: x
+keys: {M-u}
+keys: {^O}{Enter}
+keys: {M-e}
+keys: {M-u}
+keys: {^X}

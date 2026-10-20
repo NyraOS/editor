@@ -1,0 +1,11 @@
+# Backspace at the start of a line joins it to the line above: "line join".
+args: t.txt
+file t.txt:
+| one
+| two
+| three
+keys: {Down}{Bsp}
+keys: {M-u}
+keys: {M-e}
+keys: {M-u}
+keys: {^X}

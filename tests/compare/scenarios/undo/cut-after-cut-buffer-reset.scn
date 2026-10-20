@@ -1,0 +1,15 @@
+# ^C between two cuts starts a new cut buffer and a new step.
+args: t.txt
+file t.txt:
+| one
+| two
+| three
+| four
+keys: {^K}
+keys: {^C}
+keys: {^K}
+keys: {^U}
+keys: {M-u}
+keys: {M-u}
+keys: {^X}
+keys: n

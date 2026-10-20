@@ -111,6 +111,42 @@ pub fn convert_line_ends(text: String) -> (String, Format) {
     }
 }
 
+/// What an edit was, as nano names it in "Undid ..." and "Redid ...".
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Kind {
+    Add,
+    Enter,
+    Back,
+    Del,
+    Join,
+    Cut,
+    Paste,
+}
+
+impl Kind {
+    pub fn name(self) -> &'static str {
+        match self {
+            Kind::Add => "addition",
+            Kind::Enter => "line break",
+            Kind::Back | Kind::Del => "deletion",
+            Kind::Join => "line join",
+            Kind::Cut => "cut",
+            Kind::Paste => "paste",
+        }
+    }
+}
+
+/// One step of undo: at `at` (a character index), `old` was replaced by `new`. The cursor
+/// (character indexes) was at `before` and ended at `after`.
+struct Edit {
+    kind: Kind,
+    at: usize,
+    old: String,
+    new: String,
+    before: usize,
+    after: usize,
+}
+
 pub struct Buffer {
     pub text: Rope,
     /// The cursor: its line, and its position in the line in characters.
@@ -122,6 +158,13 @@ pub struct Buffer {
     pub top: usize,
     pub modified: bool,
     pub format: Format,
+    /// The edits made, and how many of them are in effect: the rest can be redone.
+    edits: Vec<Edit>,
+    done: usize,
+    /// `done` when the text was saved or read; None when that state can no longer be reached.
+    saved: Option<usize>,
+    /// Whether the next edit may join the last one (not after an undo, a redo or a save).
+    open: bool,
 }
 
 impl Buffer {
@@ -134,6 +177,10 @@ impl Buffer {
             top: 0,
             modified: false,
             format,
+            edits: Vec::new(),
+            done: 0,
+            saved: Some(0),
+            open: false,
         }
     }
 
@@ -205,6 +252,126 @@ impl Buffer {
             self.seam(from);
             self.modified = true;
         }
+    }
+
+    /// Deletes the characters from `from` up to `to` and records it for undo. The cursor must
+    /// already be where the deletion leaves it; `before` is where it was.
+    pub fn erase(&mut self, kind: Kind, from: usize, to: usize, before: usize) {
+        let old = String::from(self.text.slice(from..to));
+        self.remove(from, to);
+        self.record(kind, from, old, String::new(), before);
+    }
+
+    /// Records an edit that has been made. Typed characters, and deletions with the same key, that
+    /// follow one another make one step, as in nano; so do consecutive cuts. The edit ends where
+    /// the cursor is.
+    pub fn record(&mut self, kind: Kind, at: usize, old: String, new: String, before: usize) {
+        let after = self.pos();
+        if self.done < self.edits.len() {
+            self.edits.truncate(self.done);
+            if self.saved.is_some_and(|s| s > self.done) {
+                self.saved = None;
+            }
+        }
+        if let Some(last) = self
+            .edits
+            .last_mut()
+            .filter(|l| self.open && l.kind == kind)
+        {
+            let joined = match kind {
+                Kind::Add if last.after == at => {
+                    // Not at the end of `last.new` when it ends with the final newline.
+                    let skip = at - last.at;
+                    let i = last
+                        .new
+                        .char_indices()
+                        .nth(skip)
+                        .map_or(last.new.len(), |(i, _)| i);
+                    last.new.insert_str(i, &new);
+                    true
+                }
+                Kind::Back if last.at == at + old.chars().count() => {
+                    last.at = at;
+                    last.old.insert_str(0, &old);
+                    true
+                }
+                Kind::Del | Kind::Cut if last.at == at => {
+                    last.old.push_str(&old);
+                    true
+                }
+                _ => false,
+            };
+            if joined {
+                last.after = after;
+                return;
+            }
+        }
+        self.edits.push(Edit {
+            kind,
+            at,
+            old,
+            new,
+            before,
+            after,
+        });
+        self.done = self.edits.len();
+        self.open = true;
+    }
+
+    /// Adds the newline that nano keeps at the end of the text to the last edit, which made
+    /// the text end there.
+    pub fn record_final_newline(&mut self) {
+        if let Some(last) = self.edits.last_mut() {
+            last.new.push('\n');
+        }
+    }
+
+    /// The next edit starts a new undo step.
+    pub fn end_group(&mut self) {
+        self.open = false;
+    }
+
+    /// The text was saved: no edit joins the last one, and undoing back to here is not a change.
+    pub fn mark_saved(&mut self) {
+        self.saved = Some(self.done);
+        self.open = false;
+        self.modified = false;
+    }
+
+    /// Replaces `len` characters at `at` with `text`, as undo and redo do.
+    fn replace(&mut self, at: usize, len: usize, text: &str) {
+        self.text.remove(at..at + len);
+        self.text.insert(at, text);
+        self.seam(at + text.chars().count());
+        self.seam(at);
+    }
+
+    /// Takes back the last edit in effect; returns its kind, None when there is none.
+    pub fn undo(&mut self) -> Option<Kind> {
+        let edit = self.edits.get(self.done.checked_sub(1)?)?;
+        let (kind, at, before) = (edit.kind, edit.at, edit.before);
+        let (new_len, old) = (edit.new.chars().count(), edit.old.clone());
+        self.replace(at, new_len, &old);
+        self.done -= 1;
+        self.finish(before);
+        Some(kind)
+    }
+
+    /// Makes the last edit taken back again; returns its kind, None when there is none.
+    pub fn redo(&mut self) -> Option<Kind> {
+        let edit = self.edits.get(self.done)?;
+        let (kind, at, after) = (edit.kind, edit.at, edit.after);
+        let (old_len, new) = (edit.old.chars().count(), edit.new.clone());
+        self.replace(at, old_len, &new);
+        self.done += 1;
+        self.finish(after);
+        Some(kind)
+    }
+
+    fn finish(&mut self, cursor: usize) {
+        self.set_pos(cursor.min(self.text.len_chars()));
+        self.open = false;
+        self.modified = self.saved != Some(self.done);
     }
 
     /// Where an edit joined two pieces of text at `at`: a real `MARK` that now follows a
@@ -410,5 +577,75 @@ mod tests {
         assert!(b.modified);
         assert_eq!(b.line_len(2), 3);
         assert_eq!(b.line_text(3), "");
+    }
+
+    /// Types `s` at the cursor, as the editor does.
+    fn type_in(b: &mut Buffer, s: &str) {
+        let at = b.pos();
+        b.insert(s);
+        b.record(Kind::Add, at, String::new(), s.to_string(), at);
+    }
+
+    #[test]
+    fn typing_in_a_row_is_one_step() {
+        let mut b = Buffer::new("one\n", Format::Unix);
+        type_in(&mut b, "a");
+        type_in(&mut b, "b");
+        assert_eq!(b.undo(), Some(Kind::Add));
+        assert_eq!((String::from(&b.text), b.pos()), ("one\n".into(), 0));
+        assert!(!b.modified);
+        assert_eq!(b.undo(), None);
+        assert_eq!(b.redo(), Some(Kind::Add));
+        assert_eq!((String::from(&b.text), b.pos()), ("abone\n".into(), 2));
+        assert_eq!(b.redo(), None);
+        // After an undo, typing where the group ended is a new step.
+        type_in(&mut b, "c");
+        assert_eq!(b.undo(), Some(Kind::Add));
+        assert_eq!(String::from(&b.text), "abone\n");
+    }
+
+    #[test]
+    fn backspaces_and_cuts_each_make_a_step() {
+        let mut b = Buffer::new("abcd\nx\ny\n", Format::Unix);
+        b.set_pos(3);
+        for _ in 0..2 {
+            let before = b.pos();
+            b.set_pos(before - 1);
+            b.erase(Kind::Back, before - 1, before, before);
+        }
+        assert_eq!(String::from(&b.text), "ad\nx\ny\n");
+        b.set_pos(3);
+        for _ in 0..2 {
+            b.erase(Kind::Cut, 3, 5, 3);
+        }
+        assert_eq!(String::from(&b.text), "ad\n");
+        assert_eq!(b.undo(), Some(Kind::Cut));
+        assert_eq!((String::from(&b.text), b.pos()), ("ad\nx\ny\n".into(), 3));
+        assert_eq!(b.undo(), Some(Kind::Back));
+        assert_eq!((String::from(&b.text), b.pos()), ("abcd\nx\ny\n".into(), 3));
+        assert_eq!(b.undo(), None);
+    }
+
+    #[test]
+    fn a_new_edit_clears_redo_and_modified_follows_the_saved_state() {
+        let mut b = Buffer::new("x\n", Format::Unix);
+        type_in(&mut b, "a");
+        b.mark_saved();
+        assert!(!b.modified);
+        // A save ends the group.
+        type_in(&mut b, "b");
+        assert_eq!(b.undo(), Some(Kind::Add));
+        assert!(!b.modified);
+        assert_eq!(b.undo(), Some(Kind::Add));
+        assert!(b.modified);
+        assert_eq!(b.redo(), Some(Kind::Add));
+        assert!(!b.modified);
+        // Back past the save, then a new edit: the saved text is out of reach.
+        b.undo();
+        type_in(&mut b, "c");
+        assert_eq!(b.redo(), None);
+        assert!(b.modified);
+        b.undo();
+        assert!(b.modified);
     }
 }

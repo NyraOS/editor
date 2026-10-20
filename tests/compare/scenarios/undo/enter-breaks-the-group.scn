@@ -1,0 +1,14 @@
+# A new line is a step of its own, between two typed groups.
+args: t.txt
+file t.txt:
+| one two
+| two
+keys: abc
+keys: {Enter}
+keys: def
+keys: {M-u}
+keys: {M-u}
+keys: {M-u}
+keys: {M-e*3}
+keys: {^X}
+keys: n

@@ -1,0 +1,12 @@
+# Past the first and past the last step: "Nothing to undo" and "Nothing to redo".
+args: t.txt
+file t.txt:
+| one two
+keys: abc
+keys: {M-u}
+keys: {M-u}
+keys: {M-e}
+keys: {M-e}
+keys: {M-e}
+keys: {^X}
+keys: n

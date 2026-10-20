@@ -1,0 +1,12 @@
+# After undoing past the save and editing again, the saved text can no longer be reached.
+args: t.txt
+file t.txt:
+| one two
+keys: abc
+keys: {^O}{Enter}
+keys: {M-u}
+keys: xyz
+keys: {M-u}
+keys: {M-u}
+keys: {^X}
+keys: n

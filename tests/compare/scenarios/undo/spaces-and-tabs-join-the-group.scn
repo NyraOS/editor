@@ -1,0 +1,10 @@
+# Spaces and tabs typed among letters do not start a new step.
+args: t.txt
+file t.txt:
+| one two
+keys: ab cd
+keys: {Space}x
+keys: {Tab}y
+keys: {M-u}
+keys: {M-u}
+keys: {^X}

@@ -1,0 +1,13 @@
+# Undo and redo a paste of one line.
+args: t.txt
+file t.txt:
+| one
+| two
+| three
+keys: {^K}
+keys: {Down}{^U}
+keys: {M-u}
+keys: {M-e}
+keys: {M-u}
+keys: {M-u}
+keys: {^X}

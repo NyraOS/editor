@@ -1,0 +1,13 @@
+# Backspaces and deletes in a row are two steps, each undone on its own.
+args: t.txt
+file t.txt:
+| one two three
+keys: {Right*7}
+keys: {Bsp}{Bsp}
+keys: {^D}{^D}
+keys: {M-u}
+keys: {M-u}
+keys: {M-u}
+keys: {M-e*3}
+keys: {^X}
+keys: n

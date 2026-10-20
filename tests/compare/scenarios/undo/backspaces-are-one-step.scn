@@ -1,0 +1,10 @@
+# Consecutive backspaces are one step; undo puts the cursor back where they began.
+args: t.txt
+file t.txt:
+| one two three
+keys: {Right*7}
+keys: {Bsp*3}
+keys: {M-u}
+keys: {M-e}
+keys: {M-u}
+keys: {^X}

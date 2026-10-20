@@ -1,0 +1,11 @@
+# Two new lines in a row are two steps.
+args: t.txt
+file t.txt:
+| one two
+| two
+keys: {Down}{Enter}{Enter}
+keys: {M-u}
+keys: {M-u}
+keys: {M-e}
+keys: {^X}
+keys: n
