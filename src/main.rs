@@ -9,6 +9,7 @@ mod config;
 #[allow(dead_code, unused_imports)]
 mod files;
 mod keys;
+mod rcfile;
 mod replace;
 mod screen;
 mod search;

@@ -1,0 +1,7 @@
+# An unterminated quote.
+nanorc: set tabsize "3
+args: a.txt
+file a.txt:
+| \tx cat Cat c.t
+keys: {End}
+keys: {^X}

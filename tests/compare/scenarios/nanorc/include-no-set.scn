@@ -1,0 +1,15 @@
+# An included file may not set options or include: nano reports it, with the included file's
+# name and the line in it; "Mistakes in" names that file.
+size: 100x30
+nanorc: include "inc.rc"
+args: a.txt
+file inc.rc:
+| set linenumbers
+| # fine
+| include "inc.rc"
+| unset nohelp
+| syntax "s"
+| color red "x"
+file a.txt:
+| text
+keys: {^X}

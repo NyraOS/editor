@@ -1,0 +1,7 @@
+# Two quoted words.
+nanorc: set tabsize "3" "5"
+args: a.txt
+file a.txt:
+| \tx cat Cat c.t
+keys: {End}
+keys: {^X}

@@ -1,0 +1,7 @@
+# A quoted argument with text after the closing quote.
+nanorc: set tabsize "3"x
+args: a.txt
+file a.txt:
+| \tx cat Cat c.t
+keys: {End}
+keys: {^X}

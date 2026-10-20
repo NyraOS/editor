@@ -25,6 +25,7 @@ pub fn run(
     nano: &[String],
     editor: &[String],
     dir: &Path,
+    sysconfdir: Option<&Path>,
     show: Option<&mut String>,
 ) -> Result<(), String> {
     let mut show = show;
@@ -40,11 +41,17 @@ pub fn run(
             fs::create_dir_all(path.parent().unwrap_or(&work)).map_err(io_err)?;
             fs::write(path, bytes).map_err(io_err)?;
         }
+        for (file, bytes) in &scenario.home_files {
+            let path = home.join(file);
+            fs::create_dir_all(path.parent().unwrap_or(&home)).map_err(io_err)?;
+            fs::write(path, bytes).map_err(io_err)?;
+        }
         let term = Term::spawn(
             command,
             &scenario.args,
             &work,
             &home,
+            sysconfdir.filter(|_| !scenario.home_files.is_empty()),
             scenario.cols,
             scenario.rows,
         )

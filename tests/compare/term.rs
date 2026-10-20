@@ -44,12 +44,17 @@ pub enum Exit {
 }
 
 impl Term {
-    /// Starts `command` in `dir`, with a fixed environment and an empty `home`.
+    /// Starts `command` in `dir`, with a fixed environment and `home`. With `rc_sysconfdir`, the
+    /// editor reads rc files (`dir` is then `../work` of `home`): HOME is the relative path
+    /// `../home`, so that the paths in its messages are the same for both editors, and
+    /// `rc_sysconfdir` is where both read the system's nanorc (see `main.rs`; only the editor
+    /// under test needs to be told).
     pub fn spawn(
         command: &[String],
         args: &[String],
         dir: &Path,
         home: &Path,
+        rc_sysconfdir: Option<&Path>,
         cols: u16,
         rows: u16,
     ) -> io::Result<Self> {
@@ -64,12 +69,20 @@ impl Term {
         let child = Command::new("setsid")
             .args(["--ctty", "--wait"])
             .args(command)
-            .arg("--ignorercfiles")
+            .args(rc_sysconfdir.is_none().then_some("--ignorercfiles"))
             .args(args)
             .current_dir(dir)
             .env_clear()
             .env("PATH", "/usr/local/bin:/usr/bin:/bin")
-            .env("HOME", home)
+            .env(
+                "HOME",
+                if rc_sysconfdir.is_some() {
+                    Path::new("../home")
+                } else {
+                    home
+                },
+            )
+            .envs(rc_sysconfdir.map(|dir| ("NYRA_EDITOR_SYSCONFDIR", dir)))
             .env("TERM", "xterm-256color")
             .env("LANG", "C.UTF-8")
             .env("LC_ALL", "C.UTF-8")

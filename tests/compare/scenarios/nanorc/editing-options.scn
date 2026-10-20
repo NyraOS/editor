@@ -1,0 +1,12 @@
+# set cutfromcursor and tabstospaces from the file work like their command-line options.
+nanorc: set cutfromcursor
+nanorc: set tabstospaces
+nanorc: set tabsize 4
+args: a.txt
+file a.txt:
+| first line
+| second line
+keys: {Right*6}{^K}
+keys: {Tab}
+keys: {^X}
+keys: n

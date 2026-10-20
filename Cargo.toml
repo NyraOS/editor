@@ -24,6 +24,11 @@ regex = { version = "=1.11.1", default-features = false, features = ["std", "uni
 # How many columns a character takes on the screen.
 unicode-width = { version = "=0.2.2", default-features = false }
 
+[features]
+# Only for the comparison tests: the editor reads its system nanorc from NYRA_EDITOR_SYSCONFDIR.
+# Never in a release build.
+test-sysconfdir = []
+
 [dev-dependencies]
 # The comparison tests (tests/compare): rustix opens the pseudo-terminal, vt100 is the terminal emulator.
 # The files tests mount small file systems and bind mounts when run as root.

@@ -9,7 +9,7 @@ mod term;
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
@@ -54,6 +54,77 @@ fn editor(nano: &[String]) -> Vec<String> {
     }
 }
 
+/// The editor under test must read its system nanorc from `$NYRA_EDITOR_SYSCONFDIR`, which the
+/// nanorc scenarios rely on: a build without the `test-sysconfdir` feature reads the real files
+/// and would pass them while testing nothing. A bad line in a probe nanorc is reported on the
+/// standard error before the editor looks for a terminal, so no terminal is needed here.
+fn check_editor_reads_sysconfdir(editor: &[String]) {
+    let probe = std::env::temp_dir().join(format!("nyra-editor-probe-{}", std::process::id()));
+    fs::create_dir_all(&probe).expect("create the probe directory");
+    let rc = probe.join("nanorc");
+    fs::write(&rc, "set no-such-option\n").expect("write the probe nanorc");
+    let out = Command::new(&editor[0])
+        .args(&editor[1..])
+        .env("NYRA_EDITOR_SYSCONFDIR", &probe)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run the editor under test");
+    let _ = fs::remove_dir_all(&probe);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains(&format!("Error in {}", rc.display())),
+        "the editor under test ignores NYRA_EDITOR_SYSCONFDIR (it did not read {}): build it \
+         with --features test-sysconfdir. Its stderr:\n{stderr}",
+        rc.display()
+    );
+}
+
+/// Where nano reads its system nanorc, when the tests control it: `$NANO_SYSCONFDIR`, else
+/// `etc` next to the `bin` of a nano built by tools/build-nano.sh. The directory must be the one
+/// compiled into nano (its name is looked for in the binary), and its nanorc must hold nothing
+/// but comments, so that the host's settings cannot change the result. The editor under test is
+/// pointed to the same directory (see `Term::spawn`).
+fn nano_sysconfdir(nano: &str) -> Result<PathBuf, String> {
+    let dir = match std::env::var_os("NANO_SYSCONFDIR") {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ if nano.contains('/') => {
+            // `<prefix>/bin/nano` -> `<prefix>/etc`
+            let prefix = Path::new(nano).parent().and_then(Path::parent);
+            prefix
+                .ok_or("NANO has no bin directory to go up from")?
+                .join("etc")
+        }
+        _ => return Err("set NANO to a nano from tools/build-nano.sh or NANO_SYSCONFDIR".into()),
+    };
+    let dir = fs::canonicalize(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let compiled = format!("{}/nanorc", dir.display());
+    let binary = if nano.contains('/') {
+        fs::read(nano)
+    } else {
+        // A bare name is looked up in PATH, as the shell would.
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let found = std::env::split_paths(&path).map(|d| d.join(nano));
+        fs::read(found.into_iter().find(|p| p.is_file()).unwrap_or_default())
+    }
+    .map_err(|e| format!("{nano}: {e}"))?;
+    if !binary
+        .windows(compiled.len())
+        .any(|w| w == compiled.as_bytes())
+    {
+        return Err(format!("nano does not read {compiled}"));
+    }
+    let text = fs::read_to_string(&compiled).unwrap_or_default();
+    if text
+        .lines()
+        .any(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+    {
+        return Err(format!("{compiled} has settings"));
+    }
+    Ok(dir)
+}
+
 /// A program path made absolute, as the editors start in their own directories; a bare name
 /// (looked up in PATH) stays as it is.
 fn program(path: &str) -> String {
@@ -88,17 +159,22 @@ fn scenario_files() -> Vec<(String, PathBuf)> {
 }
 
 /// Runs one scenario file; the files of a failed run stay under target/tmp/compare. Ok(false):
-/// skipped, as it is pending and `skip_pending` is set.
+/// skipped, as it is pending and `skip_pending` is set, or it has nanorc files and `sysconfdir`
+/// is None.
 fn run_file(
     name: &str,
     path: &Path,
     nano: &[String],
     editor: &[String],
     skip_pending: bool,
+    sysconfdir: Option<&Path>,
 ) -> Result<bool, String> {
     let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let scenario = scenario::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     if skip_pending && scenario.pending.is_some() {
+        return Ok(false);
+    }
+    if sysconfdir.is_none() && !scenario.home_files.is_empty() {
         return Ok(false);
     }
     // Named after the scenario file, so that no two scenarios share a directory.
@@ -110,7 +186,7 @@ fn run_file(
     let show = std::env::var_os("COMPARE_SHOW")
         .is_some()
         .then_some(&mut log);
-    let result = compare::run(&scenario, nano, editor, &dir, show);
+    let result = compare::run(&scenario, nano, editor, &dir, sysconfdir, show);
     print!("{log}");
     if result.is_ok() {
         let _ = fs::remove_dir_all(&dir);
@@ -137,6 +213,34 @@ fn scenarios() {
         editor.join(" ")
     );
 
+    // As root, nano ignores $HOME (it takes the home from the password database), so the
+    // scenarios with nanorc files cannot be run in a directory of their own.
+    let root = rustix::process::geteuid().is_root();
+    let sysconfdir = if root {
+        Err("running as root, where nano ignores $HOME".to_string())
+    } else {
+        nano_sysconfdir(&nano[0])
+    };
+    // With $NANO set (as in CI) the nanorc scenarios must run, so a missing sysconfdir is a failure.
+    if let (Err(why), Some(_), false) = (&sysconfdir, std::env::var_os("NANO"), root) {
+        panic!("NANO is set, but its system nanorc cannot be used: {why}");
+    }
+    if let Err(why) = &sysconfdir {
+        eprintln!("skipped: the scenarios with nanorc files ({why}); see tests/compare/README.md");
+    }
+    let sysconfdir = sysconfdir.ok();
+    if editor != nano && !root {
+        check_editor_reads_sysconfdir(&editor);
+    }
+    let with_rc_files = list
+        .iter()
+        .filter(|(_, path)| {
+            let text = fs::read_to_string(path).unwrap_or_default();
+            scenario::parse(&text).is_ok_and(|s| !s.home_files.is_empty())
+        })
+        .count();
+    println!("{with_rc_files} of those scenarios have nanorc files");
+
     // Pending scenarios run only with GNU nano as the editor, which checks them.
     let skip_pending = editor != nano;
     let start = Instant::now();
@@ -149,7 +253,14 @@ fn scenarios() {
             s.spawn(|| {
                 while let Some((name, path)) = list.get(next.fetch_add(1, Ordering::Relaxed)) {
                     let t = Instant::now();
-                    let result = run_file(name, path, &nano, &editor, skip_pending);
+                    let result = run_file(
+                        name,
+                        path,
+                        &nano,
+                        &editor,
+                        skip_pending,
+                        sysconfdir.as_deref(),
+                    );
                     let secs = t.elapsed().as_secs_f32();
                     let status = match result {
                         Ok(true) => "ok  ",
@@ -179,7 +290,7 @@ fn scenarios() {
         list.len(),
         start.elapsed().as_secs_f32(),
         if skipped > 0 {
-            format!(" ({skipped} pending, skipped)")
+            format!(" ({skipped} skipped)")
         } else {
             String::new()
         }
@@ -201,7 +312,7 @@ fn a_wrong_editor_fails_with_a_readable_report() {
     let Some(nano) = nano() else { return };
     let wrong = [nano.clone(), vec!["--constantshow".to_string()]].concat();
     let path = scenarios_dir().join("basic/type-and-save.scn");
-    let report = run_file("selftest/wrong-editor", &path, &nano, &wrong, false)
+    let report = run_file("selftest/wrong-editor", &path, &nano, &wrong, false, None)
         .expect_err("a wrong editor passed");
     println!("Expected failure (the harness's self-test), with nano --constantshow as the editor:");
     println!("{report}");
@@ -233,7 +344,7 @@ fn a_rewrite_does_not_hide_a_save() {
          keys: {^X}\n",
     )
     .unwrap();
-    let report = run_file("selftest/rewrite", &path, &nano, &wrong, false)
+    let report = run_file("selftest/rewrite", &path, &nano, &wrong, false, None)
         .expect_err("a wrong save was hidden by the rewrite");
     assert!(report.starts_with("files differ before line 7"), "{report}");
 }
@@ -243,8 +354,15 @@ fn a_rewrite_does_not_hide_a_save() {
 fn a_reference_that_cannot_run_fails() {
     let missing = vec!["/nonexistent/nano".to_string()];
     let path = scenarios_dir().join("basic/exit-discard.scn");
-    let report = run_file("selftest/missing-nano", &path, &missing, &missing, false)
-        .expect_err("a missing nano passed");
+    let report = run_file(
+        "selftest/missing-nano",
+        &path,
+        &missing,
+        &missing,
+        false,
+        None,
+    )
+    .expect_err("a missing nano passed");
     assert!(report.contains("nano could not run"), "{report}");
 }
 
@@ -310,6 +428,12 @@ fn scenario_format() {
                 differ: row 7 col 3: a column\n\
                 keys: x\n";
     let s = scenario::parse(text).unwrap();
+    let rc = scenario::parse("nanorc: set a\\tb\nnanorc:\nxdgrc: set c\nkeys: x\n").unwrap();
+    assert_eq!(rc.home_files[0], (".nanorc", b"set a\tb\n\n".to_vec()));
+    assert_eq!(
+        rc.home_files[1],
+        (".config/nano/nanorc", b"set c\n".to_vec())
+    );
     assert_eq!(s.args, ["-l", "notes.txt"]);
     assert_eq!((s.cols, s.rows), (100, 30));
     assert_eq!(

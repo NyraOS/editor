@@ -1,0 +1,18 @@
+# The closing quote is the last one of the line, and what follows it is ignored; an unclosed quote
+# is a mistake, and the rest of the line is the argument.
+size: 100x30
+nanorc: set tabsize "3" "x"
+nanorc: set tabsize "3" # x
+nanorc: set tabsize "3"x
+nanorc: set tabsize a"b c
+nanorc: set tabsize "a b" c
+nanorc: set tabsize "5
+nanorc: set tabsize "
+nanorc: set tabsize ""
+nanorc: set tabsize " 5"
+nanorc: set tabsize "5 "
+nanorc: set linenumbers"
+args: a.txt
+file a.txt:
+| \ttext
+keys: {^X}

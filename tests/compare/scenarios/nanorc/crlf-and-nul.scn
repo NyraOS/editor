@@ -1,0 +1,11 @@
+# A CR before the newline is not part of the line (a file with DOS line ends), and a NUL ends
+# the line.
+size: 100x30
+nanorc: set linenumbers\r
+nanorc: set nohelp\x00 junk
+nanorc: frob\r
+nanorc: frob\x00 junk
+args: a.txt
+file a.txt:
+| text
+keys: {^X}

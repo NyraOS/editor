@@ -1,0 +1,10 @@
+# An argument that is not valid UTF-8 is a mistake; a flag on such a line is not (it has none).
+size: 100x30
+nanorc: set wordchars "\xff"
+nanorc: set tabsize "\xe2\x82"
+nanorc: set linenumbers # \xff
+nanorc: set wordchars é-
+args: a.txt
+file a.txt:
+| text
+keys: {^X}

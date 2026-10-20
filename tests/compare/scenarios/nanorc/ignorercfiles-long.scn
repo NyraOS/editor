@@ -1,0 +1,7 @@
+# --ignorercfiles, in both files: nothing is read.
+nanorc: set nohelp
+xdgrc: set linenumbers
+args: --ignorercfiles a.txt
+file a.txt:
+| text
+keys: {^X}

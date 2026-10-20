@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
-//! The command line, with the options of GNU nano 8.4 (the nanorc files come later). An option
-//! the editor cannot honour yet is refused ("not available yet") rather than ignored, unless
-//! nano would show the same screen with it.
+//! The command line, with the options of GNU nano 8.4, over what the nanorc files set (see
+//! rcfile.rs). An option the editor cannot honour yet is refused ("not available yet") rather
+//! than ignored, unless nano would show the same screen with it.
 
+use crate::rcfile;
 use std::path::PathBuf;
 
 /// What the command line asks for.
@@ -32,6 +33,8 @@ pub struct Options {
     pub search: Option<StartSearch>,
     /// What is wrong with the `+` argument: shown in the status bar, as nano does.
     pub start_alert: Option<String>,
+    /// `-I`: the nanorc files are not read.
+    pub ignorercfiles: bool,
     /// `-l`: numbers in front of the lines.
     pub linenumbers: bool,
     /// `-c`: the cursor position always in the status bar.
@@ -66,6 +69,12 @@ pub struct Options {
     pub wordbounds: bool,
     /// `-X CHARS`: besides letters and digits, these characters are part of words.
     pub wordchars: String,
+    /// `-y`: the word keys stop at the ends of words instead of their beginnings.
+    pub afterends: bool,
+    /// nanorc `set casesensitive`: searches start case sensitive.
+    pub casesensitive: bool,
+    /// nanorc `set regexp`: searches start with regular expressions.
+    pub regexp: bool,
 }
 
 impl Default for Options {
@@ -75,6 +84,7 @@ impl Default for Options {
             start: None,
             search: None,
             start_alert: None,
+            ignorercfiles: false,
             linenumbers: false,
             constantshow: false,
             nohelp: false,
@@ -92,6 +102,9 @@ impl Default for Options {
             zap: false,
             wordbounds: false,
             wordchars: String::new(),
+            afterends: false,
+            casesensitive: false,
+            regexp: false,
         }
     }
 }
@@ -129,7 +142,7 @@ const fn opt(short: char, long: &'static str, arg: bool, support: Support) -> Op
 const OPTIONS: &[Opt] = &[
     opt('a', "atblanks", false, Ignored),
     opt('i', "autoindent", false, Works),
-    opt('y', "afterends", false, Later),
+    opt('y', "afterends", false, Works),
     opt('D', "boldtext", false, Later),
     opt('b', "breaklonglines", false, Later),
     opt('B', "backup", false, Works),
@@ -194,11 +207,39 @@ struct Parsing {
     later: Option<String>,
 }
 
-/// Parses the arguments (without the program name). Err is what to print before exiting with
-/// status 1.
+/// Parses the arguments (without the program name), over the settings of the nanorc files unless
+/// `-I` is given. Err is what to print before exiting with status 1.
 pub fn parse(args: &[String]) -> Result<Command, String> {
+    parse_with(args, || rcfile::load(Options::default()))
+}
+
+/// `read_rcfiles` gives the settings the arguments are applied to, and the status bar message
+/// about the mistakes in the files, if any. The arguments are read once before it (to see `-I`
+/// and to fail early on a bad one) and once over its result, so that they win over the files.
+fn parse_with(
+    args: &[String],
+    read_rcfiles: impl FnOnce() -> (Options, Option<String>),
+) -> Result<Command, String> {
+    let first = parse_over(args, Options::default())?;
+    let Command::Edit(first) = first else {
+        return Ok(first);
+    };
+    if first.ignorercfiles {
+        return Ok(Command::Edit(first));
+    }
+    let (base, mistakes) = read_rcfiles();
+    match parse_over(args, base)? {
+        Command::Edit(mut o) => {
+            o.start_alert = o.start_alert.or(mistakes);
+            Ok(Command::Edit(o))
+        }
+        other => Ok(other),
+    }
+}
+
+fn parse_over(args: &[String], base: Options) -> Result<Command, String> {
     let mut p = Parsing {
-        options: Options::default(),
+        options: base,
         files: Vec::new(),
         later: None,
     };
@@ -337,9 +378,8 @@ fn apply(p: &mut Parsing, opt: &Opt, value: &str) -> Result<Option<Command>, Str
         "version" => return Ok(Some(Command::Version)),
         "help" => return Ok(Some(Command::Usage)),
         "tabsize" => {
-            o.tabsize = value
-                .parse::<usize>()
-                .ok()
+            o.tabsize = parse_num(value)
+                .and_then(|n| usize::try_from(n).ok())
                 .filter(|&n| n > 0)
                 .ok_or_else(|| format!("Requested tab size \"{value}\" is invalid"))?;
         }
@@ -359,8 +399,10 @@ fn apply(p: &mut Parsing, opt: &Opt, value: &str) -> Result<Option<Command>, Str
         "unix" => o.unix = true,
         "zap" => o.zap = true,
         "wordbounds" => o.wordbounds = true,
-        // No nanorc is read yet, so there is nothing to ignore; files are always locked.
-        "ignorercfiles" | "locking" => {}
+        "afterends" => o.afterends = true,
+        "ignorercfiles" => o.ignorercfiles = true,
+        // Files are always locked.
+        "locking" => {}
         other => unreachable!("option {other} is in the table as working, but not handled"),
     }
     Ok(None)
@@ -368,9 +410,17 @@ fn apply(p: &mut Parsing, opt: &Opt, value: &str) -> Result<Option<Command>, Str
 
 /// A number option's argument, or the message for a bad one.
 fn number(value: &str, what: &str) -> Result<i64, String> {
+    parse_num(value)
+        .map(i64::from)
+        .ok_or_else(|| format!("{what} \"{value}\" is invalid"))
+}
+
+/// A number as nano reads it (strtol): blanks, a sign and digits, and it must fit an int.
+pub fn parse_num(value: &str) -> Option<i32> {
     value
-        .parse::<i64>()
-        .map_err(|_| format!("{what} \"{value}\" is invalid"))
+        .trim_start_matches(|c: char| c.is_ascii_whitespace() || c == '\x0b')
+        .parse()
+        .ok()
 }
 
 /// What is left to check once all arguments are read.
@@ -415,8 +465,8 @@ fn start_spec(o: &mut Options, spec: &str) {
     let mut search = StartSearch {
         text: String::new(),
         backwards: false,
-        case_sensitive: false,
-        regexp: false,
+        case_sensitive: o.casesensitive,
+        regexp: o.regexp,
     };
     for (i, c) in spec.char_indices() {
         match c {
@@ -501,7 +551,8 @@ mod tests {
     use super::*;
 
     fn run(args: &[&str]) -> Result<Command, String> {
-        parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        parse_with(&args, || (Options::default(), None))
     }
 
     fn edit(args: &[&str]) -> Options {
@@ -513,6 +564,42 @@ mod tests {
 
     fn err(args: &[&str]) -> String {
         run(args).expect_err("an error")
+    }
+
+    #[test]
+    fn arguments_win_over_the_nanorc_files() {
+        let rc = || {
+            let base = Options {
+                tabsize: 3,
+                linenumbers: true,
+                ..Options::default()
+            };
+            (base, Some("Mistakes in 'rc'".to_string()))
+        };
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let Ok(Command::Edit(o)) = parse_with(&args(&["-T", "5", "f"]), rc) else {
+            panic!("not an edit")
+        };
+        assert_eq!((o.tabsize, o.linenumbers), (5, true));
+        assert_eq!(o.start_alert.as_deref(), Some("Mistakes in 'rc'"));
+        let Ok(Command::Edit(o)) = parse_with(&args(&["+/", "f"]), rc) else {
+            panic!("not an edit")
+        };
+        assert_eq!(o.tabsize, 3);
+        assert_eq!(o.start_alert.as_deref(), Some("Empty search string"));
+        let Ok(Command::Edit(o)) = parse_with(&args(&["-I", "f"]), rc) else {
+            panic!("not an edit")
+        };
+        assert_eq!((o.tabsize, o.linenumbers), (8, false));
+    }
+
+    #[test]
+    fn numbers_are_read_like_strtol() {
+        assert_eq!(parse_num(" +4"), Some(4));
+        assert_eq!(parse_num("-4"), Some(-4));
+        for bad in ["", "4 ", "0x4", "4x", "99999999999"] {
+            assert_eq!(parse_num(bad), None, "{bad:?}");
+        }
     }
 
     #[test]

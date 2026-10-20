@@ -1,0 +1,10 @@
+# An included binary file, then a setting.
+nanorc: include "/bin/true"
+nanorc: set linenumbers
+args: a.txt
+file a.txt:
+| \tx cat Cat c.t
+differ: rows 0-23: nano prints every message, the editor the first ones
+keys: {Enter}
+differ: none
+keys: {^X}

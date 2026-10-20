@@ -1,0 +1,18 @@
+# syntax, color, icolor, header, magic, comment, linter, formatter, tabgives and extendsyntax
+# are read and ignored: no mistake for any of them in the right place.
+nanorc: syntax "sh" "\\.sh$"
+nanorc: header "^#!.*/sh"
+nanorc: magic "shell script"
+nanorc: comment "#"
+nanorc: tabgives "  "
+nanorc: linter true
+nanorc: formatter true
+nanorc: color red "\\<if\\>"
+nanorc: icolor brightblue "TODO"
+nanorc: color green start="a" end="b"
+nanorc: extendsyntax sh color red "x"
+nanorc: set linenumbers
+args: a.txt
+file a.txt:
+| if x
+keys: {^X}

@@ -1,0 +1,7 @@
+# -I: the file is not read, so there is no line number and no error for the bad line.
+nanorc: set linenumbers
+nanorc: frobnicate
+args: -I a.txt
+file a.txt:
+| text
+keys: {^X}

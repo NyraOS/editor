@@ -1,0 +1,7 @@
+# set softwrap with a long line.
+pending: softwrap is not available yet, and the editor says so
+nanorc: set softwrap
+args: a.txt
+file a.txt:
+| word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word 
+keys: {^X}

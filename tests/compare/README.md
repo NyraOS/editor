@@ -8,7 +8,7 @@ match (text, colours and attributes, cursor), and at the end the **exit status**
 left in the working directory (names, contents, permissions) must match.
 
 By default the editor under test is GNU nano itself, which checks the scenarios and the harness.
-`COMPARE_EDITOR=target/debug/nyra-editor` (after `cargo build`) compares the editor. CI does both,
+`COMPARE_EDITOR=target/debug/nyra-editor` (built with `--features test-sysconfdir`, and tested with the same feature, as in CI) compares the editor. CI does both,
 in this order.
 
 ## Running
@@ -23,6 +23,7 @@ cargo test --test compare -- --nocapture
 | `COMPARE_EDITOR` | The editor under test: a command with its arguments, split on spaces. Default: GNU nano. When it is set, scenarios with a `pending:` line are skipped. |
 | `COMPARE_ONLY` | Run only the scenarios whose name contains this text, for example `search/`. |
 | `COMPARE_SHOW` | When set, print nano's screen after every step and its files at the end: use it to check that a new scenario does what you meant. |
+| `NANO_SYSCONFDIR` | The directory of the system nanorc that `$NANO` reads, when it is not `etc` next to the `bin` of a nano from `tools/build-nano.sh`. Its `nanorc` must have no settings, and the name must be compiled into nano (checked). |
 
 Debian 13 has GNU nano 8.4 (`apt install nano`). Elsewhere, build it from the GNU release, checked
 against a pinned SHA-256:
@@ -33,8 +34,25 @@ tools/build-nano.sh ~/nano-8.4
 NANO=~/nano-8.4/bin/nano cargo test --test compare -- --nocapture
 ```
 
+### The system nanorc
+
+`tools/build-nano.sh` builds nano with its system nanorc at `PREFIX/etc/nanorc`, empty. The tests
+point the editor under test there with `NYRA_EDITOR_SYSCONFDIR`, which replaces its system files
+(`/usr/share/nyra-editor/nanorc` and `/etc/nanorc`). Only a build with the `test-sysconfdir`
+feature reads that variable; release builds never do. Before the scenarios, the harness checks
+that the editor under test reads it (with a probe nanorc), and fails otherwise. The editor ignores that variable for root and
+when its real and effective users differ, so an inherited environment (`sudo`, `su -m`) cannot
+choose the administrator's settings of a privileged editor. With a nano from a package, whose
+`/etc/nanorc` cannot be replaced, the scenarios with nanorc files are skipped (they fail when `NANO` is set),
+unless `NANO_SYSCONFDIR=/etc` says to use the host's file (which must then have no settings, only
+comments, as the stock one).
+
+As root, those scenarios are skipped too: nano takes root's home from the password database, so
+the test directory is not its `HOME`. Run the tests as a normal user.
+
 CI does the same on every push (the `compare` job), with the build cached, and fails if `$NANO` is
-not 8.4.
+not 8.4 or if, with `$NANO` set, its system nanorc cannot be used (the nanorc scenarios are never
+skipped there; the log says how many there are).
 
 ## The scenario format
 
@@ -57,7 +75,9 @@ keys: {^X}
 | Line | Meaning |
 |---|---|
 | `# ...` | A comment (only at the start of a line). Start every scenario with one saying what it checks. |
-| `args: ...` | Command-line arguments for both editors, split on spaces (no quoting). Both always get `--ignorercfiles` first. Default: none. |
+| `args: ...` | Command-line arguments for both editors, split on spaces (no quoting). Both always get `--ignorercfiles` first, unless the scenario has a `nanorc:` or `xdgrc:` line. Default: none. |
+| `nanorc: LINE` | One line (escapes as in keys: `\t`, `\\`, `\xHH`; may be empty) of `~/.nanorc`, written into each side's own `HOME` before it starts. Repeat for more lines. With it, `--ignorercfiles` is not passed, and both editors read the one system nanorc that the tests control (see "The system nanorc"). The scenarios are skipped, with a message, when that cannot be arranged or when the tests run as root: nano then takes the home directory from the password database, not from `HOME`. `HOME` is then the relative `../home`, so an error message naming the file reads the same on both sides. |
+| `xdgrc: LINE` | The same for `~/.config/nano/nanorc`. |
 | `size: COLSxROWS` | The terminal size. Default: `80x24`. |
 | `file NAME:` | A file in the working directory, created before the editors start; its lines follow, each starting with `\| ` (or just `\|` for an empty line). No lines: an empty file. `NAME` is relative and may have directories. After the first step, it is a step: the file is (re)written in both working directories while the editors run; the files are compared first, so that the rewrite cannot hide what was saved. |
 | `keys: ...` | A step: keys sent at once (see below). The screens are compared after each step. |
@@ -112,7 +132,8 @@ the same step, it reads as Alt.
 
 - The environment: `TERM=xterm-256color`, `LANG` and `LC_ALL` `C.UTF-8`, `TZ=UTC`, a fixed `PATH`,
   and an empty `HOME` per editor; nothing else is inherited.
-- No configuration: `--ignorercfiles`, and the empty `HOME` has no nanorc.
+- No configuration: `--ignorercfiles`, and the empty `HOME` has no nanorc (except in scenarios with
+  `nanorc:` or `xdgrc:` lines, see above).
 - Each editor runs in its own fresh working directory under `target/tmp/compare/<name>.scn/`, in
   its own session with the pseudo-terminal as the controlling terminal (so a resize sends
   `SIGWINCH`). A failed scenario's directories are kept there for a look.

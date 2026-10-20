@@ -1,0 +1,9 @@
+# A quoted number is read as the number; so are blanks and tabs between the words.
+nanorc: set	tabsize   "5"
+nanorc: set   autoindent
+args: a.txt
+file a.txt:
+| \tone
+keys: {End}{Enter}x
+keys: {^X}
+keys: n

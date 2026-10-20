@@ -1,0 +1,19 @@
+# include of a missing file, an empty name, a directory, a pattern with no match, a name with
+# a tilde (HOME is where ~/.nanorc is), an unclosed quote and two quoted names.
+size: 100x30
+nanorc: include "nowhere.rc"
+nanorc: include
+nanorc: include ""
+nanorc: include "rc.d"
+nanorc: include "rc.d/*.none"
+nanorc: include "~/missing.rc"
+nanorc: include "rc.d/ok.rc
+nanorc: include "a" "b"
+nanorc: include rc.d/ok.rc
+nanorc: include "rc.d/ok.rc" # a comment
+args: a.txt
+file rc.d/ok.rc:
+| # nothing
+file a.txt:
+| text
+keys: {^X}

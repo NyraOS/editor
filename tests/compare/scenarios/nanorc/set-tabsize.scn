@@ -1,0 +1,8 @@
+# set tabsize, unquoted: a tab is 3 columns wide.
+nanorc: set tabsize 3
+args: a.txt
+file a.txt:
+| \tone
+| ab\ttwo
+keys: {Down}{End}
+keys: {^X}

@@ -1,0 +1,6 @@
+# Without ~/.nanorc, ~/.config/nano/nanorc is read.
+xdgrc: set linenumbers
+args: a.txt
+file a.txt:
+| text
+keys: {^X}

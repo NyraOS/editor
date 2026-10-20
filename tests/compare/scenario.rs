@@ -13,6 +13,9 @@ pub struct Scenario {
     pub cols: u16,
     pub rows: u16,
     pub files: Vec<(String, Vec<u8>)>,
+    /// Files in the editor's own HOME (`nanorc:` and `xdgrc:` lines). When there are any, the
+    /// editors are not given `--ignorercfiles`.
+    pub home_files: Vec<(&'static str, Vec<u8>)>,
     pub steps: Vec<Step>,
     /// The deliberate differences at the start, before the first step.
     pub differ: Vec<Region>,
@@ -67,6 +70,7 @@ pub fn parse(text: &str) -> Result<Scenario, String> {
         cols: 80,
         rows: 24,
         files: Vec::new(),
+        home_files: Vec::new(),
         steps: Vec::new(),
         differ: Vec::new(),
         pending: None,
@@ -125,6 +129,20 @@ pub fn parse(text: &str) -> Result<Scenario, String> {
             "size" if !seen_size => {
                 seen_size = true;
                 (s.cols, s.rows) = size(value).map_err(err)?;
+            }
+            "nanorc" | "xdgrc" => {
+                let name = if key == "nanorc" {
+                    ".nanorc"
+                } else {
+                    ".config/nano/nanorc"
+                };
+                if !s.home_files.iter().any(|(f, _)| *f == name) {
+                    s.home_files.push((name, Vec::new()));
+                }
+                let bytes = s.home_files.iter_mut().find(|(f, _)| *f == name);
+                let bytes = &mut bytes.expect("just added").1;
+                bytes.extend(unescape(value).map_err(err)?);
+                bytes.push(b'\n');
             }
             "differ" if value == "none" => differ.clear(),
             "differ" => differ.push(region(value).map_err(err)?),

@@ -1,0 +1,11 @@
+# Comments (only at the start of a line, after blanks), empty lines and leading blanks.
+nanorc: # set nohelp
+nanorc:
+nanorc: 	# a comment after a tab
+nanorc:   set linenumbers
+nanorc: 	set smarthome
+args: a.txt
+file a.txt:
+| 	indented
+keys: {End}{Home}
+keys: {^X}
