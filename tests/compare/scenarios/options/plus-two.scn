@@ -1,0 +1,10 @@
+# Two + arguments before a file: the first is a place for the second, which is a file name,
+# so there are two files.
+pending: editing several files is not available yet
+args: +2 +4,2 t.txt
+file t.txt:
+| one
+| two
+| three
+keys: {^X}
+keys: {^X}

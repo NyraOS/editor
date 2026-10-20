@@ -206,10 +206,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
     let mut only_files = false;
     while let Some(arg) = args.next() {
         if only_files || arg == "-" || !arg.starts_with('-') {
-            match arg.strip_prefix('+') {
-                Some(spec) => start_spec(&mut p.options, spec),
-                None => p.files.push(arg.clone()),
-            }
+            p.files.push(arg.clone());
         } else if arg == "--" {
             only_files = true;
         } else if let Some(long) = arg.strip_prefix("--") {
@@ -260,7 +257,24 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             }
         }
     }
+    place_arguments(&mut p);
     finish(p)
+}
+
+/// As in nano, a `+` argument is a place to start only when an argument follows it, and then
+/// that argument is a file name, even if it starts with a plus; in last place it is a file name.
+fn place_arguments(p: &mut Parsing) {
+    let operands = std::mem::take(&mut p.files);
+    let mut operands = operands.into_iter().peekable();
+    while let Some(arg) = operands.next() {
+        match arg.strip_prefix('+') {
+            Some(spec) if operands.peek().is_some() => {
+                start_spec(&mut p.options, spec);
+                p.files.extend(operands.next());
+            }
+            _ => p.files.push(arg),
+        }
+    }
 }
 
 /// The messages of getopt, as GNU nano prints them (with this program's name).
@@ -507,7 +521,7 @@ mod tests {
         assert!(o.linenumbers && o.constantshow && !o.nohelp);
         assert_eq!(o.start, Some((3, 5)));
         assert_eq!(o.file.as_deref(), Some("notes.txt"));
-        assert_eq!(edit(&["+,7"]).start, Some((1, 7)));
+        assert_eq!(edit(&["+,7", "f"]).start, Some((1, 7)));
         assert_eq!(edit(&["-x", "f", "-L"]).file.as_deref(), Some("f"));
         assert!(edit(&["f", "-L"]).nonewlines);
     }
@@ -651,27 +665,38 @@ mod tests {
         );
         assert_eq!(edit(&["+3x", "f"]).start, None);
         assert_eq!(
-            edit(&["+,x"]).start_alert.as_deref(),
+            edit(&["+,x", "f"]).start_alert.as_deref(),
             Some("Invalid line or column number")
         );
-        assert_eq!(edit(&["+-2,-3"]).start, Some((-2, -3)));
-        let o = edit(&["+cr?a.c"]);
+        assert_eq!(edit(&["+-2,-3", "f"]).start, Some((-2, -3)));
+        let o = edit(&["+cr?a.c", "f"]);
         let found = o.search.expect("a search");
         assert_eq!(found.text, "a.c");
         assert!(found.backwards && found.case_sensitive && found.regexp);
-        let found = edit(&["+/x/y"]).search.expect("a search");
+        let found = edit(&["+/x/y", "f"]).search.expect("a search");
         assert_eq!(found.text, "x/y");
         assert!(!found.backwards && !found.case_sensitive && !found.regexp);
-        assert!(!edit(&["+crCR/x"]).search.expect("a search").case_sensitive);
+        assert!(
+            !edit(&["+crCR/x", "f"])
+                .search
+                .expect("a search")
+                .case_sensitive
+        );
         assert_eq!(
-            edit(&["+x/y"]).start_alert.as_deref(),
+            edit(&["+x/y", "f"]).start_alert.as_deref(),
             Some("Invalid search modifier 'x'")
         );
         assert_eq!(
-            edit(&["+/"]).start_alert.as_deref(),
+            edit(&["+/", "f"]).start_alert.as_deref(),
             Some("Empty search string")
         );
-        // The last one wins.
-        assert_eq!(edit(&["+/a", "+4", "f"]).search, None);
+        // A place applies to the next argument, which is a file name.
+        assert_eq!(edit(&["+/a", "f"]).search.expect("a search").text, "a");
+        assert_eq!(edit(&["+3"]).file.as_deref(), Some("+3"));
+        assert_eq!(edit(&["+3"]).start, None);
+        assert!(err(&["f", "+3"]).contains("several files"));
+        assert!(err(&["+2", "+4,2", "f"]).contains("several files"));
+        assert_eq!(edit(&["+2", "+4"]).file.as_deref(), Some("+4"));
+        assert_eq!(edit(&["+2", "+4"]).start, Some((2, 1)));
     }
 }

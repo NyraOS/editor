@@ -781,6 +781,14 @@ impl Editor {
         let mut text = String::from("\n");
         if self.opts.autoindent {
             let line = self.buf.line_text(self.buf.line);
+            // As in nano, at the end of a line of blanks only, they move to the new line.
+            let blanks = line.chars().count();
+            if blanks > 0 && self.buf.x == blanks && line.chars().all(|c| matches!(c, ' ' | '\t')) {
+                let at = self.buf.pos() - blanks;
+                self.buf.substitute(at, blanks, &format!("\n{line}"));
+                self.buf.keep_column(self.opts.tabsize);
+                return;
+            }
             let indent = line.chars().take_while(|c| matches!(c, ' ' | '\t'));
             text.extend(indent.take(self.buf.x));
         }

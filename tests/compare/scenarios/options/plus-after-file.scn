@@ -1,0 +1,9 @@
+# A + argument after the file name is a second file: refused, as for two files.
+pending: editing several files is not available yet
+args: t.txt +3
+file t.txt:
+| one
+| two
+| three
+keys: {^X}
+keys: {^X}
