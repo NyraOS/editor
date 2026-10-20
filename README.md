@@ -16,6 +16,14 @@ cargo build
 cargo test
 ```
 
+The tests of saving (`src/files`) cover more as root: bind mounts, a full file system, files of
+other users, and each test again as an ordinary user (uid 4242). CI runs them as root in a
+privileged container; to run them so locally:
+
+```sh
+sudo "$(cargo test --bin nyra-editor --no-run 2>&1 | sed -n 's/^ *Executable .*(\(.*\))$/\1/p')" files::
+```
+
 The comparison tests run every scenario on GNU nano 8.4 and on the editor, and compare the screens
 and the saved files: see [tests/compare/README.md](tests/compare/README.md).
 
