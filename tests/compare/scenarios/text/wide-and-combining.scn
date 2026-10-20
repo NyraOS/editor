@@ -1,0 +1,13 @@
+# Wide characters (CJK, emoji) and combining characters, in the file and typed.
+args: wide.txt
+file wide.txt:
+| 日本語のテキスト
+| café, cafe\xcc\x81 and naïve
+| emoji: 🙂🚀 done
+keys: {Right*3}
+keys: {Down}{End}
+keys: {Down}{Home}{Right*8}
+keys: 漢字é{Enter}
+keys: {Bsp}{Bsp}
+keys: {^O}{Enter}
+keys: {^X}

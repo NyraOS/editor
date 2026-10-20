@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
-# Format, lints and tests (on stable Rust and on 1.85, the oldest we support: Debian 13's),
-# licences and advisories of the locked dependencies, and a scan for secrets.
+# Format, lints and tests (on stable Rust and on 1.85, the oldest we support: Debian 13's), the
+# comparison tests against GNU nano 8.4, licences and advisories of the locked dependencies, and a
+# scan for secrets.
 # Every push to any branch runs it once; pull_request runs only for pull requests from forks, whose
 # pushes do not run here. Weekly as well, so new advisories show up without a code change.
 name: ci
@@ -26,6 +27,29 @@ jobs:
       - run: cargo test --locked
       - run: rustup toolchain install 1.85 --profile minimal
       - run: cargo +1.85 test --locked
+
+  # The comparison tests (tests/compare) against GNU nano 8.4, built by tools/build-nano.sh from
+  # the GNU tarball pinned by its SHA-256 and cached; with $NANO set, they fail on any other version.
+  compare:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: nano
+        with:
+          path: ~/nano-8.4
+          key: nano-8.4-ubuntu-24.04-${{ hashFiles('tools/build-nano.sh') }}
+      - name: Build GNU nano 8.4
+        if: steps.nano.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends libncurses-dev
+          tools/build-nano.sh ~/nano-8.4
+      - run: NANO="$HOME/nano-8.4/bin/nano" cargo test --locked --test compare -- --nocapture
 
   deny:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository

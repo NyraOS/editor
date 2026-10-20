@@ -1,0 +1,6 @@
+# Start with no file, type a line, write it out under a new name, then exit.
+keys: A brand new file
+keys: {^O}
+keys: new.txt
+keys: {Enter}
+keys: {^X}

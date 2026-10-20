@@ -1,0 +1,10 @@
+# Change a file without a final newline, then exit and answer Yes to saving:
+# nano adds the final newline.
+args: todo.txt
+file todo.txt:
+| buy milk
+| call home\
+keys: {Down}{End}{Enter}water the plants
+keys: {^X}
+keys: y
+keys: {Enter}

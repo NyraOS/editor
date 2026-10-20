@@ -1,0 +1,14 @@
+# Cut two lines with ^K and paste them twice with ^U.
+args: list.txt
+file list.txt:
+| one
+| two
+| three
+| four
+keys: {^K}
+keys: {^K}
+keys: {Down}
+keys: {^U}
+keys: {^U}
+keys: {^O}{Enter}
+keys: {^X}

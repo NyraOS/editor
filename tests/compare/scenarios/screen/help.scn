@@ -1,0 +1,5 @@
+# Open the help screen with ^G, scroll it and close it.
+keys: {^G}
+keys: {PgDn}
+keys: {^X}
+keys: {^X}
