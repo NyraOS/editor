@@ -1,6 +1,6 @@
 # Security policy
 
-nymo is a text editor that opens and writes files with the rights of whoever runs it, so we take
+This editor opens and writes files with the rights of whoever runs it, so we take
 reports seriously and handle them privately.
 
 ## Reporting a vulnerability

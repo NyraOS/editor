@@ -7,7 +7,7 @@ unmaintained = "all"
 yanked = "deny"
 
 [licenses]
-# Permissive licences only, so nymo stays cleanly MIT.
+# Permissive licences only, so nyra-editor stays cleanly MIT.
 allow = ["MIT", "Apache-2.0", "Unicode-3.0"]
 
 [bans]

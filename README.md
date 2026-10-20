@@ -1,10 +1,11 @@
-# nymo
+# Editor
 
-A nano-compatible terminal editor written from scratch in Rust, for [Nyra OS](https://nyraos.com).
+A nano-compatible terminal editor for Nyra OS, installed as the `editor` command; not GNU nano.
+Written from scratch in Rust, for [Nyra OS](https://nyraos.com).
 
 ## Status
 
-Early development: nothing is usable yet. `nymo --version` is the only thing that works.
+Early development: nothing is usable yet. `editor --version` is the only thing that works.
 
 ## Build and test
 
