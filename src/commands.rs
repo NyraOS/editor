@@ -6,6 +6,7 @@ use crate::complete::{self, Completion};
 use crate::config::Options;
 use crate::files::{self, Expected, Locking, Meta, SaveError, SaveOptions};
 use crate::keys::{Key, Mods, Named};
+use crate::replace::Replacing;
 use crate::search::{self, Pattern};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -43,6 +44,8 @@ pub enum Question {
     Changed(String, bool, Expected),
     /// Another editor holds the lock file.
     Locked(files::LockInfo),
+    /// A replacing, at a match.
+    Replace(Box<Replacing>),
 }
 
 impl Question {
@@ -55,6 +58,7 @@ impl Question {
             Question::Changed(..) => {
                 "File was modified since you opened it; continue saving? ".into()
             }
+            Question::Replace(_) => "Replace this instance? ".into(),
             Question::Locked(info) => format!(
                 "File {name} is being edited by {} (with {}, PID {}); open anyway?",
                 info.user, info.program, info.pid
@@ -93,8 +97,10 @@ impl Prompt {
 pub enum PromptKind {
     /// The file name to write to; then exit if it was for ^X.
     Write { exit: bool },
-    /// The text to search for.
-    Search { backwards: bool },
+    /// The text to search for, and whether to ask what to replace it with.
+    Search { backwards: bool, replace: bool },
+    /// What to replace the text searched for with.
+    Replacement { backwards: bool },
     /// The line and column to go to.
     Goto,
 }
@@ -128,6 +134,10 @@ pub struct Editor {
     /// search, as in nano).
     history: Vec<String>,
     case_sensitive: bool,
+    /// Whether the text searched for is a regular expression (kept like the case).
+    regexp: bool,
+    /// What the replacements were so far, the oldest first.
+    replace_history: Vec<String>,
     /// What the last search found, highlighted until the next key: line, from, to (characters).
     pub spot: Option<(usize, usize, usize)>,
     /// The file as read or written last, to notice changes on disk; None for a new file.
@@ -239,6 +249,24 @@ const SEARCH_MENU: &[(&str, &str)] = &[
     ("^T", "Go To Line"),
 ];
 
+const REPLACE_MENU: &[(&str, &str)] = &[
+    ("^G", "Help"),
+    ("^C", "Cancel"),
+    ("M-C", "Case Sens"),
+    ("M-R", "Reg.exp."),
+    ("M-B", "Backwards"),
+    ("^R", "No Replace"),
+    ("^P", "Older"),
+    ("^N", "Newer"),
+];
+
+const REPLACEMENT_MENU: &[(&str, &str)] = &[
+    ("^G", "Help"),
+    ("^C", "Cancel"),
+    ("^P", "Older"),
+    ("^N", "Newer"),
+];
+
 const GOTO_MENU: &[(&str, &str)] = &[
     ("^G", "Help"),
     ("^C", "Cancel"),
@@ -256,7 +284,9 @@ pub fn menu(mode: &Mode) -> &'static [(&'static str, &'static str)] {
         Mode::Help(_) => HELP_MENU,
         Mode::Prompt(p) => match p.kind {
             PromptKind::Write { .. } => WRITE_MENU,
-            PromptKind::Search { .. } => SEARCH_MENU,
+            PromptKind::Search { replace: false, .. } => SEARCH_MENU,
+            PromptKind::Search { replace: true, .. } => REPLACE_MENU,
+            PromptKind::Replacement { .. } => REPLACEMENT_MENU,
             PromptKind::Goto => GOTO_MENU,
         },
     }
@@ -346,6 +376,18 @@ fn ends_soft_mark(key: &Key) -> bool {
     )
 }
 
+/// The history that the answer of a prompt comes from.
+fn prompt_history<'a>(
+    kind: PromptKind,
+    searches: &'a [String],
+    replacements: &'a [String],
+) -> &'a [String] {
+    match kind {
+        PromptKind::Replacement { .. } => replacements,
+        _ => searches,
+    }
+}
+
 fn plural(n: usize, what: &str) -> String {
     format!("{n} {what}{}", if n == 1 { "" } else { "s" })
 }
@@ -376,6 +418,8 @@ impl Editor {
             completion: None,
             history: Vec::new(),
             case_sensitive: false,
+            regexp: false,
+            replace_history: Vec::new(),
             spot: None,
             meta: None,
             lock: None,
@@ -559,10 +603,10 @@ impl Editor {
         // The match stays marked while the next search is asked for.
         let asks_search = matches!(
             key,
-            Key::Ctrl('W' | 'F' | 'Q' | 'B') | Key::Named(Named::F(6), _)
+            Key::Ctrl('W' | 'F' | 'Q' | 'B' | '\\') | Key::Meta('r') | Key::Named(Named::F(6), _)
         );
-        if !(matches!(self.mode, Mode::Prompt(_)) || asks_search && matches!(self.mode, Mode::Edit))
-        {
+        let in_search = matches!(self.mode, Mode::Prompt(_) | Mode::Ask(Question::Replace(_)));
+        if !(in_search || asks_search && matches!(self.mode, Mode::Edit)) {
             self.spot = None;
         }
         let chain = std::mem::replace(&mut self.chain, Chain::None);
@@ -639,9 +683,10 @@ impl Editor {
                 self.say(&loc);
             }
             Key::Ctrl('F') | Key::Ctrl('W') | Key::Named(F(6), _) => {
-                self.ask_search(false, String::new());
+                self.ask_search(false, false, String::new());
             }
-            Key::Ctrl('Q') | Key::Ctrl('B') => self.ask_search(true, String::new()),
+            Key::Ctrl('Q') | Key::Ctrl('B') => self.ask_search(true, false, String::new()),
+            Key::Ctrl('\\') | Key::Meta('r') => self.ask_search(false, true, String::new()),
             Key::Meta('w') | Key::Meta('f') => self.search(false),
             Key::Meta('q') | Key::Meta('b') => self.search(true),
             Key::Ctrl('_') | Key::Meta('g') => self.ask_goto(String::new()),
@@ -1097,6 +1142,9 @@ impl Editor {
         let Mode::Ask(question) = std::mem::replace(&mut self.mode, Mode::Edit) else {
             return;
         };
+        if let Question::Replace(run) = question {
+            return self.replace_key(run, key);
+        }
         let yes = match key {
             Key::Char('y' | 'Y') => true,
             Key::Char('n' | 'N') => false,
@@ -1147,6 +1195,7 @@ impl Editor {
                 self.meta = None;
                 self.say("For basic help, type Ctrl+G.");
             }
+            (Question::Replace(_), _) => {}
         }
     }
 
@@ -1278,26 +1327,36 @@ impl Editor {
     }
 
     /// The prompt for a search, with the answer typed so far.
-    fn ask_search(&mut self, backwards: bool, answer: String) {
+    fn ask_search(&mut self, backwards: bool, replace: bool, answer: String) {
         self.message = None;
         let mut prompt = Prompt::new(
-            PromptKind::Search { backwards },
+            PromptKind::Search { backwards, replace },
             String::new(),
             answer,
             self.history.len(),
         );
-        prompt.label = self.search_label(backwards);
+        prompt.label = self.search_label(backwards, replace);
         self.mode = Mode::Prompt(prompt);
     }
 
-    /// "Search", the toggles that are on, and the last search (cut when long) in brackets.
-    fn search_label(&self, backwards: bool) -> String {
+    /// "Search", the toggles that are on, what it is for, and the last search (cut when long) in
+    /// brackets.
+    fn search_label(&self, backwards: bool, replace: bool) -> String {
         let mut label = "Search".to_string();
         if self.case_sensitive {
             label.push_str(" [Case Sensitive]");
         }
+        if self.regexp {
+            label.push_str(" [Regexp]");
+        }
         if backwards {
             label.push_str(" [Backwards]");
+        }
+        if replace {
+            label.push_str(" (to replace)");
+            if self.buf.mark.is_some() {
+                label.push_str(" in selection");
+            }
         }
         if let Some(last) = self.last_search() {
             label.push_str(&format!(" [{}]", search::shorten(last, self.cols / 3)));
@@ -1339,24 +1398,35 @@ impl Editor {
                 self.mode = Mode::Edit;
                 self.accept(kind, answer);
             }
-            (Key::Meta('c'), PromptKind::Search { backwards }) => {
+            (Key::Meta('c'), PromptKind::Search { backwards, replace }) => {
                 self.case_sensitive = !self.case_sensitive;
-                self.ask_search_again(backwards);
+                self.ask_search_again(backwards, replace);
             }
-            (Key::Meta('b'), PromptKind::Search { backwards }) => self.ask_search_again(!backwards),
-            (Key::Ctrl('P') | Key::Named(Named::Up, _), PromptKind::Search { .. }) => {
-                self.older_search();
+            (Key::Meta('r'), PromptKind::Search { backwards, replace }) => {
+                self.regexp = !self.regexp;
+                self.ask_search_again(backwards, replace);
             }
-            (Key::Ctrl('N') | Key::Named(Named::Down, _), PromptKind::Search { .. }) => {
-                self.newer_search();
+            (Key::Meta('b'), PromptKind::Search { backwards, replace }) => {
+                self.ask_search_again(!backwards, replace);
             }
-            (Key::Ctrl('T'), PromptKind::Search { .. }) => {
+            (Key::Ctrl('R'), PromptKind::Search { backwards, replace }) => {
+                self.ask_search_again(backwards, !replace);
+            }
+            (
+                Key::Ctrl('P') | Key::Named(Named::Up, _),
+                PromptKind::Search { .. } | PromptKind::Replacement { .. },
+            ) => self.older_search(),
+            (
+                Key::Ctrl('N') | Key::Named(Named::Down, _),
+                PromptKind::Search { .. } | PromptKind::Replacement { .. },
+            ) => self.newer_search(),
+            (Key::Ctrl('T'), PromptKind::Search { replace: false, .. }) => {
                 let answer = std::mem::take(&mut p.answer);
                 self.ask_goto(answer);
             }
             (Key::Ctrl('T'), PromptKind::Goto) => {
                 let answer = std::mem::take(&mut p.answer);
-                self.ask_search(false, answer);
+                self.ask_search(false, false, answer);
             }
             (Key::Ctrl('Y'), PromptKind::Goto) => {
                 self.mode = Mode::Edit;
@@ -1373,13 +1443,13 @@ impl Editor {
     }
 
     /// The search prompt again after a toggle, with the same answer and history place.
-    fn ask_search_again(&mut self, backwards: bool) {
+    fn ask_search_again(&mut self, backwards: bool, replace: bool) {
         let Mode::Prompt(old) = std::mem::replace(&mut self.mode, Mode::Edit) else {
             return;
         };
-        let label = self.search_label(backwards);
+        let label = self.search_label(backwards, replace);
         self.mode = Mode::Prompt(Prompt {
-            kind: PromptKind::Search { backwards },
+            kind: PromptKind::Search { backwards, replace },
             label,
             ..old
         });
@@ -1390,14 +1460,15 @@ impl Editor {
         let Mode::Prompt(p) = &mut self.mode else {
             return;
         };
+        let history = prompt_history(p.kind, &self.history, &self.replace_history);
         if p.older == 0 {
             return;
         }
-        if p.older == self.history.len() {
+        if p.older == history.len() {
             p.typed = std::mem::take(&mut p.answer);
         }
         p.older -= 1;
-        p.answer = self.history[p.older].clone();
+        p.answer = history[p.older].clone();
         p.x = p.answer.chars().count();
     }
 
@@ -1405,14 +1476,15 @@ impl Editor {
         let Mode::Prompt(p) = &mut self.mode else {
             return;
         };
-        if p.older == self.history.len() {
+        let history = prompt_history(p.kind, &self.history, &self.replace_history);
+        if p.older == history.len() {
             return;
         }
         p.older += 1;
-        p.answer = if p.older == self.history.len() {
+        p.answer = if p.older == history.len() {
             std::mem::take(&mut p.typed)
         } else {
-            self.history[p.older].clone()
+            history[p.older].clone()
         };
         p.x = p.answer.chars().count();
     }
@@ -1429,14 +1501,25 @@ impl Editor {
                 }
                 self.save_as(answer, exit);
             }
-            PromptKind::Search { backwards } => {
+            PromptKind::Search { backwards, replace } => {
                 if !answer.is_empty() {
                     self.history.retain(|old| *old != answer);
                     self.history.push(answer);
                 } else if self.history.is_empty() {
                     return self.cancel();
                 }
-                self.search(backwards);
+                if replace {
+                    self.ask_replacement(backwards);
+                } else {
+                    self.search(backwards);
+                }
+            }
+            PromptKind::Replacement { backwards } => {
+                if !answer.is_empty() {
+                    self.replace_history.retain(|old| *old != answer);
+                    self.replace_history.push(answer.clone());
+                }
+                self.start_replacing(backwards, answer);
             }
             PromptKind::Goto => {
                 if answer.is_empty() {
@@ -1457,7 +1540,10 @@ impl Editor {
         let Some(needle) = self.last_search().cloned() else {
             return self.error("No current search pattern");
         };
-        let pattern = Pattern::new(&needle, self.case_sensitive);
+        let pattern = match Pattern::new(&needle, self.case_sensitive, self.regexp) {
+            Ok(pattern) => pattern,
+            Err(why) => return self.error(&format!("Bad regex \"{needle}\": {why}")),
+        };
         let Some(found) = search::find(&self.buf, &pattern, backwards) else {
             let shown = search::shorten(&needle, self.cols / 2);
             return self.error(&format!("\"{shown}\" not found"));
@@ -1466,13 +1552,9 @@ impl Editor {
         self.buf.line = found.line;
         self.buf.x = found.x;
         self.buf.keep_column(self.opts.tabsize);
-        let len = needle
-            .chars()
-            .count()
-            .min(self.buf.line_len(found.line) - found.x);
         // nano shows the selection instead of the match.
         if self.buf.mark.is_none() {
-            self.spot = Some((found.line, found.x, found.x + len));
+            self.spot = Some((found.line, found.x, found.x + found.len));
         }
         if (found.line, found.x) == start {
             self.say("This is the only occurrence");
@@ -1480,6 +1562,83 @@ impl Editor {
             self.say("Search Wrapped");
         }
         self.center();
+    }
+
+    /// The prompt for what to replace the last search with.
+    fn ask_replacement(&mut self, backwards: bool) {
+        let needle = self.last_search().cloned().unwrap_or_default();
+        // The unsupported back-reference is reported where nano would ask what to do with a match.
+        if let Err(why) = Pattern::new(&needle, self.case_sensitive, self.regexp) {
+            if why != search::BACKREFERENCE {
+                return self.error(&format!("Bad regex \"{needle}\": {why}"));
+            }
+        }
+        self.mode = Mode::Prompt(Prompt::new(
+            PromptKind::Replacement { backwards },
+            "Replace with".into(),
+            String::new(),
+            self.replace_history.len(),
+        ));
+    }
+
+    fn start_replacing(&mut self, backwards: bool, with: String) {
+        self.message = None;
+        self.spot = None;
+        let needle = self.last_search().cloned().unwrap_or_default();
+        let pattern = match Pattern::new(&needle, self.case_sensitive, self.regexp) {
+            Ok(pattern) => pattern,
+            Err(why) => return self.error(&format!("Bad regex \"{needle}\": {why}")),
+        };
+        let run = Replacing::new(pattern, with, backwards, &self.buf);
+        self.replace_next(Box::new(run));
+    }
+
+    /// Asks about the next match, or ends when there is none.
+    fn replace_next(&mut self, mut run: Box<Replacing>) {
+        let Some((at, len)) = run.next(&self.buf) else {
+            return self.end_replacing(&run);
+        };
+        self.buf.set_pos(at);
+        self.buf.keep_column(self.opts.tabsize);
+        self.spot = Some((self.buf.line, self.buf.x, self.buf.x + len));
+        self.center();
+        self.mode = Mode::Ask(Question::Replace(run));
+    }
+
+    fn replace_key(&mut self, mut run: Box<Replacing>, key: Key) {
+        match key {
+            Key::Char('y' | 'Y') => run.replace(&mut self.buf),
+            Key::Char('n' | 'N') => run.skip(),
+            Key::Char('a' | 'A') => {
+                while run.hit().is_some() {
+                    run.replace(&mut self.buf);
+                    run.next(&self.buf);
+                }
+                return self.end_replacing(&run);
+            }
+            Key::Ctrl('C') => return self.end_replacing(&run),
+            _ => {
+                self.mode = Mode::Ask(Question::Replace(run));
+                return;
+            }
+        }
+        self.replace_next(run);
+    }
+
+    fn end_replacing(&mut self, run: &Replacing) {
+        self.spot = None;
+        self.mode = Mode::Edit;
+        run.finish(&mut self.buf);
+        self.buf.keep_column(self.opts.tabsize);
+        self.center();
+        if run.found {
+            let n = run.count;
+            self.say(&format!("Replaced {}", plural(n, "occurrence")));
+        } else {
+            let needle = self.last_search().cloned().unwrap_or_default();
+            let shown = search::shorten(&needle, self.cols / 2);
+            self.error(&format!("\"{shown}\" not found"));
+        }
     }
 
     fn help_key(&mut self, key: Key) {

@@ -1,0 +1,12 @@
+# \< and \> match the start and the end of a word.
+args: t.txt
+file t.txt:
+| cat concat cats
+keys: {^\}
+keys: {M-r}
+keys: \<cat\>{Enter}
+keys: dog{Enter}
+keys: a
+keys: {^X}
+keys: y
+keys: {Enter}

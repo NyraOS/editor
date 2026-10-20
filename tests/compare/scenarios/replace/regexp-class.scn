@@ -1,0 +1,12 @@
+# Regular expressions in a replace: [Regexp] in the prompt, a character class, and all matches.
+args: t.txt
+file t.txt:
+| a1 b22 c333
+keys: {^\}
+keys: {M-r}
+keys: [[:digit:]]+{Enter}
+keys: N{Enter}
+keys: a
+keys: {^X}
+keys: y
+keys: {Enter}

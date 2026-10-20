@@ -1,0 +1,13 @@
+# A key that is not Y, N, A or ^C is ignored at the question.
+args: t.txt
+file t.txt:
+| a cat
+keys: {^\}
+keys: cat{Enter}
+keys: dog{Enter}
+keys: x
+keys: {Enter}
+keys: y
+keys: {^X}
+keys: y
+keys: {Enter}

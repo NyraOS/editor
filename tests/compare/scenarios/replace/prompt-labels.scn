@@ -1,0 +1,12 @@
+# ^\ asks "Search (to replace)", then "Replace with"; the questions follow.
+args: t.txt
+file t.txt:
+| the cat sat
+| on the mat
+keys: {^\}
+keys: cat{Enter}
+keys: dog{Enter}
+keys: y
+keys: {^X}
+keys: y
+keys: {Enter}

@@ -1,0 +1,12 @@
+# ^C at the question stops the replacing; what was replaced stays.
+args: t.txt
+file t.txt:
+| a cat, a cat, a cat
+keys: {^\}
+keys: cat{Enter}
+keys: bird{Enter}
+keys: y
+keys: {^C}
+keys: {^X}
+keys: y
+keys: {Enter}

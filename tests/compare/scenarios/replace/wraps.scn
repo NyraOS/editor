@@ -1,0 +1,15 @@
+# The search wraps round the end of the text for the replacement too.
+args: t.txt
+file t.txt:
+| cat one
+| two
+| cat three
+keys: {Down*2}
+keys: {^\}
+keys: cat{Enter}
+keys: dog{Enter}
+keys: y
+keys: y
+keys: {^X}
+keys: y
+keys: {Enter}

@@ -1,0 +1,12 @@
+# M-C makes the match case sensitive; only "Cat" is asked about.
+args: t.txt
+file t.txt:
+| Cat cat CAT
+keys: {^\}
+keys: {M-c}
+keys: Cat{Enter}
+keys: dog{Enter}
+keys: a
+keys: {^X}
+keys: y
+keys: {Enter}

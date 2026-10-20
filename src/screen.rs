@@ -317,14 +317,21 @@ fn prompt_row(cols: usize, prompt: &Prompt) -> (Row, usize) {
     (row, start + x - first)
 }
 
-const YES_NO: [(&str, &str); 3] = [(" Y", "Yes"), (" N", "No"), ("^C", "Cancel")];
+/// The keys of a yes-or-no question, with the row and the column (of 16 or half the width) of
+/// each; "All" is only in the question of a replacing.
+const YES_NO: [(&str, &str, usize, usize); 4] = [
+    (" Y", "Yes", 0, 0),
+    (" N", "No", 1, 0),
+    (" A", "All", 0, 1),
+    ("^C", "Cancel", 1, 1),
+];
 
 /// The help lines of a yes-or-no question.
-fn yes_no_rows(cols: usize) -> [Row; 2] {
+fn yes_no_rows(cols: usize, all: bool) -> [Row; 2] {
     let mut rows = [vec![Cell::blank(); cols], vec![Cell::blank(); cols]];
     let width = (cols / 2).min(16);
-    for (i, (key, label)) in YES_NO.iter().enumerate() {
-        let (row, from) = if i == 0 { (0, 0) } else { (1, (i - 1) * width) };
+    for &(key, label, row, column) in YES_NO.iter().filter(|k| all || k.1 != "All") {
+        let from = column * width;
         let to = (from + width).min(cols);
         let cells = &mut rows[row][from.min(cols)..to];
         let after = put(cells, 0, key, INVERSE);
@@ -385,11 +392,18 @@ pub fn compose(ed: &Editor) -> Frame {
             if let Some((_, from, to)) = ed.spot.filter(|s| s.0 == line) {
                 let from = column_of(&text, from, ed.opts.tabsize);
                 let to = column_of(&text, to, ed.opts.tabsize);
-                for col in from.max(start)..to.min(start + width) {
+                // An empty match is a blank cell that hides the character there, as in nano.
+                let empty = from == to;
+                for col in from.max(start)..(to + usize::from(empty)).min(start + width) {
+                    if empty {
+                        cells[col - start].text = " ".into();
+                    }
                     cells[col - start].style = SPOT;
                 }
             }
-            if let Some((lo, hi)) = ed.buf.selection() {
+            // nano takes the selection away while it asks about a match, and gives it back after.
+            let asking = matches!(ed.mode, Mode::Ask(Question::Replace(_)));
+            if let Some((lo, hi)) = ed.buf.selection().filter(|_| !asking) {
                 let first = ed.buf.text.line_to_char(line);
                 let len = text.chars().count();
                 if lo < first + len && hi > first {
@@ -429,7 +443,8 @@ pub fn compose(ed: &Editor) -> Frame {
                 let room = cols.saturating_sub(1);
                 let col = put(&mut row[..room], 0, &question.text(&ed.name), INVERSE);
                 screen[status] = row;
-                cursor = Some((status, col.min(cols.saturating_sub(1))));
+                cursor = (!matches!(question, Question::Replace(_)))
+                    .then_some((status, col.min(cols.saturating_sub(1))));
             }
             _ => {
                 if let Some(m) = &ed.message {
@@ -451,7 +466,7 @@ pub fn compose(ed: &Editor) -> Frame {
     }
     if !ed.opts.nohelp && rows >= 3 && ed.warning.is_none() {
         let bars = match &ed.mode {
-            Mode::Ask(_) => yes_no_rows(cols),
+            Mode::Ask(question) => yes_no_rows(cols, matches!(question, Question::Replace(_))),
             mode => help_rows(crate::commands::menu(mode), cols),
         };
         let [a, b] = bars;

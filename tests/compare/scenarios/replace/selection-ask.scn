@@ -1,0 +1,15 @@
+# In a selection the matches are asked about one by one, and the selection stays.
+args: t.txt
+file t.txt:
+| cat cat cat cat
+keys: {Right*4}
+keys: {M-a}
+keys: {Right*8}
+keys: {^\}
+keys: cat{Enter}
+keys: bird{Enter}
+keys: y
+keys: n
+keys: {^X}
+keys: y
+keys: {Enter}

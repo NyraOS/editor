@@ -1,0 +1,8 @@
+# A bad interval.
+args: t.txt
+file t.txt:
+| aaa
+keys: {^\}
+keys: {M-r}
+keys: a{{3,2}}{Enter}
+keys: {^X}

@@ -1,0 +1,12 @@
+# Intervals: {2,3} and {2}.
+args: t.txt
+file t.txt:
+| a aa aaa aaaa
+keys: {^\}
+keys: {M-r}
+keys: a{{2,3}}{Enter}
+keys: X{Enter}
+keys: a
+keys: {^X}
+keys: y
+keys: {Enter}

@@ -1,0 +1,8 @@
+# ^C at "Search (to replace)" does nothing to the text.
+args: t.txt
+file t.txt:
+| a cat
+keys: {^\}
+keys: cat
+keys: {^C}
+keys: {^X}

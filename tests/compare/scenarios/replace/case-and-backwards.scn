@@ -1,0 +1,15 @@
+# Case sensitive and backwards together.
+args: t.txt
+file t.txt:
+| cat Cat cat Cat cat
+keys: {End}
+keys: {^\}
+keys: {M-c}
+keys: {M-b}
+keys: Cat{Enter}
+keys: dog{Enter}
+keys: y
+keys: y
+keys: {^X}
+keys: y
+keys: {Enter}

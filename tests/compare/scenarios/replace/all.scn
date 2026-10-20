@@ -1,0 +1,13 @@
+# A answers Yes for this match and every one after it, and the count is shown.
+args: t.txt
+file t.txt:
+| the cat sat on the mat
+| the hat
+| that cat
+keys: {^\}
+keys: at{Enter}
+keys: OT{Enter}
+keys: a
+keys: {^X}
+keys: y
+keys: {Enter}

@@ -1,0 +1,11 @@
+# An empty replacement deletes the match.
+args: t.txt
+file t.txt:
+| one, two, three
+keys: {^\}
+keys: , {Enter}
+keys: {Enter}
+keys: a
+keys: {^X}
+keys: y
+keys: {Enter}

@@ -1,0 +1,13 @@
+# Every replacement of an "All" is its own undo step.
+args: t.txt
+file t.txt:
+| a cat, a cat, a cat
+keys: {^\}
+keys: cat{Enter}
+keys: bird{Enter}
+keys: a
+keys: {M-u}
+keys: {M-u}
+keys: {M-u}
+keys: {M-u}
+keys: {^X}

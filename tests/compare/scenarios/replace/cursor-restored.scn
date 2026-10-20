@@ -1,0 +1,13 @@
+# A replacement before the cursor on its line moves the cursor with the text.
+args: t.txt
+file t.txt:
+| cat and cat and cat
+keys: {Right*12}
+keys: {^\}
+keys: cat{Enter}
+keys: elephant{Enter}
+keys: a
+keys: X
+keys: {^X}
+keys: y
+keys: {Enter}
