@@ -337,7 +337,7 @@ fn ends_soft_mark(key: &Key) -> bool {
         Key::Char(_)
             | Key::Byte(_)
             | Key::Paste(_)
-            | Key::Ctrl('I' | 'M' | 'H' | 'A' | 'E' | 'P' | 'N' | 'Y' | 'V')
+            | Key::Ctrl('I' | 'M' | 'H' | 'A' | 'E' | 'P' | 'N' | 'Y' | 'V' | ']')
             | Key::Meta('\\' | '/')
             | Key::Named(
                 Up | Down | Left | Right | Home | End | PageUp | PageDown | Backspace,
