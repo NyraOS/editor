@@ -1,0 +1,10 @@
+# The word the cursor is in is not a candidate, and a word as long as the fragment is none.
+args: t.txt
+file t.txt:
+| plain
+| pla plain
+keys: {Down}{Right*3}
+keys: {^]}
+keys: {^]}
+keys: {^X}
+keys: n

@@ -1,0 +1,13 @@
+# Going past the last word leaves nothing of the completion: undo takes back the typing before it.
+args: t.txt
+file t.txt:
+| foo x
+| 
+keys: {Down}
+keys: fo
+keys: {^]}
+keys: {^]}
+keys: {M-u}
+keys: {M-e}
+keys: {M-u}
+keys: {^X}

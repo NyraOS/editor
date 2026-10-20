@@ -1,0 +1,10 @@
+# The completed text is what is saved.
+args: t.txt
+file t.txt:
+| completion
+| comp
+keys: {Down}{End}
+keys: {^]}
+keys: {^O}
+keys: {Enter}
+keys: {^X}

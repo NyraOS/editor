@@ -1,0 +1,8 @@
+# At the start of a line there is no fragment to complete.
+args: t.txt
+file t.txt:
+| alpha
+| alp
+keys: {Down}{Home}
+keys: {^]}
+keys: {^X}

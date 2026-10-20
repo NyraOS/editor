@@ -1,0 +1,12 @@
+# A completion at the right edge of a long line scrolls the line like typing, and back.
+args: t.txt
+size: 30x8
+file t.txt:
+| abcdefghijklmnopqrstuvwxyz extraordinarily long word at the end
+| abcdefghijklmnopqrstuvwxyz abcdefghijklmn extra
+keys: {Down}{End}
+keys: {^]}
+keys: {^]}
+keys: {^]}
+keys: {^X}
+keys: n

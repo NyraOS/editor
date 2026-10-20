@@ -1,0 +1,11 @@
+# Each ^] in a row takes the next word, in the order of the text, each once.
+args: t.txt
+file t.txt:
+| alpha alphabet alpine alpha
+| alp
+keys: {Down}{End}
+keys: {^]}
+keys: {^]}
+keys: {^]}
+keys: {^X}
+keys: n

@@ -1,0 +1,12 @@
+# ^] leaves a mark set with M-A.
+args: selx
+file selx:
+| selection select
+| sel
+keys: {Down}{Right*3}
+keys: {M-a}
+keys: {Left}
+keys: {^]}
+keys: {^K}
+keys: {^X}
+keys: n

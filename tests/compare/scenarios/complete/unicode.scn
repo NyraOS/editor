@@ -1,0 +1,13 @@
+# Letters beyond ASCII, wide characters and emoji next to words.
+args: t.txt
+file t.txt:
+| café cafétéria 日本語 日本酒 naïve
+| caf 日 na
+keys: {Down}{Right*3}
+keys: {^]}
+keys: {Right*2}
+keys: {^]}
+keys: {^]}
+keys: {Right*3}{^]}
+keys: {^X}
+keys: n

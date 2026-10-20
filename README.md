@@ -22,6 +22,8 @@ Early development. What works, the same way as in GNU nano 8.4:
 - searching (`^W` `^F` `F6`, backwards with `^Q` `^B`, again with `M-W` `M-Q`; `M-C` and `M-B` in the
   prompt, a history with `^P` `^N`) and going to a line and column (`^_` `M-G`); regular
   expressions and replacing come later;
+- completing a word (`^]`): the fragment before the cursor takes the ending of a word of the
+  text, and the next one on each `^]` in a row; one step of undo;
 - the title bar, the status bar and the help lines at any terminal size, the help screen (`^G`);
 - writing the file (`^O` `^S`) and exiting (`^X`).
 

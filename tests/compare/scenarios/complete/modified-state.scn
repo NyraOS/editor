@@ -1,0 +1,10 @@
+# Trying words and going past the last one leaves the modified state of the text as it was.
+args: t.txt
+file t.txt:
+| word wordy
+| wo
+keys: {Down}{End}
+keys: {^]}{^]}
+keys: {^]}
+keys: {M-u}
+keys: {^X}

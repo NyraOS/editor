@@ -1,0 +1,13 @@
+# CJK, Roman numerals and Arabic-Indic digits are word characters.
+args: -c u.txt
+file u.txt:
+| 日本語 日本人 Ⅻabc Ⅻdef ٣٤x ٣٤y
+keys: {End}
+keys: {Enter}日
+keys: {^]}{^]}{^]}
+keys: {Enter}Ⅻ
+keys: {^]}{^]}{^]}
+keys: {Enter}٣
+keys: {^]}{^]}{^]}
+keys: {^X}
+keys: n

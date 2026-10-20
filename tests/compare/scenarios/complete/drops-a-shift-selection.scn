@@ -1,0 +1,11 @@
+# ^] ends a selection made with Shift, as any key that is not a Shift one does.
+args: selx
+file selx:
+| selection select
+| sel
+keys: {Down}{Right*3}
+keys: {S-Left}
+keys: {^]}
+keys: {^K}
+keys: {^X}
+keys: n

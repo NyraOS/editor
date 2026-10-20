@@ -1,0 +1,13 @@
+# What is typed right after a completion is one step of undo with it, but not the fragment typed before.
+args: t.txt
+file t.txt:
+| foo foobar
+| 
+keys: {Down}
+keys: foo
+keys: {^]}
+keys: xy
+keys: {M-u}
+keys: {M-u}
+keys: {M-u}
+keys: {^X}

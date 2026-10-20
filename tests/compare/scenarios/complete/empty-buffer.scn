@@ -1,0 +1,5 @@
+# A new buffer has no words.
+keys: {^]}
+keys: abc{^]}
+keys: {^X}
+keys: n

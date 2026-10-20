@@ -2,6 +2,7 @@
 //! The editor's state and its commands: what each key does.
 
 use crate::buffer::{self, Buffer, Format, Kind, Mark, next_index, prev_index};
+use crate::complete::{self, Completion};
 use crate::config::Options;
 use crate::files::{self, Expected, Locking, Meta, SaveError, SaveOptions};
 use crate::keys::{Key, Mods, Named};
@@ -121,6 +122,8 @@ pub struct Editor {
     /// The text cut or copied last, and what the last key did to it.
     cut: String,
     chain: Chain,
+    /// The completions offered by the last key, when it was ^].
+    completion: Option<Completion>,
     /// The searches so far, the oldest first, and whether case matters (kept from search to
     /// search, as in nano).
     history: Vec<String>,
@@ -334,7 +337,7 @@ fn ends_soft_mark(key: &Key) -> bool {
         Key::Char(_)
             | Key::Byte(_)
             | Key::Paste(_)
-            | Key::Ctrl('I' | 'M' | 'H' | 'A' | 'E' | 'P' | 'N' | 'Y' | 'V')
+            | Key::Ctrl('I' | 'M' | 'H' | 'A' | 'E' | 'P' | 'N' | 'Y' | 'V' | ']')
             | Key::Meta('\\' | '/')
             | Key::Named(
                 Up | Down | Left | Right | Home | End | PageUp | PageDown | Backspace,
@@ -370,6 +373,7 @@ impl Editor {
             message: None,
             cut: String::new(),
             chain: Chain::None,
+            completion: None,
             history: Vec::new(),
             case_sensitive: false,
             spot: None,
@@ -562,8 +566,9 @@ impl Editor {
             self.spot = None;
         }
         let chain = std::mem::replace(&mut self.chain, Chain::None);
+        let completion = self.completion.take();
         match &mut self.mode {
-            Mode::Edit => self.edit_key(key, chain),
+            Mode::Edit => self.edit_key(key, chain, completion),
             Mode::Help(_) => self.help_key(key),
             Mode::Prompt(_) => self.prompt_key(key),
             Mode::Ask(_) => self.ask_key(key),
@@ -576,7 +581,7 @@ impl Editor {
         }
     }
 
-    fn edit_key(&mut self, key: Key, chain: Chain) {
+    fn edit_key(&mut self, key: Key, chain: Chain, completion: Option<Completion>) {
         use Named::*;
         let tab = self.opts.tabsize;
         let ctrl = Mods {
@@ -621,6 +626,7 @@ impl Editor {
             Key::Meta('6' | '^') => self.copy(chain),
             Key::Meta('a') | Key::Ctrl('^') => self.toggle_mark(),
             Key::Ctrl('U') | Key::Named(F(10), _) => self.paste(),
+            Key::Ctrl(']') => self.complete_word(completion),
             Key::Ctrl('G') | Key::Named(F(1), _) => {
                 self.message = None;
                 self.mode = Mode::Help(0);
@@ -723,6 +729,45 @@ impl Editor {
         }
         self.center();
         self.buf.keep_column(self.opts.tabsize);
+    }
+
+    /// ^] completes the word fragment before the cursor with a word of the text; again in a
+    /// row, it takes the next one, and after the last it puts the fragment back.
+    fn complete_word(&mut self, completion: Option<Completion>) {
+        // There is no `wordchars` option yet: the default is none.
+        let wordchars = "";
+        let first = completion.is_none();
+        let mut completion = match completion {
+            Some(c) => {
+                // Takes back the last ending: the one edit made, and nothing to redo of it.
+                self.buf.undo();
+                c
+            }
+            None => {
+                let text = &self.buf.text;
+                let cursor = self.buf.pos();
+                let start = complete::fragment_start(text, cursor, wordchars);
+                if start == cursor {
+                    self.error("No word fragment");
+                    return;
+                }
+                Completion::new(String::from(text.slice(start..cursor)), start)
+            }
+        };
+        let Some(ending) = completion.next_ending(&self.buf.text, wordchars) else {
+            self.buf.keep_column(self.opts.tabsize);
+            self.error(if first {
+                "No matches"
+            } else {
+                "No further matches"
+            });
+            return;
+        };
+        // As in nano, a message still shown goes.
+        self.message = None;
+        self.buf.end_group();
+        self.insert_text(&ending, Kind::Add);
+        self.completion = Some(completion);
     }
 
     /// Deletes the code point before the cursor (as in nano, a combining mark on its own), or

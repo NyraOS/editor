@@ -1,0 +1,9 @@
+# No word starts with the fragment: a message, and nothing changes.
+args: t.txt
+file t.txt:
+| alpha
+| zzz
+keys: {Down}{End}
+keys: {^]}
+keys: {^]}
+keys: {^X}

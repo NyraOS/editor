@@ -1,0 +1,22 @@
+# Words from lines off the screen are used, and the screen stays as it was, with line numbers.
+args: --linenumbers t.txt
+size: 40x10
+file t.txt:
+| distant words live here
+| 2
+| 3
+| 4
+| 5
+| 6
+| 7
+| 8
+| 9
+| 10
+| 11
+| 12
+| distant
+keys: {PgDn*3}{End}
+keys: {^]}
+keys: {^]}
+keys: {^X}
+keys: n

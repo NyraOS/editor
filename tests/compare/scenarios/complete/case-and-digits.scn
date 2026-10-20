@@ -1,0 +1,12 @@
+# Case matters; digits are word characters.
+args: t.txt
+file t.txt:
+| Alpha alpha 9lives 9l2 x
+| al 9l A
+keys: {Down}{Right*2}
+keys: {^]}
+keys: {Right*3}{^]}
+keys: {^]}
+keys: {End}{^]}
+keys: {^X}
+keys: n
