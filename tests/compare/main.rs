@@ -9,7 +9,7 @@ mod term;
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
@@ -52,6 +52,33 @@ fn editor(nano: &[String]) -> Vec<String> {
         }
         _ => nano.to_vec(),
     }
+}
+
+/// The editor under test must read its system nanorc from `$NYRA_EDITOR_SYSCONFDIR`, which the
+/// nanorc scenarios rely on: a build without the `test-sysconfdir` feature reads the real files
+/// and would pass them while testing nothing. A bad line in a probe nanorc is reported on the
+/// standard error before the editor looks for a terminal, so no terminal is needed here.
+fn check_editor_reads_sysconfdir(editor: &[String]) {
+    let probe = std::env::temp_dir().join(format!("nyra-editor-probe-{}", std::process::id()));
+    fs::create_dir_all(&probe).expect("create the probe directory");
+    let rc = probe.join("nanorc");
+    fs::write(&rc, "set no-such-option\n").expect("write the probe nanorc");
+    let out = Command::new(&editor[0])
+        .args(&editor[1..])
+        .env("NYRA_EDITOR_SYSCONFDIR", &probe)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run the editor under test");
+    let _ = fs::remove_dir_all(&probe);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains(&format!("Error in {}", rc.display())),
+        "the editor under test ignores NYRA_EDITOR_SYSCONFDIR (it did not read {}): build it \
+         with --features test-sysconfdir. Its stderr:\n{stderr}",
+        rc.display()
+    );
 }
 
 /// Where nano reads its system nanorc, when the tests control it: `$NANO_SYSCONFDIR`, else
@@ -202,6 +229,9 @@ fn scenarios() {
         eprintln!("skipped: the scenarios with nanorc files ({why}); see tests/compare/README.md");
     }
     let sysconfdir = sysconfdir.ok();
+    if editor != nano && !root {
+        check_editor_reads_sysconfdir(&editor);
+    }
     let with_rc_files = list
         .iter()
         .filter(|(_, path)| {

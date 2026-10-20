@@ -84,7 +84,7 @@ jobs:
       - name: The editor against GNU nano
         run: >-
           NANO="$HOME/nano-8.4/bin/nano" COMPARE_EDITOR=target/debug/nyra-editor
-          cargo test --locked --test compare scenarios -- --nocapture
+          cargo test --locked --features test-sysconfdir --test compare scenarios -- --nocapture
 
   deny:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
