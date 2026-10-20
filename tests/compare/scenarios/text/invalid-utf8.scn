@@ -1,5 +1,4 @@
 # Bytes that are not valid UTF-8 are kept as they are when the file is saved.
-differ: row 1: the editor shows invalid bytes as the replacement character (nano sends them as they are)
 args: bad.txt
 file bad.txt:
 | bad \xff\xfe and \xc3 here

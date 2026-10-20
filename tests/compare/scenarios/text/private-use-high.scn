@@ -1,0 +1,13 @@
+# Private-use characters at the very end of Unicode (in a file and typed) are kept and shown
+# as themselves.
+args: p.txt
+file p.txt:
+| ab
+| x\xf4\x8f\xbd\x81y \xf4\x8f\xb9\x81 z \xf4\x8f\xbf\xbf w \xf3\xa0\x87\xaf v
+keys: {End}􏽂􏹂
+keys: {Down}{End}
+keys: {Left*3}
+keys: {Bsp}
+keys: {Left*5}{Del}
+keys: {^O}{Enter}
+keys: {^X}

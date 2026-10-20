@@ -1,4 +1,7 @@
 # Delete at the end of a line joins the next one; the long result scrolls sideways.
+# The line is saved before the cursor moves: nano writes the bottom-right cell with autowrap off
+# (DECAWM), which the terminal emulator of the tests ignores, so nano's cursor would be one
+# column off there when it is put back after writing the title bar of a saved file.
 args: j.txt
 size: 30x8
 file j.txt:

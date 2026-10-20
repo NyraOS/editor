@@ -59,10 +59,12 @@ keys: {^X}
 | `# ...` | A comment (only at the start of a line). Start every scenario with one saying what it checks. |
 | `args: ...` | Command-line arguments for both editors, split on spaces (no quoting). Both always get `--ignorercfiles` first. Default: none. |
 | `size: COLSxROWS` | The terminal size. Default: `80x24`. |
-| `file NAME:` | A file in the working directory, created before the editors start; its lines follow, each starting with `\| ` (or just `\|` for an empty line). No lines: an empty file. `NAME` is relative and may have directories. |
+| `file NAME:` | A file in the working directory, created before the editors start; its lines follow, each starting with `\| ` (or just `\|` for an empty line). No lines: an empty file. `NAME` is relative and may have directories. After the first step, it is a step: the file is (re)written in both working directories while the editors run. |
 | `keys: ...` | A step: keys sent at once (see below). The screens are compared after each step. |
 | `resize: COLSxROWS` | A step: the terminal changes size. |
-| `differ: rows A-B[ cols C-D]: reason` | A deliberate difference from GNU nano: these screen cells are not compared, in every step. Also `row N`, `col N`. The reason is required. The cursor position is still compared, also inside the region. |
+| `pause: MS` | A step: both editors are left alone for MS milliseconds (1 to 10000), for something they show for a while, then compared. |
+| `differ: rows A-B[ cols C-D]: reason` | A deliberate difference from GNU nano: these screen cells are not compared, from the next step on (before the first step: also at the start). Also `row N`, `col N`. The reason is required. The cursor position is still compared, also inside the region. |
+| `differ: none` | The deliberate differences declared so far end: the next steps are compared whole. |
 | `pending: reason` | The editor does not do this yet: the scenario runs only when GNU nano is the editor under test, and is skipped (and counted as skipped) with `COMPARE_EDITOR`. Remove the line in the change that makes the editor pass it. |
 
 `args`, `size` and `pending` may appear once; the other lines as often as needed. Steps run in
@@ -121,9 +123,13 @@ the same step, it reads as Alt.
   nothing is masked.
 - The welcome message is not compared: nano's, shown when it starts without a file, names nano
   ("Welcome to nano.  For basic help, type Ctrl+G."); the editor's leaves the name out ("For basic
-  help, type Ctrl+G."). Only when a row of nano's screen shows its message and the same row of the
-  editor's screen shows the editor's, that row reads as `*` on both screens. On a narrow screen a
-  message shows without its brackets and cut at the edge; that counts too.
+  help, type Ctrl+G."). Only in the status bar (the third row from the bottom, or the last one
+  with `-x`), and only when each screen shows its own message as nano shows messages (in brackets,
+  centred; or, when that does not fit, from the left edge and cut at the right edge), with the
+  look of nano's message and nothing else in the row, that row reads as `*` on both screens.
+- The replacement character U+FFFD, which both draw for bytes that are not valid UTF-8, reaches
+  the emulator as `¿`: vt100 drops U+FFFD, and the screens would not show it (a U+FFFD split
+  between two reads is put together first).
 - A reference nano that cannot run (exit status 126 or 127) fails the scenario, so a wrong
   `NANO` can never make the scenarios pass. A report also says when an editor has exited. `NANO`, and an editor command with a `/`, are made
   absolute paths, as the editors start in their own directories.

@@ -7,4 +7,5 @@ keys: {^O}
 keys: {Left*4}{Bsp}2
 keys: {Home}{Right}{Del}X
 keys: {Enter}
+keys: y
 keys: {^X}

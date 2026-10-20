@@ -22,7 +22,15 @@ pub struct Term {
     parser: vt100::Parser,
     /// The editor closed the terminal (it exited).
     closed: bool,
+    /// The start of a replacement character at the end of the last read, held for the next one.
+    held: Vec<u8>,
 }
+
+/// U+FFFD, the replacement character, which editors draw for bytes that are not valid UTF-8.
+const REPLACEMENT: &[u8] = "\u{fffd}".as_bytes();
+/// What the emulator gets instead: vt100 drops U+FFFD when printing, so the screens would not
+/// show it. `¿` is one column wide too.
+const VISIBLE: &[u8] = "\u{bf}".as_bytes();
 
 /// How the editor ended.
 #[derive(Debug, PartialEq)]
@@ -73,6 +81,7 @@ impl Term {
             child,
             parser: vt100::Parser::new(nonzero(rows), nonzero(cols), 0),
             closed: false,
+            held: Vec::new(),
         };
         term.wait_for_output()?;
         Ok(term)
@@ -140,16 +149,22 @@ impl Term {
         let timeout = Timespec::try_from(timeout).map_err(io::Error::other)?;
         let mut fds = [PollFd::new(&self.master, PollFlags::IN)];
         if poll(&mut fds, Some(&timeout))? == 0 {
+            // Nothing more came: what was held is not a replacement character.
+            let held = std::mem::take(&mut self.held);
+            self.parser.process(&held);
             return Ok(false);
         }
         let mut buf = [0; 65536];
         match self.master.read(&mut buf) {
             Ok(n) if n > 0 => {
-                self.parser.process(&buf[..n]);
+                let bytes = visible(&mut self.held, &buf[..n]);
+                self.parser.process(&bytes);
                 Ok(true)
             }
             // EIO: every process closed the terminal.
             Ok(_) | Err(_) => {
+                let held = std::mem::take(&mut self.held);
+                self.parser.process(&held);
                 self.closed = true;
                 Ok(false)
             }
@@ -197,4 +212,50 @@ fn winsize(cols: u16, rows: u16) -> Winsize {
 
 fn nonzero(n: u16) -> NonZeroU16 {
     NonZeroU16::new(n).unwrap_or(NonZeroU16::MIN)
+}
+
+/// The output with each replacement character made visible to the emulator; the start of one at
+/// the end is held until the next read shows whether it is one.
+fn visible(held: &mut Vec<u8>, data: &[u8]) -> Vec<u8> {
+    let mut bytes = std::mem::take(held);
+    bytes.extend_from_slice(data);
+    let keep = (1..REPLACEMENT.len())
+        .rev()
+        .find(|&k| bytes.len() >= k && REPLACEMENT.starts_with(&bytes[bytes.len() - k..]))
+        .unwrap_or(0);
+    *held = bytes.split_off(bytes.len() - keep);
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut rest = &bytes[..];
+    while !rest.is_empty() {
+        if rest.starts_with(REPLACEMENT) {
+            out.extend_from_slice(VISIBLE);
+            rest = &rest[REPLACEMENT.len()..];
+        } else {
+            out.push(rest[0]);
+            rest = &rest[1..];
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::visible;
+
+    #[test]
+    fn replacement_characters_are_made_visible_across_reads() {
+        let mut held = Vec::new();
+        assert_eq!(
+            visible(&mut held, "a\u{fffd}b".as_bytes()),
+            "a\u{bf}b".as_bytes()
+        );
+        assert_eq!(visible(&mut held, b"x\xef\xbf"), b"x");
+        assert_eq!(visible(&mut held, b"\xbdy"), "\u{bf}y".as_bytes());
+        // The start of another character is given back with the next bytes.
+        assert_eq!(visible(&mut held, b"\xef"), b"");
+        assert_eq!(
+            visible(&mut held, &"\u{ff71}".as_bytes()[1..]),
+            "\u{ff71}".as_bytes()
+        );
+    }
 }

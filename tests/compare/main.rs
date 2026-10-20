@@ -275,7 +275,13 @@ fn scenario_format() {
                 | no newline\\\n\
                 file empty:\n\
                 keys: hi{Enter}\n\
-                resize: 90x20\n";
+                resize: 90x20\n\
+                differ: none\n\
+                file notes.txt:\n\
+                | new\n\
+                pause: 1500\n\
+                differ: row 7 col 3: a column\n\
+                keys: x\n";
     let s = scenario::parse(text).unwrap();
     assert_eq!(s.args, ["-l", "notes.txt"]);
     assert_eq!((s.cols, s.rows), (100, 30));
@@ -292,6 +298,19 @@ fn scenario_format() {
     );
     assert!(s.differ[0].contains(23, 79) && !s.differ[0].contains(21, 0));
     assert!(s.differ[1].contains(0, 9) && !s.differ[1].contains(0, 10));
+    // Differences apply from where they are declared, until `differ: none`.
+    assert_eq!(s.steps[0].differ, s.differ);
+    assert_eq!(s.steps[1].differ, s.differ);
+    assert_eq!(
+        s.steps[2].action,
+        scenario::Action::Write {
+            name: "notes.txt".into(),
+            bytes: b"new\n".to_vec()
+        }
+    );
+    assert!(s.steps[2].differ.is_empty());
+    assert_eq!(s.steps[3].action, scenario::Action::Pause(1500));
+    assert!(s.steps[4].differ[0].contains(7, 3) && !s.steps[4].differ[0].contains(7, 4));
     assert_eq!(s.pending.as_deref(), Some("the editor cannot do this yet"));
 
     for (bad, line) in [
@@ -303,6 +322,7 @@ fn scenario_format() {
         ("differ: rows 1-2\nkeys: a\n", "line 1:"),
         ("bogus: 1\nkeys: a\n", "line 1:"),
         ("pending:\nkeys: a\n", "line 1:"),
+        ("keys: a\npause: 0\n", "line 2:"),
         ("args: x\n", "no steps"),
     ] {
         let err = scenario::parse(bad).unwrap_err();
