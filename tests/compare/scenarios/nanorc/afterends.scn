@@ -1,0 +1,8 @@
+# set afterends: ^Right stops at word ends.
+nanorc: set afterends
+args: a.txt
+file a.txt:
+| \tx cat Cat c.t
+keys: {^Right}
+keys: {^Right}
+keys: {^X}

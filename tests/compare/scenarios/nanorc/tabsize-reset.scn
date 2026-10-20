@@ -1,0 +1,7 @@
+# A valid tab size, then a bad one.
+nanorc: set tabsize 3
+nanorc: set tabsize x
+args: a.txt
+file a.txt:
+| \ttext
+keys: {^X}

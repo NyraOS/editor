@@ -25,6 +25,7 @@ pub fn run(
     nano: &[String],
     editor: &[String],
     dir: &Path,
+    sysconfdir: Option<&Path>,
     show: Option<&mut String>,
 ) -> Result<(), String> {
     let mut show = show;
@@ -50,7 +51,7 @@ pub fn run(
             &scenario.args,
             &work,
             &home,
-            !scenario.home_files.is_empty(),
+            sysconfdir.filter(|_| !scenario.home_files.is_empty()),
             scenario.cols,
             scenario.rows,
         )

@@ -1,0 +1,9 @@
+# Includes that match nothing, a directory, the file itself.
+nanorc: include "~/nothing*.nanorc"
+nanorc: include "~"
+nanorc: include "~/.nanorc"
+nanorc: set linenumbers
+args: a.txt
+file a.txt:
+| \tx cat Cat c.t
+keys: {^X}

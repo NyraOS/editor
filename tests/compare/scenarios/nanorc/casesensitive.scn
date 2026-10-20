@@ -1,0 +1,8 @@
+# set casesensitive changes the search.
+nanorc: set casesensitive
+args: a.txt
+file a.txt:
+| \tx cat Cat c.t
+keys: {^W}Cat{Enter}
+keys: {^W}cat{Enter}
+keys: {^X}

@@ -1,0 +1,8 @@
+# set regexp makes searches regular expressions.
+nanorc: set regexp
+args: a.txt
+file a.txt:
+| \tx cat Cat c.t
+keys: {^W}c.t{Enter}
+keys: {M-w}
+keys: {^X}

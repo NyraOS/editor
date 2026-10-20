@@ -1,0 +1,8 @@
+# Both user files: only ~/.nanorc is read.
+nanorc: set tabsize 3
+xdgrc: set linenumbers
+args: a.txt
+file a.txt:
+| \tx cat Cat c.t
+keys: {End}
+keys: {^X}

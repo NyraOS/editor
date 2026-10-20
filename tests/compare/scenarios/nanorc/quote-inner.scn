@@ -1,0 +1,8 @@
+# A quote inside a quoted argument.
+nanorc: set wordchars "a\\"b"
+nanorc: set linenumbers
+args: a.txt
+file a.txt:
+| \tx cat Cat c.t
+keys: {End}
+keys: {^X}

@@ -4,14 +4,28 @@
 //! then the user's: `~/.nanorc` if it exists, else `$XDG_CONFIG_HOME/nano/nanorc`, else
 //! `~/.config/nano/nanorc` (only one of the three, as in nano). The command line wins over all.
 //!
+//! The home directory is `$HOME`, except for root, which takes it from the password database
+//! (as nano does): after `su`, root must not read the user's files. Without NSS: only
+//! `/etc/passwd` is looked at.
+//!
+//! For the tests only, `NYRA_EDITOR_SYSCONFDIR=DIR` replaces the two system files by
+//! `DIR/nanorc`, so that the host's files cannot change a result. It is ignored for root and when
+//! the real and effective user differ: an environment that can be inherited (`sudo`, `su -m`) must
+//! not choose the administrator's settings of a privileged editor.
+//!
 //! A line is `set OPTION [ARGUMENT]`, `unset OPTION` or `include "GLOB"` (only in those files, not
 //! in an included one: as in nano, those are for syntax files), or one of the syntax commands
 //! (`syntax`, `color`, ...) and `bind` / `unbind`, which are read and ignored until the colours
 //! and the key bindings are done. A line the editor cannot use is reported on the standard error
 //! in nano's words, and the rest is read: the editor starts anyway, with a message in the status
-//! bar. The files are not trusted: a file is read up to `MAX_FILE` bytes, there are at most
-//! `MAX_MESSAGES` messages and `MAX_FILES` files read, and a message shows at most `MAX_SHOWN`
-//! bytes of what is wrong.
+//! bar. An option nano has and the editor does not yet is reported once, in the same way, and the
+//! rest is read. An invalid value resets the option to its default, as in nano.
+//!
+//! The files are not trusted. Deliberate differences from nano, which reports and goes on: a file
+//! is read up to `MAX_FILE` bytes (the rest is not read, and a message says so), at most
+//! `MAX_FILES` included files are read, at most `MAX_MESSAGES` messages are shown, and each
+//! shows at most `MAX_SHOWN` bytes of what is wrong. Only the first two drop settings; after the
+//! message limit, every line is still applied.
 
 use crate::config::{Options, parse_num};
 use std::borrow::Cow;
@@ -20,6 +34,8 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 const SYSTEM_FILES: [&str; 2] = ["/usr/share/nyra-editor/nanorc", "/etc/nanorc"];
+/// Only for the tests, see the top of this file.
+const SYSCONFDIR_VARIABLE: &str = "NYRA_EDITOR_SYSCONFDIR";
 const MAX_FILE: u64 = 1 << 20;
 const MAX_MESSAGES: usize = 50;
 const MAX_FILES: usize = 1000;
@@ -30,14 +46,17 @@ const MAX_MATCHES: usize = 256;
 /// The options that work, as they are in the table of the command line.
 fn flag<'a>(o: &'a mut Options, name: &str) -> Option<&'a mut bool> {
     Some(match name {
+        "afterends" => &mut o.afterends,
         "autoindent" => &mut o.autoindent,
         "backup" => &mut o.backup,
+        "casesensitive" => &mut o.casesensitive,
         "constantshow" => &mut o.constantshow,
         "cutfromcursor" => &mut o.cutfromcursor,
         "linenumbers" => &mut o.linenumbers,
         "noconvert" => &mut o.noconvert,
         "nohelp" => &mut o.nohelp,
         "nonewlines" => &mut o.nonewlines,
+        "regexp" => &mut o.regexp,
         "saveonexit" => &mut o.saveonexit,
         "smarthome" => &mut o.smarthome,
         "tabstospaces" => &mut o.tabstospaces,
@@ -48,35 +67,30 @@ fn flag<'a>(o: &'a mut Options, name: &str) -> Option<&'a mut bool> {
     })
 }
 
-/// Options nano has, that the editor cannot honour yet (or never needs): accepted, no effect.
-const IGNORED_FLAGS: &[&str] = &[
-    "afterends",
+/// Options nano has, that change nothing here (or nothing nano would show): accepted.
+const IGNORED_FLAGS: &[&str] = &["atblanks", "bookstyle", "locking", "nowrap", "trimblanks"];
+
+/// Options nano has, that the editor does not have yet: reported once, when set.
+const LATER_FLAGS: &[&str] = &[
     "allow_insecure_backup",
-    "atblanks",
-    "bookstyle",
     "boldtext",
     "breaklonglines",
-    "casesensitive",
     "colonparsing",
     "emptyline",
     "historylog",
     "indicator",
     "jumpyscrolling",
-    "locking",
     "minibar",
     "mouse",
     "multibuffer",
-    "nowrap",
     "positionlog",
     "preserve",
     "quickblank",
     "rawsequences",
     "rebinddelete",
-    "regexp",
     "showcursor",
     "softwrap",
     "stateflags",
-    "trimblanks",
     "zero",
 ];
 
@@ -90,8 +104,10 @@ const ARGUMENT_OPTIONS: &[&str] = &[
     "guidestripe",
     "keycolor",
     "matchbrackets",
+    "minicolor",
     "numbercolor",
     "operatingdir",
+    "promptcolor",
     "punct",
     "quotestr",
     "scrollercolor",
@@ -109,11 +125,11 @@ const ARGUMENT_OPTIONS: &[&str] = &[
 /// Reads the nanorc files into `options`. The second result is the message for the status bar
 /// when there were mistakes; the mistakes themselves are already on the standard error.
 pub fn load(options: Options) -> (Options, Option<String>) {
-    let home = env_path("HOME");
+    let home = home_dir();
     let xdg = env_path("XDG_CONFIG_HOME");
     let mut rc = Reader::new(options, home.clone());
-    for file in SYSTEM_FILES {
-        rc.read_top(Path::new(file));
+    for file in system_files() {
+        rc.read_top(&file);
     }
     if let Some(file) = user_file(home.as_deref(), xdg.as_deref()) {
         rc.read_top(&file);
@@ -124,6 +140,40 @@ pub fn load(options: Options) -> (Options, Option<String>) {
     }
     let alert = rc.first_file.map(|f| format!("Mistakes in '{f}'"));
     (rc.options, alert)
+}
+
+/// The system files in the order they are read.
+fn system_files() -> Vec<PathBuf> {
+    let user = rustix::process::getuid();
+    let dir = std::env::var_os(SYSCONFDIR_VARIABLE).filter(|v| !v.is_empty());
+    match dir {
+        Some(dir) if !user.is_root() && user == rustix::process::geteuid() => {
+            vec![Path::new(&dir).join("nanorc")]
+        }
+        _ => SYSTEM_FILES.iter().map(PathBuf::from).collect(),
+    }
+}
+
+/// `$HOME`, or when it is not set, or for root, the home directory of the effective user.
+fn home_dir() -> Option<PathBuf> {
+    let user = rustix::process::geteuid();
+    let home = match std::env::var_os("HOME") {
+        Some(home) if !user.is_root() => home,
+        _ => {
+            let passwd = fs::read_to_string("/etc/passwd").ok()?;
+            passwd_home(&passwd, user.as_raw())?.into()
+        }
+    };
+    (!home.is_empty()).then(|| PathBuf::from(home))
+}
+
+/// The home directory of `uid` in the text of a password file.
+fn passwd_home(passwd: &str, uid: u32) -> Option<&str> {
+    passwd.lines().find_map(|line| {
+        let mut fields = line.split(':');
+        let (id, home) = (fields.nth(2)?, fields.nth(2)?);
+        (id.parse() == Ok(uid)).then_some(home)
+    })
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {
@@ -158,8 +208,10 @@ struct Reader {
     /// The file of the first mistake.
     first_file: Option<String>,
     files_left: usize,
-    /// Too many mistakes or files: nothing more is read.
-    stopped: bool,
+    /// The included files are over `MAX_FILES`, and it has been said.
+    too_many_files: bool,
+    /// The options already reported as not available yet.
+    later: Vec<String>,
 }
 
 impl Reader {
@@ -170,13 +222,14 @@ impl Reader {
             messages: Vec::new(),
             first_file: None,
             files_left: MAX_FILES,
-            stopped: false,
+            too_many_files: false,
+            later: Vec::new(),
         }
     }
 
     fn error(&mut self, spot: Spot, what: &str) {
+        // Past the limit nothing is shown, but the lines are still read and applied.
         if self.messages.len() >= MAX_MESSAGES {
-            self.stopped = true;
             return;
         }
         self.first_file.get_or_insert_with(|| spot.file.to_string());
@@ -186,7 +239,7 @@ impl Reader {
             line => format!("Error in {} on line {line}: {what}", spot.file),
         };
         if self.messages.len() + 1 == MAX_MESSAGES {
-            message.push_str("\nToo many mistakes: the rest is not read");
+            message.push_str("\nToo many mistakes: the others are not shown");
         }
         self.messages.push(message);
     }
@@ -197,15 +250,18 @@ impl Reader {
             return;
         }
         let shown = path.display().to_string();
+        let whole = Spot {
+            file: &shown,
+            line: 0,
+        };
         match read_limited(&shown) {
-            Ok(bytes) => self.parse(&shown, &bytes, false),
-            Err(what) => self.error(
-                Spot {
-                    file: &shown,
-                    line: 0,
-                },
-                &what,
-            ),
+            Ok((bytes, cut)) => {
+                self.parse(&shown, &bytes, false);
+                if cut {
+                    self.error(whole, &too_big(&shown));
+                }
+            }
+            Err(what) => self.error(whole, &what),
         }
     }
 
@@ -213,9 +269,6 @@ impl Reader {
     fn parse(&mut self, file: &str, bytes: &[u8], included: bool) {
         let mut in_syntax = false;
         for (i, raw) in bytes.split(|&b| b == b'\n').enumerate() {
-            if self.stopped {
-                return;
-            }
             let spot = Spot { file, line: i + 1 };
             // As in nano, a NUL ends the line, and a CR before the newline is not part of it.
             let raw = raw.split(|&b| b == 0).next().unwrap_or_default();
@@ -273,6 +326,9 @@ impl Reader {
         if IGNORED_FLAGS.contains(&name) {
             return Ok(());
         }
+        if LATER_FLAGS.contains(&name) {
+            return self.not_yet(set, name);
+        }
         if !ARGUMENT_OPTIONS.contains(&name) {
             return Err(format!("Unknown option: {}", shown(name)));
         }
@@ -295,6 +351,8 @@ impl Reader {
         let o = &mut self.options;
         match name {
             "tabsize" => {
+                // An invalid size gives back the default, not the one set before.
+                o.tabsize = Options::default().tabsize;
                 o.tabsize = parse_num(arg)
                     .and_then(|n| usize::try_from(n).ok())
                     .filter(|&n| n > 0)
@@ -306,10 +364,20 @@ impl Reader {
             }
             "backupdir" => o.backupdir = Some(PathBuf::from(arg)),
             "wordchars" => o.wordchars = arg.to_string(),
-            // Colours, brackets, guides and the like come later; nano accepts them.
-            _ => {}
+            "speller" => {}
+            _ => return self.not_yet(set, name),
         }
         Ok(())
+    }
+
+    /// An option nano has and the editor does not. Only setting it is a mistake: it is off by
+    /// default. Said once.
+    fn not_yet(&mut self, set: bool, name: &str) -> Result<(), String> {
+        if !set || self.later.iter().any(|n| n == name) {
+            return Ok(());
+        }
+        self.later.push(name.to_string());
+        Err(format!("Option \"{name}\" is not available yet"))
     }
 
     fn include(&mut self, spot: Spot, rest: &str) {
@@ -332,17 +400,21 @@ impl Reader {
             paths.push(pattern);
         }
         for path in paths {
-            if self.stopped {
-                return;
-            }
             if self.files_left == 0 {
-                self.stopped = true;
-                self.error(spot, "Too many included files");
+                if !self.too_many_files {
+                    self.too_many_files = true;
+                    self.error(spot, "Too many included files");
+                }
                 return;
             }
             self.files_left -= 1;
             match read_limited(&path) {
-                Ok(bytes) => self.parse(&path, &bytes, true),
+                Ok((bytes, cut)) => {
+                    self.parse(&path, &bytes, true);
+                    if cut {
+                        self.error(spot, &too_big(&path));
+                    }
+                }
                 Err(what) => self.error(spot, &what),
             }
         }
@@ -381,8 +453,16 @@ fn shown(s: &str) -> &str {
     &s[..end]
 }
 
-/// The first `MAX_FILE` bytes of a regular file; Err is the message, as nano words it.
-fn read_limited(path: &str) -> Result<Vec<u8>, String> {
+fn too_big(path: &str) -> String {
+    format!(
+        "{} is too big: only its first {MAX_FILE} bytes are read",
+        shown(path)
+    )
+}
+
+/// The first `MAX_FILE` bytes of a regular file, cut after a whole line, and whether it was cut;
+/// Err is the message, as nano words it.
+fn read_limited(path: &str) -> Result<(Vec<u8>, bool), String> {
     let reading = |e: io::Error| {
         // The system's words for the error, as nano prints them.
         let text = e.to_string();
@@ -399,10 +479,14 @@ fn read_limited(path: &str) -> Result<Vec<u8>, String> {
     }
     let mut bytes = Vec::new();
     let file = fs::File::open(path).map_err(reading)?;
-    file.take(MAX_FILE)
+    file.take(MAX_FILE + 1)
         .read_to_end(&mut bytes)
         .map_err(reading)?;
-    Ok(bytes)
+    let cut = bytes.len() as u64 > MAX_FILE;
+    if cut {
+        bytes.truncate(bytes.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1));
+    }
+    Ok((bytes, cut))
 }
 
 /// The names that a pattern with `*`, `?` or `[...]` stands for, in alphabetical order. Empty when
@@ -562,11 +646,12 @@ mod tests {
             "Argument '\"4' has an unterminated \"",
             "Cannot unset option \"tabsize\"",
             "Requested fill size \"x\" is invalid",
+            "Option \"mouse\" is not available yet",
             "A 'color' command requires a preceding 'syntax' command",
             "Missing syntax name",
             "Error reading : No such file or directory",
         ];
-        let want: Vec<String> = [1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12]
+        let want: Vec<String> = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
             .iter()
             .zip(rest)
             .map(|(n, what)| format!("Error in rc on line {n}: {what}"))
@@ -604,12 +689,74 @@ mod tests {
     }
 
     #[test]
-    fn too_many_mistakes_stop_the_reading() {
+    fn too_many_mistakes_are_not_shown_but_the_reading_goes_on() {
         let text = "frob\n".repeat(1000) + "set linenumbers\n";
         let mut rc = Reader::new(Options::default(), None);
         rc.parse("rc", text.as_bytes(), false);
         assert_eq!(rc.messages.len(), MAX_MESSAGES);
-        assert!(rc.stopped && !rc.options.linenumbers);
+        assert!(rc.options.linenumbers);
+    }
+
+    #[test]
+    fn an_invalid_value_gives_back_the_default() {
+        let (o, m) = read("set tabsize 3\nset tabsize x\n");
+        assert_eq!((o.tabsize, m.len()), (8, 1));
+        let (o, _) = read("set tabsize 3\nset tabsize \"3\" \"x\"\n");
+        assert_eq!(o.tabsize, 8);
+        let (o, m) = read("set tabsize 3\nset tabsize 5\n");
+        assert_eq!((o.tabsize, m.len()), (5, 0));
+    }
+
+    #[test]
+    fn search_and_word_options_work() {
+        let (o, m) = read("set casesensitive\nset regexp\nset afterends\nunset regexp\n");
+        assert!(m.is_empty(), "{m:?}");
+        assert!(o.casesensitive && o.afterends && !o.regexp);
+    }
+
+    #[test]
+    fn options_not_available_yet_are_said_once() {
+        let m = mistakes(
+            "set softwrap\nset softwrap\nunset minibar\nset stateflags\nset titlecolor red\n\
+             set quotestr \"> \"\nset linenumbers\n",
+        );
+        let said: Vec<String> = ["softwrap", "stateflags", "titlecolor", "quotestr"]
+            .iter()
+            .zip([1, 4, 5, 6])
+            .map(|(name, n)| {
+                format!("Error in rc on line {n}: Option \"{name}\" is not available yet")
+            })
+            .collect();
+        assert_eq!(m, said);
+    }
+
+    #[test]
+    fn a_file_over_the_limit_is_cut_after_a_line_and_said() {
+        let dir = std::env::temp_dir().join(format!("nyra-rc-big-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("big.rc");
+        let line = format!("# {}\n", "c".repeat(98));
+        let text = line.repeat(MAX_FILE as usize / line.len() + 2) + "set linenumbers\n";
+        fs::write(&file, text).unwrap();
+        let (bytes, cut) = read_limited(file.to_str().unwrap()).unwrap();
+        assert!(cut && bytes.len() as u64 <= MAX_FILE && bytes.ends_with(b"\n"));
+        let mut rc = Reader::new(Options::default(), None);
+        let spot = Spot {
+            file: "rc",
+            line: 1,
+        };
+        rc.include(spot, &format!("\"{}\"", file.display()));
+        assert_eq!(rc.messages.len(), 1);
+        assert!(rc.messages[0].contains("is too big"), "{:?}", rc.messages);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_home_of_a_user_is_in_the_password_file() {
+        let passwd = "r:x:0:0:r:/rhome:/sh\nbad\nu:x:1000:1000:U,,,:/uhome:/sh\n";
+        assert_eq!(passwd_home(passwd, 0), Some("/rhome"));
+        assert_eq!(passwd_home(passwd, 1000), Some("/uhome"));
+        assert_eq!(passwd_home(passwd, 7), None);
     }
 
     #[test]

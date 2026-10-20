@@ -69,6 +69,12 @@ pub struct Options {
     pub wordbounds: bool,
     /// `-X CHARS`: besides letters and digits, these characters are part of words.
     pub wordchars: String,
+    /// `-y`: the word keys stop at the ends of words instead of their beginnings.
+    pub afterends: bool,
+    /// nanorc `set casesensitive`: searches start case sensitive.
+    pub casesensitive: bool,
+    /// nanorc `set regexp`: searches start with regular expressions.
+    pub regexp: bool,
 }
 
 impl Default for Options {
@@ -96,6 +102,9 @@ impl Default for Options {
             zap: false,
             wordbounds: false,
             wordchars: String::new(),
+            afterends: false,
+            casesensitive: false,
+            regexp: false,
         }
     }
 }
@@ -133,7 +142,7 @@ const fn opt(short: char, long: &'static str, arg: bool, support: Support) -> Op
 const OPTIONS: &[Opt] = &[
     opt('a', "atblanks", false, Ignored),
     opt('i', "autoindent", false, Works),
-    opt('y', "afterends", false, Later),
+    opt('y', "afterends", false, Works),
     opt('D', "boldtext", false, Later),
     opt('b', "breaklonglines", false, Later),
     opt('B', "backup", false, Works),
@@ -390,6 +399,7 @@ fn apply(p: &mut Parsing, opt: &Opt, value: &str) -> Result<Option<Command>, Str
         "unix" => o.unix = true,
         "zap" => o.zap = true,
         "wordbounds" => o.wordbounds = true,
+        "afterends" => o.afterends = true,
         "ignorercfiles" => o.ignorercfiles = true,
         // Files are always locked.
         "locking" => {}
@@ -455,8 +465,8 @@ fn start_spec(o: &mut Options, spec: &str) {
     let mut search = StartSearch {
         text: String::new(),
         backwards: false,
-        case_sensitive: false,
-        regexp: false,
+        case_sensitive: o.casesensitive,
+        regexp: o.regexp,
     };
     for (i, c) in spec.char_indices() {
         match c {

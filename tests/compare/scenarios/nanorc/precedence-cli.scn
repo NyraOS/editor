@@ -1,0 +1,8 @@
+# The command line wins.
+nanorc: set tabsize 3
+nanorc: unset linenumbers
+args: -T 5 -l a.txt
+file a.txt:
+| \tx cat Cat c.t
+keys: {End}
+keys: {^X}

@@ -33,10 +33,13 @@ echo "$sha256  $work/nano.tar.xz" | sha256sum -c -
 
 tar -xJf "$work/nano.tar.xz" -C "$work"
 cd "$work/nano-$version"
-# No translations: the tests run in English (C.UTF-8).
-./configure --quiet --prefix="$prefix" --disable-nls
+# No translations: the tests run in English (C.UTF-8). The system nanorc is $prefix/etc/nanorc,
+# empty, so that the tests control it (the host's /etc/nanorc is never read).
+./configure --quiet --prefix="$prefix" --sysconfdir="$prefix/etc" --disable-nls
 make --quiet -j"$(nproc)"
 make --quiet install
+mkdir -p "$prefix/etc"
+: > "$prefix/etc/nanorc"
 
 found=$("$prefix/bin/nano" --version | head -n 1)
 case $found in

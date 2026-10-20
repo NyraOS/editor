@@ -404,6 +404,7 @@ fn error_text(e: &io::Error) -> String {
 impl Editor {
     /// Opens the file in `opts`, or a new buffer.
     pub fn open(opts: Options, cols: usize, rows: usize) -> Self {
+        let (case_sensitive, regexp) = (opts.casesensitive, opts.regexp);
         let mut ed = Self {
             buf: Buffer::new("", Format::Unix),
             name: opts.file.clone().unwrap_or_default(),
@@ -417,8 +418,8 @@ impl Editor {
             chain: Chain::None,
             completion: None,
             history: Vec::new(),
-            case_sensitive: false,
-            regexp: false,
+            case_sensitive,
+            regexp,
             replace_history: Vec::new(),
             spot: None,
             meta: None,
@@ -993,14 +994,26 @@ impl Editor {
         })
     }
 
-    /// To the start of the next word.
+    /// To the start of the next word, or with `afterends` to the end of this one.
     fn word_right(&mut self) {
         let mut pos = self.buf.pos();
-        while self.is_word(self.char_at(pos)) {
-            pos += 1;
-        }
-        while self.char_at(pos).is_some() && !self.is_word(self.char_at(pos)) {
-            pos += 1;
+        if self.opts.afterends {
+            let mut seen_word = self.is_word(self.char_at(pos));
+            while self.char_at(pos).is_some() {
+                pos += 1;
+                if self.is_word(self.char_at(pos)) {
+                    seen_word = true;
+                } else if seen_word {
+                    break;
+                }
+            }
+        } else {
+            while self.is_word(self.char_at(pos)) {
+                pos += 1;
+            }
+            while self.char_at(pos).is_some() && !self.is_word(self.char_at(pos)) {
+                pos += 1;
+            }
         }
         self.buf.set_pos(pos);
         self.buf.keep_column(self.opts.tabsize);
@@ -1955,6 +1968,31 @@ mod tests {
         let mut ed = Editor::open(Options::default(), 80, 24);
         ed.buf = Buffer::new(text, Format::Unix);
         ed
+    }
+
+    #[test]
+    fn afterends_stops_the_word_keys_at_the_end_of_words() {
+        let ctrl_right = Key::Named(
+            Named::Right,
+            Mods {
+                ctrl: true,
+                ..Mods::default()
+            },
+        );
+        for (afterends, stops) in [(false, [4, 8, 9]), (true, [3, 7, 9])] {
+            let opts = Options {
+                afterends,
+                ..Options::default()
+            };
+            let mut ed = Editor::open(opts, 80, 24);
+            ed.buf = Buffer::new("one two\nx", Format::Unix);
+            let mut at = Vec::new();
+            for _ in 0..3 {
+                typed(&mut ed, &[ctrl_right.clone()]);
+                at.push(ed.buf.pos());
+            }
+            assert_eq!(at, stops, "afterends {afterends}");
+        }
     }
 
     #[test]

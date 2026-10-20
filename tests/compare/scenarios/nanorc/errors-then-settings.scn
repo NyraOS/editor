@@ -1,0 +1,15 @@
+# Bad lines are reported with their numbers and the rest is read.
+nanorc: bogus line
+nanorc: set
+nanorc: set nosuchopt
+nanorc: unset tabsize
+nanorc: set tabsize
+nanorc: set tabsize 0
+nanorc: set linenumbers
+nanorc:   # indented comment
+nanorc: set tabsize 3
+args: a.txt
+file a.txt:
+| \tx cat Cat c.t
+keys: {End}
+keys: {^X}
