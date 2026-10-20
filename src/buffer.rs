@@ -240,6 +240,23 @@ impl Buffer {
         encode(&text)
     }
 
+    /// The number of characters before `end`, as nano counts them: a byte that is not valid
+    /// UTF-8 is one.
+    pub fn chars_before(&self, end: usize) -> usize {
+        let mut pairs = 0;
+        let mut before = None;
+        for chunk in self.text.slice(..end).chunks() {
+            for (i, _) in chunk.match_indices(MARK) {
+                let prev = chunk[..i].chars().next_back().or(before);
+                if prev.and_then(raw_byte).is_some() {
+                    pairs += 1;
+                }
+            }
+            before = chunk.chars().next_back().or(before);
+        }
+        end - pairs
+    }
+
     /// The number of lines a file of this text has, as nano counts them in its messages.
     pub fn file_lines(&self) -> usize {
         let n = self.lines();
@@ -306,6 +323,15 @@ mod tests {
         assert_eq!(encode(&text), bytes);
         assert_eq!(encode("\u{10fe42}"), "\u{10fe42}".as_bytes());
         assert_eq!(encode(&raw(0x42)), b"B");
+    }
+
+    #[test]
+    fn a_byte_counts_as_one_character() {
+        let text = decode(b"a\xffb\xc3\xa9\xc3 end".to_vec());
+        let b = Buffer::new(&text, Format::Unix);
+        let all = b.text.len_chars();
+        assert_eq!(b.chars_before(all), 9);
+        assert_eq!(b.chars_before(3), 2);
     }
 
     #[test]

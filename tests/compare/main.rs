@@ -211,6 +211,33 @@ fn a_wrong_editor_fails_with_a_readable_report() {
     assert!(report.lines().any(carets), "{report}");
 }
 
+/// A file rewritten during a scenario must not hide what an editor saved before it: GNU nano with
+/// --nonewlines saves without the final newline, and that must show before the rewrite.
+#[test]
+fn a_rewrite_does_not_hide_a_save() {
+    let Some(nano) = nano() else { return };
+    let wrong = [nano.clone(), vec!["--nonewlines".to_string()]].concat();
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("selftest");
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("rewrite.scn");
+    fs::write(
+        &path,
+        "# Save, then the file is rewritten.\n\
+         args: r.txt\n\
+         file r.txt:\n\
+         | one\n\
+         keys: {Down}x\n\
+         keys: {^O}{Enter}\n\
+         file r.txt:\n\
+         | three\n\
+         keys: {^X}\n",
+    )
+    .unwrap();
+    let report = run_file("selftest/rewrite", &path, &nano, &wrong, false)
+        .expect_err("a wrong save was hidden by the rewrite");
+    assert!(report.starts_with("files differ before line 7"), "{report}");
+}
+
 /// A reference that cannot run must fail the scenario, not match an editor that cannot run either.
 #[test]
 fn a_reference_that_cannot_run_fails() {

@@ -61,6 +61,17 @@ pub fn run(
     for step in &scenario.steps {
         what = format!("after line {}, {}", step.line, step.text);
         differ = &step.differ;
+        // What a rewrite replaces is compared first, so that it cannot hide what was saved.
+        if let Action::Write { .. } = step.action {
+            let mut files = NAMES.map(|name| list_files(&dir.join(name).join("work")));
+            drop_editor_locks(&mut files);
+            if let Some(r) = diff_files(&files[0], &files[1]) {
+                return Err(format!(
+                    "files differ before line {}, {}\n{r}",
+                    step.line, step.text
+                ));
+            }
+        }
         for (name, term) in NAMES.iter().zip(&mut terms) {
             match &step.action {
                 Action::Keys(bytes) => term.send(bytes),
@@ -107,7 +118,11 @@ pub fn run(
             exit_text(&exits[1])
         ));
     }
-    let files = NAMES.map(|name| list_files(&dir.join(name).join("work")));
+    let mut files = NAMES.map(|name| list_files(&dir.join(name).join("work")));
+    // Killed while running, the editor leaves its lock file, as a killed nano -G would.
+    if exits[1] == Exit::Running {
+        drop_editor_locks(&mut files);
+    }
     if let Some(log) = show {
         log_screen(log, end, terms[0].screen());
         let _ = writeln!(log, "nano {}; its files:", exit_text(&exits[0]));
@@ -428,6 +443,17 @@ fn list_files(dir: &Path) -> BTreeMap<String, Entry> {
         }
     }
     out
+}
+
+/// The editor always locks its file (nano only with -G): while it runs, or when it was killed,
+/// its lock files (`.NAME.swp`) that nano does not have are not compared.
+fn drop_editor_locks(files: &mut [BTreeMap<String, Entry>; 2]) {
+    let lock = |name: &str| {
+        let base = name.rsplit('/').next().unwrap_or(name);
+        base.starts_with('.') && base.ends_with(".swp")
+    };
+    let [nano, editor] = files;
+    editor.retain(|name, _| !lock(name) || nano.contains_key(name));
 }
 
 fn diff_files(a: &BTreeMap<String, Entry>, b: &BTreeMap<String, Entry>) -> Option<String> {

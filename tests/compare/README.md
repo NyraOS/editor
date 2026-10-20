@@ -59,7 +59,7 @@ keys: {^X}
 | `# ...` | A comment (only at the start of a line). Start every scenario with one saying what it checks. |
 | `args: ...` | Command-line arguments for both editors, split on spaces (no quoting). Both always get `--ignorercfiles` first. Default: none. |
 | `size: COLSxROWS` | The terminal size. Default: `80x24`. |
-| `file NAME:` | A file in the working directory, created before the editors start; its lines follow, each starting with `\| ` (or just `\|` for an empty line). No lines: an empty file. `NAME` is relative and may have directories. After the first step, it is a step: the file is (re)written in both working directories while the editors run. |
+| `file NAME:` | A file in the working directory, created before the editors start; its lines follow, each starting with `\| ` (or just `\|` for an empty line). No lines: an empty file. `NAME` is relative and may have directories. After the first step, it is a step: the file is (re)written in both working directories while the editors run; the files are compared first, so that the rewrite cannot hide what was saved. |
 | `keys: ...` | A step: keys sent at once (see below). The screens are compared after each step. |
 | `resize: COLSxROWS` | A step: the terminal changes size. |
 | `pause: MS` | A step: both editors are left alone for MS milliseconds (1 to 10000), for something they show for a while, then compared. |
@@ -127,6 +127,9 @@ the same step, it reads as Alt.
   with `-x`), and only when each screen shows its own message as nano shows messages (in brackets,
   centred; or, when that does not fit, from the left edge and cut at the right edge), with the
   look of nano's message and nothing else in the row, that row reads as `*` on both screens.
+- The editor always locks its file (nano only with `-G`): its lock files (`.NAME.swp`, those nano
+  does not have) are left out of the comparison of files before a rewrite, and at the end when
+  it was still running and killed. When it has exited, they must be gone.
 - The replacement character U+FFFD, which both draw for bytes that are not valid UTF-8, reaches
   the emulator as `¿`: vt100 drops U+FFFD, and the screens would not show it (a U+FFFD split
   between two reads is put together first).

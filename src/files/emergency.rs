@@ -26,12 +26,17 @@ use signal_hook::consts::{SIGHUP, SIGTERM};
 use super::sys::{self, Result};
 
 /// Makes `SIGHUP` and `SIGTERM` set the returned flag instead of ending the editor, which then
-/// writes the emergency copies of its modified buffers ([`emergency_save`]) and exits. Waits for
+/// writes the emergency copies of its modified buffers ([`emergency_save`]) and exits; a second
+/// one ends it at once, with status 1. Waits for
 /// keys must end at least every second or so to look at the flag (a closed terminal also ends them
 /// with an error).
 pub fn watch_signals() -> io::Result<Arc<AtomicBool>> {
     let flag = Arc::new(AtomicBool::new(false));
     for signal in [SIGHUP, SIGTERM] {
+        // A second signal, while the first is still being handled (an editor stuck in a long
+        // read or write), ends the editor at once: registered first, it sees the flag the
+        // first signal set.
+        signal_hook::flag::register_conditional_shutdown(signal, 1, Arc::clone(&flag))?;
         signal_hook::flag::register(signal, Arc::clone(&flag))?;
     }
     Ok(flag)

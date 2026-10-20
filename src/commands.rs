@@ -33,10 +33,12 @@ pub enum Question {
     SaveOnExit,
     /// Writing under another name than the file's.
     OtherName(String, bool),
-    /// Writing under a name another file has.
-    Overwrite(String, bool),
-    /// The file changed on disk since it was read or written.
-    Changed(String, bool),
+    /// Writing under a name another file has; Yes writes over that file only, as it was when
+    /// asked.
+    Overwrite(String, bool, Meta),
+    /// The file changed on disk since it was read or written; Yes writes over it only as it was
+    /// when asked.
+    Changed(String, bool, Expected),
     /// Another editor holds the lock file.
     Locked(files::LockInfo),
 }
@@ -47,7 +49,7 @@ impl Question {
         match self {
             Question::SaveOnExit => "Save modified buffer? ".into(),
             Question::OtherName(..) => "Save file under DIFFERENT NAME? ".into(),
-            Question::Overwrite(file, _) => format!("File \"{file}\" exists; OVERWRITE? "),
+            Question::Overwrite(file, ..) => format!("File \"{file}\" exists; OVERWRITE? "),
             Question::Changed(..) => {
                 "File was modified since you opened it; continue saving? ".into()
             }
@@ -734,7 +736,7 @@ impl Editor {
         let (line, lines) = (b.line + 1, b.lines());
         let col = b.column(tab) + 1;
         let cols = buffer::column_of(&b.line_text(b.line), b.line_len(b.line), tab) + 1;
-        let (ch, chars) = (b.pos(), b.text.len_chars());
+        let (ch, chars) = (b.chars_before(b.pos()), b.chars_before(b.text.len_chars()));
         let w = |n: usize| n.to_string().len().max(2);
         format!(
             "line {line:>lw$}/{lines} ({:2}%), col {col:>2}/{cols:>2} ({:3}%), char {ch:>cw$}/{chars} ({:2}%)",
@@ -768,7 +770,7 @@ impl Editor {
                 return;
             }
             Key::Ctrl('C') => {
-                if let Question::Changed(name, exit) = question {
+                if let Question::Changed(name, exit, _) = question {
                     self.ask_name(exit);
                     if let Mode::Prompt(p) = &mut self.mode {
                         p.x = name.chars().count();
@@ -787,21 +789,18 @@ impl Editor {
             (Question::SaveOnExit, true) => self.ask_name(true),
             (Question::SaveOnExit, false) => self.done = true,
             (Question::OtherName(name, exit), true) => self.save_as(name, exit),
-            (Question::OtherName(name, exit) | Question::Overwrite(name, exit), false) => {
+            (Question::OtherName(name, exit) | Question::Overwrite(name, exit, _), false) => {
                 self.ask_name(exit);
                 if let Mode::Prompt(p) = &mut self.mode {
                     p.x = name.chars().count();
                     p.answer = name;
                 }
             }
-            (Question::Overwrite(name, exit) | Question::Changed(name, exit), true) => {
-                // Over the file as it is now.
-                let expected = match files::stat(Path::new(&name)) {
-                    Ok(Some(meta)) => Expected::File(meta),
-                    _ => Expected::Absent,
-                };
-                self.save(name, expected, exit);
+            // Another change since the question makes the save fail, and it is asked again.
+            (Question::Overwrite(name, exit, meta), true) => {
+                self.save(name, Expected::File(meta), exit);
             }
+            (Question::Changed(name, exit, expected), true) => self.save(name, expected, exit),
             (Question::Changed(..), false) => {}
             (Question::Locked(_), true) => self.take_lock(true),
             // As nano: the file is not opened; a new buffer is.
@@ -852,23 +851,35 @@ impl Editor {
         let now = files::stat(Path::new(&name));
         if name != self.name {
             match now {
-                Ok(Some(_)) => self.mode = Mode::Ask(Question::Overwrite(name, exit)),
+                Ok(Some(meta)) => self.mode = Mode::Ask(Question::Overwrite(name, exit, meta)),
                 _ => self.save(name, Expected::Absent, exit),
             }
             return;
         }
         match (self.meta, now) {
-            (Some(meta), Ok(Some(now))) if now.changed_since(&meta) => self.changed(name, exit),
+            (Some(meta), Ok(Some(now))) if now.changed_since(&meta) => {
+                self.changed(name, exit, Some(now));
+            }
             (Some(meta), Ok(Some(_))) => self.save(name, Expected::File(meta), exit),
             // Gone from the disk, or never there: written as a new file.
             _ => self.save(name, Expected::Absent, exit),
         }
     }
 
-    /// The file changed on disk: nano warns for a moment, then asks whether to save anyway.
-    fn changed(&mut self, name: String, exit: bool) {
+    /// The file at the name is not the one read or written last (`now`; None when there is
+    /// none): nano warns for a moment, then asks whether to save anyway. A file of another user
+    /// than that one's (or than this editor's, for a new file) is refused: saving over it would
+    /// write into whatever that user put there; another name can still be written.
+    fn changed(&mut self, name: String, exit: bool, now: Option<Meta>) {
+        let owner = self
+            .meta
+            .map_or_else(|| rustix::process::geteuid().as_raw(), |m| m.uid);
+        if now.is_some_and(|now| now.uid != owner) {
+            return self.error("File on disk was replaced by another user's file; not saved");
+        }
         self.error("File on disk has changed");
-        self.warning = Some(Question::Changed(name, exit));
+        let expected = now.map_or(Expected::Absent, Expected::File);
+        self.warning = Some(Question::Changed(name, exit, expected));
     }
 
     /// After the moment of a warning: its question.
@@ -900,7 +911,16 @@ impl Editor {
                 self.say(&format!("Wrote {}", plural(lines, "line")));
                 self.done = exit;
             }
-            Err(SaveError::Changed) => self.changed(name, exit),
+            Err(SaveError::Changed) => {
+                let now = files::stat(Path::new(&name)).ok().flatten();
+                match now {
+                    // A file appeared under a new name.
+                    Some(meta) if name != self.name => {
+                        self.mode = Mode::Ask(Question::Overwrite(name, exit, meta));
+                    }
+                    _ => self.changed(name, exit, now),
+                }
+            }
             Err(SaveError::Backup(e)) => {
                 self.error(&format!("Error writing backup file: {}", error_text(&e)));
             }
@@ -1085,5 +1105,133 @@ impl Editor {
             lines.push(format!("{key:<7}{alt:<10}{text}"));
         }
         lines
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("editor-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Puts a new file (a new inode) at `path`, as another program saving it would.
+    fn replace(path: &Path, text: &str) {
+        let tmp = path.with_extension("new");
+        fs::write(&tmp, text).unwrap();
+        fs::rename(&tmp, path).unwrap();
+    }
+
+    fn open(path: &Path) -> Editor {
+        let opts = Options {
+            file: Some(path.display().to_string()),
+            ..Options::default()
+        };
+        Editor::open(opts, 80, 24)
+    }
+
+    fn asking(ed: &Editor) -> bool {
+        matches!(ed.mode, Mode::Ask(_))
+    }
+
+    /// The warning, then its question, as the main loop shows them.
+    fn after_warning(ed: &mut Editor) {
+        assert!(ed.warning.is_some(), "no warning");
+        ed.warned();
+        assert!(matches!(ed.mode, Mode::Ask(Question::Changed(..))));
+    }
+
+    #[test]
+    fn yes_writes_only_over_the_changed_file_seen_when_asked() {
+        let dir = dir("changed");
+        let path = dir.join("a.txt");
+        fs::write(&path, "one\n").unwrap();
+        let mut ed = open(&path);
+        ed.key(Key::Char('x'));
+        replace(&path, "two\n");
+        ed.key(Key::Ctrl('S'));
+        after_warning(&mut ed);
+        // Swapped again while the question is shown: Yes does not write, it asks again.
+        replace(&path, "three\n");
+        ed.key(Key::Char('y'));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "three\n");
+        after_warning(&mut ed);
+        ed.key(Key::Char('y'));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "xone\n");
+        assert!(!ed.buf.modified);
+        drop(ed);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn yes_overwrites_only_the_file_seen_when_asked() {
+        let dir = dir("overwrite");
+        let path = dir.join("other.txt");
+        fs::write(&path, "other\n").unwrap();
+        let mut ed = Editor::open(Options::default(), 80, 24);
+        ed.key(Key::Char('x'));
+        ed.key(Key::Ctrl('O'));
+        for c in path.display().to_string().chars() {
+            ed.key(Key::Char(c));
+        }
+        ed.key(Key::Ctrl('M'));
+        assert!(matches!(ed.mode, Mode::Ask(Question::Overwrite(..))));
+        replace(&path, "swapped\n");
+        ed.key(Key::Char('y'));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "swapped\n");
+        assert!(matches!(ed.mode, Mode::Ask(Question::Overwrite(..))));
+        ed.key(Key::Char('y'));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "x\n");
+        drop(ed);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_of_another_user_is_not_written_over() {
+        let dir = dir("owner");
+        let path = dir.join("a.txt");
+        fs::write(&path, "one\n").unwrap();
+        let mut ed = open(&path);
+        ed.key(Key::Char('x'));
+        let now = files::stat(&path).unwrap().unwrap();
+        // As if the file read had been another user's, now replaced by this user's.
+        let mut read = now;
+        read.uid = now.uid + 1;
+        read.ino = now.ino + 1;
+        ed.meta = Some(read);
+        ed.key(Key::Ctrl('S'));
+        assert!(ed.warning.is_none() && !asking(&ed));
+        let message = ed.message.as_ref().unwrap();
+        assert!(message.error);
+        assert_eq!(
+            message.text,
+            "File on disk was replaced by another user's file; not saved"
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "one\n");
+        // Another name can still be written.
+        let other = dir.join("b.txt");
+        ed.key(Key::Ctrl('O'));
+        for _ in 0..path.display().to_string().chars().count() {
+            ed.key(Key::Ctrl('H'));
+        }
+        for c in other.display().to_string().chars() {
+            ed.key(Key::Char(c));
+        }
+        ed.key(Key::Ctrl('M'));
+        ed.key(Key::Char('y'));
+        assert_eq!(fs::read_to_string(&other).unwrap(), "xone\n");
+        // A change by the same user keeps nano's question.
+        replace(&other, "changed\n");
+        ed.key(Key::Char('z'));
+        ed.key(Key::Ctrl('S'));
+        after_warning(&mut ed);
+        drop(ed);
+        fs::remove_dir_all(&dir).unwrap();
     }
 }
