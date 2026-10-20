@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 use std::process::ExitCode;
 
+// Reading and saving files; the editor calls it once it can open files.
+#[allow(dead_code, unused_imports)]
+mod files;
+
 fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("--version") {
         println!(

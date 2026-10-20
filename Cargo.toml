@@ -10,10 +10,15 @@ repository = "https://github.com/NyraOS/editor"
 description = "A nano-compatible terminal editor written from scratch in Rust"
 
 [dependencies]
+# The system calls of the files module (reading, safe saving, locks, backups), without unsafe code.
+rustix = { version = "1.1.5", features = ["fs", "process", "rand", "system"] }
+# SIGHUP and SIGTERM set a flag, so the editor writes its emergency copies (0.3: the version crossterm uses).
+signal-hook = { version = "0.3.18", default-features = false }
 
 [dev-dependencies]
 # The comparison tests (tests/compare): rustix opens the pseudo-terminal, vt100 is the terminal emulator.
-rustix = { version = "1.1.5", features = ["event", "pty", "termios"] }
+# The files tests mount small file systems and bind mounts when run as root.
+rustix = { version = "1.1.5", features = ["event", "mount", "pty", "termios"] }
 vt100 = "0.18.1"
 
 [[test]]
