@@ -326,6 +326,11 @@ impl Buffer {
         }
     }
 
+    /// The next edit starts a new undo step.
+    pub fn end_group(&mut self) {
+        self.open = false;
+    }
+
     /// The text was saved: no edit joins the last one, and undoing back to here is not a change.
     pub fn mark_saved(&mut self) {
         self.saved = Some(self.done);

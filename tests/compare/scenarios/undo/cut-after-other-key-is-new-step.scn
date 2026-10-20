@@ -1,0 +1,13 @@
+# A cut that follows another key is a new step, even where the first cut was.
+args: t.txt
+file t.txt:
+| one
+| two
+| three
+| four
+keys: {^K}
+keys: {Down}{Up}
+keys: {^K}
+keys: {M-u}
+keys: {^X}
+keys: n

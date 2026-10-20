@@ -804,6 +804,8 @@ impl Editor {
         }
         if !cutting {
             self.cut.clear();
+            // Only cuts with nothing pressed between them make one step, as in nano.
+            b.end_group();
         }
         self.cut.push_str(&String::from(b.text.slice(from..to)));
         let before = b.pos();
