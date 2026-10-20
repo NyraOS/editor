@@ -22,7 +22,7 @@ pub enum Format {
 /// Each of the two on its own is itself. A real `MARK` right after one of those private-use
 /// characters (in a file, or put there by an edit) would read as a byte, so it is kept as its
 /// four bytes instead.
-const RAW_BASE: u32 = 0x10_FE00;
+pub const RAW_BASE: u32 = 0x10_FE00;
 pub const MARK: char = '\u{E01EF}';
 
 /// The two characters that stand for a byte that is not valid UTF-8.

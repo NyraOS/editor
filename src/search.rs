@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 //! Searching the text, and reading the answer of "go to line".
 
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, MARK, RAW_BASE, raw_byte};
 use crate::screen::width_at;
 use regex::{Regex, RegexBuilder};
+use std::borrow::Cow;
 
 /// What is searched for: a text, or a regular expression.
 pub struct Pattern {
@@ -24,6 +25,32 @@ fn fold(c: char, case_sensitive: bool) -> char {
 /// The byte offset of a character index in `text`.
 fn byte_of(text: &str, x: usize) -> usize {
     text.char_indices().nth(x).map_or(text.len(), |(i, _)| i)
+}
+
+/// `line` as the regular expression sees it: a byte that is not valid UTF-8 (two characters, see
+/// `buffer`) is one character of the raw-byte range, which `.` and `[^...]` never match, as in
+/// nano. Then, for each character of that text, the index of the same place in `line`, and one
+/// more for its end; `None` when there is no such byte and nothing changes.
+fn collapse(line: &str) -> (Cow<'_, str>, Option<Vec<usize>>) {
+    if !line.contains(MARK) {
+        return (Cow::Borrowed(line), None);
+    }
+    let (mut text, mut places) = (String::new(), Vec::new());
+    let mut chars = line.chars().enumerate().peekable();
+    while let Some((i, c)) = chars.next() {
+        text.push(c);
+        places.push(i);
+        if raw_byte(c).is_some() {
+            chars.next_if(|&(_, next)| next == MARK);
+        }
+    }
+    places.push(line.chars().count());
+    (Cow::Owned(text), Some(places))
+}
+
+/// The characters of the raw-byte range, for the inside of a bracket expression.
+fn raw_range() -> String {
+    format!(r"\x{{{:x}}}-\x{{{:x}}}", RAW_BASE, RAW_BASE + 0xff)
 }
 
 /// A match in a line: where it starts and how long it is, in characters.
@@ -51,15 +78,26 @@ impl Pattern {
         })
     }
 
+    /// Whether it is a regular expression that starts with `^`.
+    pub fn starts_with_caret(&self) -> bool {
+        self.regex.is_some() && self.chars.first() == Some(&'^')
+    }
+
     /// The first match that starts at `from` or later.
     pub fn first_from(&self, line: &str, from: usize) -> Option<Span> {
         if let Some(regex) = &self.regex {
-            if from > line.chars().count() {
+            let (text, places) = collapse(line);
+            let from = places
+                .as_ref()
+                .map_or(from, |p| p.partition_point(|&i| i < from));
+            if from > text.chars().count() {
                 return None;
             }
-            let m = regex.find_at(line, byte_of(line, from))?;
-            let at = line[..m.start()].chars().count();
-            return Some((at, line[m.start()..m.end()].chars().count()));
+            let m = regex.find_at(&text, byte_of(&text, from))?;
+            let at = text[..m.start()].chars().count();
+            let end = at + text[m.start()..m.end()].chars().count();
+            let place = |k: usize| places.as_ref().map_or(k, |p| p[k]);
+            return Some((place(at), place(end) - place(at)));
         }
         let folded = self.folded(line);
         let len = self.chars.len();
@@ -101,22 +139,41 @@ impl Pattern {
         let Some(regex) = &self.regex else {
             return with.to_string();
         };
-        let Some(groups) = regex.captures_at(line, byte_of(line, at)) else {
+        let (text, places) = collapse(line);
+        let at = places
+            .as_ref()
+            .map_or(at, |p| p.partition_point(|&i| i < at));
+        let Some(groups) = regex.captures_at(&text, byte_of(&text, at)) else {
             return with.to_string();
+        };
+        // A group as it is in `line`, with the two characters of each invalid byte.
+        let group = |n: usize| -> String {
+            let Some(g) = groups.get(n) else {
+                return String::new();
+            };
+            let Some(places) = &places else {
+                return g.as_str().to_string();
+            };
+            let start = text[..g.start()].chars().count();
+            let end = start + g.as_str().chars().count();
+            line.chars()
+                .skip(places[start])
+                .take(places[end] - places[start])
+                .collect()
         };
         let mut out = String::new();
         let mut chars = with.chars().peekable();
         while let Some(c) = chars.next() {
-            let group = match chars.peek() {
+            let number = match chars.peek() {
                 Some(d @ '1'..='9') if c == '\\' => {
                     Some(*d as usize - '0' as usize).filter(|&n| n < groups.len())
                 }
                 _ => None,
             };
-            match group {
+            match number {
                 Some(n) => {
                     chars.next();
-                    out.push_str(groups.get(n).map_or("", |g| g.as_str()));
+                    out.push_str(&group(n));
                 }
                 None => out.push(c),
             }
@@ -234,12 +291,14 @@ const OPEN_BRACKET: &str = "Unmatched [, [^, [:, [., or [=";
 /// `regex` crate.
 fn class(name: &str) -> Option<&'static str> {
     Some(match name {
-        "alpha" => r"\p{L}",
+        // As in the C library: the Unicode letters and the digits that are not 0-9.
+        "alpha" => r"\p{Alphabetic}[\p{Nd}--0-9]",
         "digit" => "0-9",
-        "alnum" => r"\p{L}\p{Nd}",
+        "alnum" => r"\p{Alphabetic}\p{Nd}",
         "upper" => r"\p{Lu}",
         "lower" => r"\p{Ll}",
-        "space" => r"\s",
+        // Without the no-break spaces, as in the C library.
+        "space" => r"[\p{White_Space}--[\x{a0}\x{2007}\x{202f}]]",
         "blank" => r"\x20\x09",
         "punct" => r"\p{P}\p{S}",
         "print" => r"\P{C}",
@@ -267,6 +326,7 @@ fn bracket(chars: &[char], at: usize, out: &mut String) -> Result<usize, String>
     out.push('[');
     if chars.get(i) == Some(&'^') {
         out.push('^');
+        out.push_str(&raw_range());
         i += 1;
     }
     let first = i;
@@ -391,8 +451,12 @@ fn translate(ere: &str) -> Result<String, String> {
                 i += 1;
                 match c {
                     'w' | 'W' | 's' | 'S' => {
-                        out.push('\\');
-                        out.push(c);
+                        let (set, not) = match c.to_ascii_lowercase() {
+                            'w' => (format!("{}_", class("alnum").unwrap_or_default()), c == 'W'),
+                            _ => (class("space").unwrap_or_default().to_string(), c == 'S'),
+                        };
+                        let raw = if not { raw_range() } else { String::new() };
+                        out.push_str(&format!("[{}{raw}{set}]", if not { "^" } else { "" }));
                     }
                     '<' | '>' | 'b' | 'B' => {
                         out.push('\\');
@@ -439,7 +503,7 @@ fn translate(ere: &str) -> Result<String, String> {
                 atom = None;
                 continue;
             }
-            '.' => out.push('.'),
+            '.' => out.push_str(&format!("[^\\n{}]", raw_range())),
             '[' => i = bracket(&chars, i - 1, &mut out)?,
             '*' | '+' | '?' | '{' => {
                 let (from, repeated) = atom.ok_or(NO_REPEAT)?;
@@ -523,6 +587,35 @@ mod tests {
 
     fn at(found: Option<Found>) -> Option<(usize, usize, bool)> {
         found.map(|f| (f.line, f.x, f.wrapped))
+    }
+
+    #[test]
+    fn dot_and_negated_brackets_skip_invalid_bytes() {
+        let line = format!(
+            "a{}b{}日",
+            crate::buffer::raw(0xff),
+            crate::buffer::raw(0xc3)
+        );
+        let any = Pattern::new(".+", true, true).unwrap();
+        assert_eq!(any.first_from(&line, 0), Some((0, 1)));
+        assert_eq!(any.first_from(&line, 1), Some((3, 1)));
+        assert_eq!(any.first_from(&line, 4), Some((6, 1)));
+        let not_a = Pattern::new("[^a]", true, true).unwrap();
+        assert_eq!(not_a.first_from(&line, 0), Some((3, 1)));
+        let group = Pattern::new("(b)", true, true).unwrap();
+        assert_eq!(group.replacement(&line, 3, r"<\1>"), "<b>");
+    }
+
+    #[test]
+    fn classes_are_those_of_the_c_library() {
+        let matches = |class: &str, c: char| {
+            let p = Pattern::new(class, true, true).unwrap();
+            p.first_from(&c.to_string(), 0).is_some()
+        };
+        assert!(matches("[[:alpha:]]", 'Ⅻ') && matches("[[:alpha:]]", '٣'));
+        assert!(!matches("[[:alpha:]]", '3') && matches("[[:alnum:]]", '3'));
+        assert!(matches("[[:space:]]", '\u{2003}'));
+        assert!(!matches("[[:space:]]", '\u{a0}') && !matches("\\s", '\u{202f}'));
     }
 
     #[test]

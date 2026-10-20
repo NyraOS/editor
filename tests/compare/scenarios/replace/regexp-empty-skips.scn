@@ -1,0 +1,13 @@
+# Replace all with an expression that can match nothing: no match is made right after another.
+args: t.txt
+file t.txt:
+| abxxc
+| xx
+|
+keys: {^\}
+keys: {M-r}
+keys: x*{Enter}
+keys: -{Enter}
+keys: a
+keys: {^O}{Enter}
+keys: {^X}

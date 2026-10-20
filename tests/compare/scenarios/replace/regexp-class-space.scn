@@ -1,0 +1,11 @@
+# [[:space:]] with tab and em space, and the no-break spaces (U+00A0, U+2007, U+202F) it leaves.
+args: t.txt
+file t.txt:
+| a b	c d e　f g h
+keys: {^\}
+keys: {M-r}
+keys: [[:space:]]{Enter}
+keys: _{Enter}
+keys: a
+keys: {^O}{Enter}
+keys: {^X}

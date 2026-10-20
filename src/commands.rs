@@ -1610,10 +1610,7 @@ impl Editor {
             Key::Char('y' | 'Y') => run.replace(&mut self.buf),
             Key::Char('n' | 'N') => run.skip(),
             Key::Char('a' | 'A') => {
-                while run.hit().is_some() {
-                    run.replace(&mut self.buf);
-                    run.next(&self.buf);
-                }
+                run.replace_all(&mut self.buf);
                 return self.end_replacing(&run);
             }
             Key::Ctrl('C') => return self.end_replacing(&run),

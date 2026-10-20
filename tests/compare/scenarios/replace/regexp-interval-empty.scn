@@ -1,0 +1,11 @@
+# Replace all with {,2}: a match of nothing, then the search skips one character.
+args: t.txt
+file t.txt:
+| a aa aaa aaaa
+keys: {^\}
+keys: {M-r}
+keys: a{{,2}{Enter}
+keys: 1{Enter}
+keys: a
+keys: {^O}{Enter}
+keys: {^X}

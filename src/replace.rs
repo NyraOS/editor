@@ -17,6 +17,12 @@ pub struct Replacing {
     region: Option<(usize, usize)>,
     /// Where the next search goes on from.
     from: usize,
+    /// Whether that search starts one character after `from`. Like nano's `skipone`, it is set
+    /// by an answer of no, and by a match of nothing (or a pattern starting with `^`) so that
+    /// the same one is not found again; when replacing all it is never cleared.
+    skip_one: bool,
+    /// Whether all the matches are replaced without asking.
+    all: bool,
     /// Whether the search has gone past the end (or the start) and on from the other end.
     wrapped: bool,
     /// The match asked about, and how many have been replaced.
@@ -43,6 +49,8 @@ impl Replacing {
             mark: buf.mark,
             region,
             from,
+            skip_one: false,
+            all: false,
             wrapped: false,
             hit: None,
             count: 0,
@@ -55,8 +63,13 @@ impl Replacing {
     /// one.
     pub fn next(&mut self, buf: &Buffer) -> Option<Hit> {
         let hit = match (self.region, self.backwards) {
-            (Some((_, to)), false) => search::match_after(buf, &self.pattern, self.from, to)
-                .filter(|&(at, len)| at + len <= to),
+            (Some((_, to)), false) => search::match_after(
+                buf,
+                &self.pattern,
+                self.from + usize::from(self.skip_one),
+                to,
+            )
+            .filter(|&(at, len)| at + len <= to),
             (Some((from, to)), true) => self.last_inside(buf, from, to),
             (None, false) => self.forward(buf),
             (None, true) => self.backward(buf),
@@ -67,14 +80,17 @@ impl Replacing {
     }
 
     fn forward(&mut self, buf: &Buffer) -> Option<Hit> {
+        let start = self.from + usize::from(self.skip_one);
         if !self.wrapped {
-            if let Some(hit) = search::match_after(buf, &self.pattern, self.from, usize::MAX) {
+            if let Some(hit) = search::match_after(buf, &self.pattern, start, usize::MAX) {
                 return Some(hit);
             }
             self.wrapped = true;
             self.from = 0;
+            self.skip_one = false;
+            return search::match_after(buf, &self.pattern, 0, self.cursor);
         }
-        search::match_after(buf, &self.pattern, self.from, self.cursor)
+        search::match_after(buf, &self.pattern, start, self.cursor)
     }
 
     fn backward(&mut self, buf: &Buffer) -> Option<Hit> {
@@ -99,15 +115,21 @@ impl Replacing {
         }
     }
 
-    /// Where the match asked about is: the cursor goes there.
-    pub fn hit(&self) -> Option<Hit> {
-        self.hit
-    }
-
     /// Leaves the match asked about as it is.
     pub fn skip(&mut self) {
         if let Some((at, _)) = self.hit {
-            self.from = if self.backwards { at } else { at + 1 };
+            self.from = at;
+            self.skip_one = true;
+        }
+    }
+
+    /// Replaces the match asked about and all the ones after it, without asking.
+    pub fn replace_all(&mut self, buf: &mut Buffer) {
+        self.all = true;
+        self.skip_one = false;
+        while self.hit.is_some() {
+            self.replace(buf);
+            self.next(buf);
         }
     }
 
@@ -116,6 +138,9 @@ impl Replacing {
         let Some((at, len)) = self.hit else {
             return;
         };
+        if !self.all {
+            self.skip_one = false;
+        }
         let line = buf.text.char_to_line(at);
         let text = buf.line_text(line);
         let with = self
@@ -138,12 +163,10 @@ impl Replacing {
         if let Some((_, to)) = &mut self.region {
             *to = shifted(*to);
         }
-        // After an empty match, the search goes on one character further: not to find it again.
-        self.from = if self.backwards {
-            at
-        } else {
-            at + new_len + usize::from(len == 0)
-        };
+        if len == 0 || self.pattern.starts_with_caret() {
+            self.skip_one = true;
+        }
+        self.from = if self.backwards { at } else { at + new_len };
     }
 
     /// The end: the cursor and the mark are where they were.

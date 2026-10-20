@@ -1,0 +1,11 @@
+# . never matches an invalid byte, across wide characters.
+args: t.txt
+file t.txt:
+| a\xffb日\xc3 é
+keys: {^\}
+keys: {M-r}
+keys: .{Enter}
+keys: _{Enter}
+keys: a
+keys: {^O}{Enter}
+keys: {^X}
