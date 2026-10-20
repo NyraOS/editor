@@ -13,6 +13,8 @@ use std::time::{Duration, Instant};
 
 /// How long an editor may take to draw its first screen, or keep drawing without a pause.
 const DRAW_LIMIT: Duration = Duration::from_secs(10);
+/// How long the first screen must stay still before keys are sent.
+const FIRST_SCREEN_PAUSE: Duration = Duration::from_millis(100);
 /// How long an editor may take to exit after it closed the terminal.
 const EXIT_LIMIT: Duration = Duration::from_secs(3);
 
@@ -131,8 +133,13 @@ impl Term {
     }
 
     /// Waits for the first screen, so keys never reach the terminal before the editor reads it.
+    /// A program that fails to start prints its error and exits an instant later; the pause after
+    /// the output lets that exit show, or the keys would be echoed by a terminal still open.
     fn wait_for_output(&mut self) -> io::Result<()> {
-        if self.read(DRAW_LIMIT)? || self.closed {
+        if self.read(DRAW_LIMIT)? {
+            return self.settle(FIRST_SCREEN_PAUSE);
+        }
+        if self.closed {
             return Ok(());
         }
         Err(io::Error::other(format!(
