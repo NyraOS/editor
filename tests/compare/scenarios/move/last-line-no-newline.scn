@@ -1,0 +1,9 @@
+# M-/ goes to the last line of a file without a final newline; M-\ back to the first.
+args: nonl.txt
+file nonl.txt:
+| first line
+| the last line\
+keys: {M-/}
+keys: {M-\}
+keys: {End}{M-/}
+keys: {^X}

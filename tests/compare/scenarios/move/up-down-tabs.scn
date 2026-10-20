@@ -1,0 +1,13 @@
+# Moving up and down into lines with tabs: a column inside a tab lands on the tab.
+args: t.txt
+file t.txt:
+| 0123456789012345
+| a	b	c
+| 	x
+keys: {Right*5}
+keys: {Down}
+keys: {Down}
+keys: {Up}{End}
+keys: {Up}
+keys: {Down*2}
+keys: {^X}

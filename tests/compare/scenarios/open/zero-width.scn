@@ -1,0 +1,9 @@
+# Zero-width characters go with the character before them; a no-break space is one column.
+args: zw.txt
+file zw.txt:
+| a\xe2\x80\x8bb\xef\xbb\xbfc nbsp:\xc2\xa0|
+keys: {Right}
+keys: {Right}
+keys: {End}
+keys: {^C}
+keys: {^X}

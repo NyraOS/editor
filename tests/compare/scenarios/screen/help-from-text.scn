@@ -1,0 +1,11 @@
+# Help from a file with changes: the text and the cursor come back the same after closing it.
+differ: rows 0-21: the help text is the editor's own (nano's is GPL and describes nano)
+args: h.txt
+file h.txt:
+| some text
+keys: {End} more
+keys: {^G}
+keys: {^X}
+keys: {Left*4}
+keys: {^X}
+keys: n

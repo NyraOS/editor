@@ -1,0 +1,7 @@
+# ^S saves the file under its name without asking.
+args: s.txt
+file s.txt:
+| text
+keys: {End} saved
+keys: {^S}
+keys: {^X}

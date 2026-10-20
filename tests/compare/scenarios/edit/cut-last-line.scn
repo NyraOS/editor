@@ -1,0 +1,11 @@
+# ^K on the last text line, and on the empty line after it.
+args: --linenumbers cut.txt
+file cut.txt:
+| one
+| two
+keys: {Down}
+keys: {^K}
+keys: {^K}
+keys: {Up}{^U}
+keys: {^O}{Enter}
+keys: {^X}

@@ -1,0 +1,11 @@
+# The terminal changes size while the ^O prompt is open; the prompt stays and still works.
+args: p.txt
+file p.txt:
+| text
+keys: x
+keys: {^O}
+resize: 60x12
+keys: {End}
+keys: {^C}
+keys: {^X}
+keys: n

@@ -1,0 +1,162 @@
+# ^C in a long file with long lines: the numbers in the position take more room.
+args: big.txt
+size: 100x10
+file big.txt:
+| word 1
+| word word 2
+| word word word 3
+| word word word word 4
+| word word word word word 5
+| word word word word word word 6
+| word word word word word word word 7
+| word word word word word word word word 8
+| word word word word word word word word word 9
+| word word word word word word word word word word 10
+| word word word word word word word word word word word 11
+| word word word word word word word word word word word word 12
+| word word word word word word word word word word word word word 13
+| word word word word word word word word word word word word word word 14
+| word word word word word word word word word word word word word word word 15
+| word word word word word word word word word word word word word word word word 16
+| word word word word word word word word word word word word word word word word word 17
+| word word word word word word word word word word word word word word word word word word 18
+| word word word word word word word word word word word word word word word word word word word 19
+| word word word word word word word word word word word word word word word word word word word word 20
+| word word word word word word word word word word word word word word word word word word word word word 21
+| word word word word word word word word word word word word word word word word word word word word word word 22
+| word word word word word word word word word word word word word word word word word word word word word word word 23
+| word word word word word word word word word word word word word word word word word word word word word word word word 24
+| 25
+| word 26
+| word word 27
+| word word word 28
+| word word word word 29
+| word word word word word 30
+| word word word word word word 31
+| word word word word word word word 32
+| word word word word word word word word 33
+| word word word word word word word word word 34
+| word word word word word word word word word word 35
+| word word word word word word word word word word word 36
+| word word word word word word word word word word word word 37
+| word word word word word word word word word word word word word 38
+| word word word word word word word word word word word word word word 39
+| word word word word word word word word word word word word word word word 40
+| word word word word word word word word word word word word word word word word 41
+| word word word word word word word word word word word word word word word word word 42
+| word word word word word word word word word word word word word word word word word word 43
+| word word word word word word word word word word word word word word word word word word word 44
+| word word word word word word word word word word word word word word word word word word word word 45
+| word word word word word word word word word word word word word word word word word word word word word 46
+| word word word word word word word word word word word word word word word word word word word word word word 47
+| word word word word word word word word word word word word word word word word word word word word word word word 48
+| word word word word word word word word word word word word word word word word word word word word word word word word 49
+| 50
+| word 51
+| word word 52
+| word word word 53
+| word word word word 54
+| word word word word word 55
+| word word word word word word 56
+| word word word word word word word 57
+| word word word word word word word word 58
+| word word word word word word word word word 59
+| word word word word word word word word word word 60
+| word word word word word word word word word word word 61
+| word word word word word word word word word word word word 62
+| word word word word word word word word word word word word word 63
+| word word word word word word word word word word word word word word 64
+| word word word word word word word word word word word word word word word 65
+| word word word word word word word word word word word word word word word word 66
+| word word word word word word word word word word word word word word word word word 67
+| word word word word word word word word word word word word word word word word word word 68
+| word word word word word word word word word word word word word word word word word word word 69
+| word word word word word word word word word word word word word word word word word word word word 70
+| word word word word word word word word word word word word word word word word word word word word word 71
+| word word word word word word word word word word word word word word word word word word word word word word 72
+| word word word word word word word word word word word word word word word word word word word word word word word 73
+| word word word word word word word word word word word word word word word word word word word word word word word word 74
+| 75
+| word 76
+| word word 77
+| word word word 78
+| word word word word 79
+| word word word word word 80
+| word word word word word word 81
+| word word word word word word word 82
+| word word word word word word word word 83
+| word word word word word word word word word 84
+| word word word word word word word word word word 85
+| word word word word word word word word word word word 86
+| word word word word word word word word word word word word 87
+| word word word word word word word word word word word word word 88
+| word word word word word word word word word word word word word word 89
+| word word word word word word word word word word word word word word word 90
+| word word word word word word word word word word word word word word word word 91
+| word word word word word word word word word word word word word word word word word 92
+| word word word word word word word word word word word word word word word word word word 93
+| word word word word word word word word word word word word word word word word word word word 94
+| word word word word word word word word word word word word word word word word word word word word 95
+| word word word word word word word word word word word word word word word word word word word word word 96
+| word word word word word word word word word word word word word word word word word word word word word word 97
+| word word word word word word word word word word word word word word word word word word word word word word word 98
+| word word word word word word word word word word word word word word word word word word word word word word word word 99
+| 100
+| word 101
+| word word 102
+| word word word 103
+| word word word word 104
+| word word word word word 105
+| word word word word word word 106
+| word word word word word word word 107
+| word word word word word word word word 108
+| word word word word word word word word word 109
+| word word word word word word word word word word 110
+| word word word word word word word word word word word 111
+| word word word word word word word word word word word word 112
+| word word word word word word word word word word word word word 113
+| word word word word word word word word word word word word word word 114
+| word word word word word word word word word word word word word word word 115
+| word word word word word word word word word word word word word word word word 116
+| word word word word word word word word word word word word word word word word word 117
+| word word word word word word word word word word word word word word word word word word 118
+| word word word word word word word word word word word word word word word word word word word 119
+| word word word word word word word word word word word word word word word word word word word word 120
+| word word word word word word word word word word word word word word word word word word word word word 121
+| word word word word word word word word word word word word word word word word word word word word word word 122
+| word word word word word word word word word word word word word word word word word word word word word word word 123
+| word word word word word word word word word word word word word word word word word word word word word word word word 124
+| 125
+| word 126
+| word word 127
+| word word word 128
+| word word word word 129
+| word word word word word 130
+| word word word word word word 131
+| word word word word word word word 132
+| word word word word word word word word 133
+| word word word word word word word word word 134
+| word word word word word word word word word word 135
+| word word word word word word word word word word word 136
+| word word word word word word word word word word word word 137
+| word word word word word word word word word word word word word 138
+| word word word word word word word word word word word word word word 139
+| word word word word word word word word word word word word word word word 140
+| word word word word word word word word word word word word word word word word 141
+| word word word word word word word word word word word word word word word word word 142
+| word word word word word word word word word word word word word word word word word word 143
+| word word word word word word word word word word word word word word word word word word word 144
+| word word word word word word word word word word word word word word word word word word word word 145
+| word word word word word word word word word word word word word word word word word word word word word 146
+| word word word word word word word word word word word word word word word word word word word word word word 147
+| word word word word word word word word word word word word word word word word word word word word word word word 148
+| word word word word word word word word word word word word word word word word word word word word word word word word 149
+| 150
+keys: {^C}
+keys: {PgDn*20}{End}
+keys: {^C}
+keys: {M-\}{Down*99}{End}
+keys: {^C}
+keys: {M-/}
+keys: {^C}
+keys: {^X}

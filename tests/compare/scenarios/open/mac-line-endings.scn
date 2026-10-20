@@ -1,0 +1,9 @@
+# A file with Mac line endings (CR only) is converted when read and saved back the same way.
+args: mac.txt
+file mac.txt:
+| one\r\
+| two\r\
+keys: {End}!
+keys: {^O}
+keys: {Enter}
+keys: {^X}

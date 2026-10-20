@@ -1,0 +1,9 @@
+# -T sets the width of a tab.
+args: -T 4 tabs.txt
+file tabs.txt:
+| \tone
+| a\tb\tc
+| \t\ttwo
+keys: {Down}{End}
+keys: {Down}{Right}
+keys: {^X}

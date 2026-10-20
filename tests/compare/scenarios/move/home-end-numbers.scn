@@ -1,0 +1,10 @@
+# Home and End on a long line with line numbers on.
+args: -l h.txt
+size: 30x8
+file h.txt:
+| a line that is longer than the screen is wide
+keys: {End}
+keys: {Home}
+keys: {End}{Left*10}
+keys: {Home}{Right*24}
+keys: {^X}

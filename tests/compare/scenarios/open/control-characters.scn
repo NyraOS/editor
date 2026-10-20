@@ -1,0 +1,9 @@
+# Control characters show as ^ and a letter, C1 controls too; the cursor counts two columns.
+args: ctl.txt
+file ctl.txt:
+| a\x01b\x1bc\x7fd\te
+| c1: \xc2\x80 \xc2\x85 \xc2\x9f end
+keys: {End}
+keys: {Down}{End}
+keys: {Left*5}
+keys: {^X}

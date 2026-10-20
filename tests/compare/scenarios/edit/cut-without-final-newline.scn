@@ -1,0 +1,10 @@
+# ^K on a last line without a newline, then pasting it at the top.
+args: nonl.txt
+file nonl.txt:
+| one
+| two\
+keys: {Down}
+keys: {^K}
+keys: {Up}{^U}
+keys: {^O}{Enter}
+keys: {^X}

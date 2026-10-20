@@ -1,0 +1,10 @@
+# Typing wide characters past the edge of a narrow screen.
+args: w.txt
+size: 20x8
+file w.txt:
+| 日本
+keys: {End}語のテキストです
+keys: {Left*3}
+keys: x
+keys: {^O}{Enter}
+keys: {^X}

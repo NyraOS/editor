@@ -1,0 +1,11 @@
+# Delete at the end of a line joins the next one; the long result scrolls sideways.
+args: j.txt
+size: 30x8
+file j.txt:
+| the first part of a line
+| and the rest of it, quite long
+keys: {End}
+keys: {Del}
+keys: {^O}{Enter}
+keys: {Right*3}
+keys: {^X}

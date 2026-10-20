@@ -1,0 +1,13 @@
+# Wide characters at the edges of a scrolled line: a half cut off shows as [ or ].
+args: wide.txt
+size: 20x10
+file wide.txt:
+| 123456789012345678日本
+| 1234567890123日本日本日本日本日本
+| 123456789012日本日本日本日本日本
+keys: {End}
+keys: {Down}{End}
+keys: {Down}{End}
+keys: {Up*2}{Home}{Right*17}
+keys: {Right}
+keys: {^X}

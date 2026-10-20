@@ -1,0 +1,9 @@
+# Backspace on the empty last line goes to the end of the line above; the final newline stays.
+args: --linenumbers b.txt
+file b.txt:
+| one
+keys: {Down}
+keys: {Bsp}
+keys: {Bsp}
+keys: {^O}{Enter}
+keys: {^X}

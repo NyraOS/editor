@@ -1,0 +1,6 @@
+# An empty file: no lines read, the cursor on the only (empty) line.
+args: --linenumbers empty.txt
+file empty.txt:
+keys: {Down}{Right}
+keys: {^C}
+keys: {^X}

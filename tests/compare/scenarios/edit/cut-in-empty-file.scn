@@ -1,0 +1,6 @@
+# ^K in an empty file, then ^U.
+args: empty.txt
+file empty.txt:
+keys: {^K}
+keys: {^U}
+keys: {^X}

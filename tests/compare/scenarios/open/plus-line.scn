@@ -1,0 +1,9 @@
+# +LINE puts the cursor on that line.
+args: +3 lines.txt
+file lines.txt:
+| first
+| second
+| third
+| fourth
+keys: {^C}
+keys: {^X}

@@ -1,0 +1,13 @@
+# Cuts with other keys in between start a new cut: only the last line is pasted.
+args: cut.txt
+file cut.txt:
+| one
+| two
+| three
+| four
+keys: {^K}
+keys: {Down}
+keys: {^K}
+keys: {^U}
+keys: {^O}{Enter}
+keys: {^X}

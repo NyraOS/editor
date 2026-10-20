@@ -1,0 +1,87 @@
+# A line far down a long file: the screen scrolls to show it.
+args: +45 long.txt
+size: 60x16
+file long.txt:
+| line 1 of eighty
+| line 2 of eighty
+| line 3 of eighty
+| line 4 of eighty
+| line 5 of eighty
+| line 6 of eighty
+| line 7 of eighty
+| line 8 of eighty
+| line 9 of eighty
+| line 10 of eighty
+| line 11 of eighty
+| line 12 of eighty
+| line 13 of eighty
+| line 14 of eighty
+| line 15 of eighty
+| line 16 of eighty
+| line 17 of eighty
+| line 18 of eighty
+| line 19 of eighty
+| line 20 of eighty
+| line 21 of eighty
+| line 22 of eighty
+| line 23 of eighty
+| line 24 of eighty
+| line 25 of eighty
+| line 26 of eighty
+| line 27 of eighty
+| line 28 of eighty
+| line 29 of eighty
+| line 30 of eighty
+| line 31 of eighty
+| line 32 of eighty
+| line 33 of eighty
+| line 34 of eighty
+| line 35 of eighty
+| line 36 of eighty
+| line 37 of eighty
+| line 38 of eighty
+| line 39 of eighty
+| line 40 of eighty
+| line 41 of eighty
+| line 42 of eighty
+| line 43 of eighty
+| line 44 of eighty
+| line 45 of eighty
+| line 46 of eighty
+| line 47 of eighty
+| line 48 of eighty
+| line 49 of eighty
+| line 50 of eighty
+| line 51 of eighty
+| line 52 of eighty
+| line 53 of eighty
+| line 54 of eighty
+| line 55 of eighty
+| line 56 of eighty
+| line 57 of eighty
+| line 58 of eighty
+| line 59 of eighty
+| line 60 of eighty
+| line 61 of eighty
+| line 62 of eighty
+| line 63 of eighty
+| line 64 of eighty
+| line 65 of eighty
+| line 66 of eighty
+| line 67 of eighty
+| line 68 of eighty
+| line 69 of eighty
+| line 70 of eighty
+| line 71 of eighty
+| line 72 of eighty
+| line 73 of eighty
+| line 74 of eighty
+| line 75 of eighty
+| line 76 of eighty
+| line 77 of eighty
+| line 78 of eighty
+| line 79 of eighty
+| line 80 of eighty
+keys: {^C}
+keys: {Up*3}
+keys: {^X}

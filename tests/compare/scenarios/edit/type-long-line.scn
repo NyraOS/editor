@@ -1,0 +1,9 @@
+# Typing past the right edge scrolls the line sideways.
+args: t.txt
+size: 30x8
+file t.txt:
+| start
+keys: {End} and some more words to go past the edge
+keys: {Home}
+keys: {^O}{Enter}
+keys: {^X}

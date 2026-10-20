@@ -1,0 +1,9 @@
+# +LINE,COLUMN puts the cursor on that line and column.
+args: +2,4 lines.txt
+file lines.txt:
+| first
+| second line
+| third
+keys: x
+keys: {^X}
+keys: n

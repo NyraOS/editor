@@ -1,0 +1,11 @@
+# Left at the start of a line goes to the end of the line above; Right at the end goes down.
+args: two.txt
+file two.txt:
+| first
+| second
+keys: {Down}
+keys: {Left}
+keys: {Right}
+keys: {Right}
+keys: {Left*3}
+keys: {^X}

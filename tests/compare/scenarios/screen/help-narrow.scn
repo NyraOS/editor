@@ -1,0 +1,9 @@
+# The help screen on a small terminal, scrolled down and up, and closed.
+differ: rows 0-8: the help text is the editor's own (nano's is GPL and describes nano)
+size: 40x12
+keys: {^G}
+keys: {Down*3}
+keys: {PgDn}
+keys: {PgUp}
+keys: {^X}
+keys: {^X}

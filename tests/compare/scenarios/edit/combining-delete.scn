@@ -1,0 +1,9 @@
+# Delete and Backspace on a character with combining marks.
+args: comb.txt
+file comb.txt:
+| xe\xcc\x81\xcc\x82y
+| xe\xcc\x81\xcc\x82y
+keys: {Right}{Del}
+keys: {Down}{End}{Left}{Bsp}
+keys: {^O}{Enter}
+keys: {^X}

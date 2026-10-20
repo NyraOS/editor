@@ -1,0 +1,11 @@
+# Writing into a directory that does not exist fails with a message; the text stays modified.
+args: w.txt
+file w.txt:
+| text
+keys: x
+keys: {^O}
+keys: {^A}nodir/
+keys: {Enter}
+keys: y
+keys: {^X}
+keys: n

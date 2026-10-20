@@ -15,6 +15,9 @@ pub struct Scenario {
     pub files: Vec<(String, Vec<u8>)>,
     pub steps: Vec<Step>,
     pub differ: Vec<Region>,
+    /// Why the editor does not pass this scenario yet: it is skipped when the editor under test
+    /// is not GNU nano itself.
+    pub pending: Option<String>,
 }
 
 #[derive(Debug)]
@@ -53,6 +56,7 @@ pub fn parse(text: &str) -> Result<Scenario, String> {
         files: Vec::new(),
         steps: Vec::new(),
         differ: Vec::new(),
+        pending: None,
     };
     let (mut seen_args, mut seen_size) = (false, false);
     // Whether the last file can still take content lines.
@@ -100,6 +104,9 @@ pub fn parse(text: &str) -> Result<Scenario, String> {
                 (s.cols, s.rows) = size(value).map_err(err)?;
             }
             "differ" => s.differ.push(region(value).map_err(err)?),
+            "pending" if s.pending.is_none() && !value.is_empty() => {
+                s.pending = Some(value.into());
+            }
             "keys" => {
                 let bytes = keys(value).map_err(err)?;
                 if bytes.is_empty() || bytes.len() > MAX_STEP_BYTES {

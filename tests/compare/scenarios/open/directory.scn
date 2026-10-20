@@ -1,0 +1,5 @@
+# Opening a directory gives an error and an empty buffer.
+args: somedir
+file somedir/inside.txt:
+| x
+keys: {^X}

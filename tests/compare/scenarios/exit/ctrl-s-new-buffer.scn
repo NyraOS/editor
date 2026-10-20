@@ -1,0 +1,5 @@
+# ^S on a new buffer asks for the file name.
+keys: hello
+keys: {^S}
+keys: named.txt{Enter}
+keys: {^X}

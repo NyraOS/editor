@@ -1,0 +1,6 @@
+# A file that does not exist yet opens as a new file; saving creates it.
+args: fresh.txt
+keys: first words
+keys: {^O}
+keys: {Enter}
+keys: {^X}

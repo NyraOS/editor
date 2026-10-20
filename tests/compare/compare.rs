@@ -208,6 +208,28 @@ fn mask_title(nano: &mut [Vec<Cell>], editor: &mut [Vec<Cell>]) {
     }
 }
 
+/// nano's welcome message (shown when it starts without a file) names nano; the editor's leaves
+/// the name out. When nano's screen shows its message and the editor's screen shows its own, in
+/// the same row, that row reads as `*` on both screens. On a narrow screen a message shows
+/// without its brackets and cut at the edge.
+fn mask_welcome(nano: &mut [Vec<Cell>], editor: &mut [Vec<Cell>]) {
+    const NANO: &str = "Welcome to nano.  For basic help, type Ctrl+G.";
+    const EDITOR: &str = "For basic help, type Ctrl+G.";
+    let text = |row: &[Cell]| row.iter().map(|c| c.text.as_str()).collect::<String>();
+    let shows = |row: &str, message: &str| {
+        let row = row.trim();
+        row == format!("[ {message} ]") || (!row.is_empty() && message.starts_with(row))
+    };
+    for (a, b) in nano.iter_mut().zip(editor.iter_mut()) {
+        if shows(&text(a), NANO) && shows(&text(b), EDITOR) {
+            for cell in a.iter_mut().chain(b.iter_mut()) {
+                cell.text = "*".into();
+                cell.style = "masked".into();
+            }
+        }
+    }
+}
+
 fn style(cell: &vt100::Cell) -> String {
     let mut parts = Vec::new();
     for (on, name) in [
@@ -249,6 +271,7 @@ fn diff_screens(terms: &[Term], scenario: &Scenario) -> Option<String> {
     let screens = [terms[0].screen(), terms[1].screen()];
     let [mut a, mut b] = screens.map(cells);
     mask_title(&mut a, &mut b);
+    mask_welcome(&mut a, &mut b);
     let mut report = String::new();
     if a.len() != b.len() || a[0].len() != b[0].len() {
         let size = |c: &Vec<Vec<Cell>>| format!("{}x{}", c[0].len(), c.len());
@@ -418,7 +441,7 @@ fn diff_files(a: &BTreeMap<String, Entry>, b: &BTreeMap<String, Entry>) -> Optio
 
 #[cfg(test)]
 mod tests {
-    use super::{Cell, mask_title};
+    use super::{Cell, mask_title, mask_welcome};
 
     fn screen(row0: &str) -> Vec<Vec<Cell>> {
         let cell = |c: char| Cell {
@@ -459,5 +482,19 @@ mod tests {
         let (a, b) = masked("  GNU nano 8.4   abc.txt", "  GNU nano 8.4   xyz.txt");
         assert!(a.trim_end().ends_with("abc.txt"), "{a}");
         assert!(b.trim_end().ends_with("xyz.txt"), "{b}");
+    }
+
+    #[test]
+    fn only_the_two_welcome_messages_are_masked() {
+        let nano = "   [ Welcome to nano.  For basic help, type Ctrl+G. ]";
+        let (mut a, mut b) = (
+            screen(nano),
+            screen("        [ For basic help, type Ctrl+G. ]"),
+        );
+        mask_welcome(&mut a, &mut b);
+        assert!(a[0].iter().chain(&b[0]).all(|c| c.text == "*"));
+        let (mut a, mut b) = (screen(nano), screen("        [ Something else ]"));
+        mask_welcome(&mut a, &mut b);
+        assert!(a[0].iter().chain(&b[0]).all(|c| c.text != "*"));
     }
 }

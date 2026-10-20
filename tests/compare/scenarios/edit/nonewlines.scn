@@ -1,0 +1,8 @@
+# With -L no newline is added at the end of the file, neither on screen nor when saving.
+args: -L --linenumbers nonl.txt
+file nonl.txt:
+| one\
+keys: {End}{Enter}
+keys: two
+keys: {^O}{Enter}
+keys: {^X}

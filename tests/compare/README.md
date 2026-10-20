@@ -7,8 +7,9 @@ same files, the same screen size and the same keys. After every step the two **s
 match (text, colours and attributes, cursor), and at the end the **exit status** and the **files**
 left in the working directory (names, contents, permissions) must match.
 
-Until the editor can edit, the editor under test is GNU nano itself, so the scenarios and the
-harness are tested against nano. `COMPARE_EDITOR` picks another one.
+By default the editor under test is GNU nano itself, which checks the scenarios and the harness.
+`COMPARE_EDITOR=target/debug/nyra-editor` (after `cargo build`) compares the editor. CI does both,
+in this order.
 
 ## Running
 
@@ -19,7 +20,7 @@ cargo test --test compare -- --nocapture
 | Variable | Meaning |
 |---|---|
 | `NANO` | Path of GNU nano. Must be version 8.4, or the tests fail. When it is not set, `nano` from `PATH` is used if it is 8.4; otherwise the tests are skipped with a message. |
-| `COMPARE_EDITOR` | The editor under test: a command with its arguments, split on spaces. Default: GNU nano. |
+| `COMPARE_EDITOR` | The editor under test: a command with its arguments, split on spaces. Default: GNU nano. When it is set, scenarios with a `pending:` line are skipped. |
 | `COMPARE_ONLY` | Run only the scenarios whose name contains this text, for example `search/`. |
 | `COMPARE_SHOW` | When set, print nano's screen after every step and its files at the end: use it to check that a new scenario does what you meant. |
 
@@ -62,8 +63,10 @@ keys: {^X}
 | `keys: ...` | A step: keys sent at once (see below). The screens are compared after each step. |
 | `resize: COLSxROWS` | A step: the terminal changes size. |
 | `differ: rows A-B[ cols C-D]: reason` | A deliberate difference from GNU nano: these screen cells are not compared, in every step. Also `row N`, `col N`. The reason is required. The cursor position is still compared, also inside the region. |
+| `pending: reason` | The editor does not do this yet: the scenario runs only when GNU nano is the editor under test, and is skipped (and counted as skipped) with `COMPARE_EDITOR`. Remove the line in the change that makes the editor pass it. |
 
-`args` and `size` may appear once; the other lines as often as needed. Steps run in file order.
+`args`, `size` and `pending` may appear once; the other lines as often as needed. Steps run in
+file order.
 
 **File lines** are UTF-8 text, written to the file with a newline after each. Escapes: `\t` (tab),
 `\r` (carriage return, for DOS line endings), `\e` (escape), `\\` (a backslash), `\xHH` (any byte,
@@ -116,6 +119,11 @@ the same step, it reads as Alt.
   columns of that name and of the editor's first group of words on row 0 (up to two blanks) read
   as `*` on both screens, in the reports too. On a narrow screen nano leaves its name out, and
   nothing is masked.
+- The welcome message is not compared: nano's, shown when it starts without a file, names nano
+  ("Welcome to nano.  For basic help, type Ctrl+G."); the editor's leaves the name out ("For basic
+  help, type Ctrl+G."). Only when a row of nano's screen shows its message and the same row of the
+  editor's screen shows the editor's, that row reads as `*` on both screens. On a narrow screen a
+  message shows without its brackets and cut at the edge; that counts too.
 - A reference nano that cannot run (exit status 126 or 127) fails the scenario, so a wrong
   `NANO` can never make the scenarios pass. A report also says when an editor has exited. `NANO`, and an editor command with a `/`, are made
   absolute paths, as the editors start in their own directories.

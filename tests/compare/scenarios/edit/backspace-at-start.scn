@@ -1,0 +1,6 @@
+# Backspace at the very start of the text does nothing and changes nothing.
+args: start.txt
+file start.txt:
+| text
+keys: {Bsp}
+keys: {^X}

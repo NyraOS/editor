@@ -1,0 +1,10 @@
+# Typing on the empty last line adds a new empty last line (the file's final newline).
+args: --linenumbers last.txt
+file last.txt:
+| one
+keys: {Down}
+keys: x
+keys: {Enter}y
+keys: {^X}
+keys: y
+keys: {Enter}

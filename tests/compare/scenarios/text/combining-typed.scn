@@ -1,0 +1,10 @@
+# A combining mark typed after a letter joins it: the cursor stays one column after it.
+args: c.txt
+file c.txt:
+| ab
+keys: {Right}
+keys: ́
+keys: {Left}
+keys: {Right}
+keys: {^O}{Enter}
+keys: {^X}

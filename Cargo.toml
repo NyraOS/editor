@@ -10,6 +10,14 @@ repository = "https://github.com/NyraOS/editor"
 description = "A nano-compatible terminal editor written from scratch in Rust"
 
 [dependencies]
+# The text: a rope, with only "\n" as a line break (the default features add the Unicode ones).
+ropey = { version = "=1.6.1", default-features = false, features = ["simd"] }
+# The terminal: raw mode, its size, and waiting for keys or a resize.
+rustix = { version = "=1.1.5", features = ["event", "pipe", "termios"] }
+# SIGWINCH (the terminal changed size), delivered through a pipe.
+signal-hook = { version = "=0.4.5", default-features = false }
+# How many columns a character takes on the screen.
+unicode-width = { version = "=0.2.2", default-features = false }
 
 [dev-dependencies]
 # The comparison tests (tests/compare): rustix opens the pseudo-terminal, vt100 is the terminal emulator.
@@ -19,3 +27,9 @@ vt100 = "0.18.1"
 [[test]]
 name = "compare"
 path = "tests/compare/main.rs"
+
+[profile.release]
+# A small binary: the editor is in every image.
+lto = true
+codegen-units = 1
+strip = true

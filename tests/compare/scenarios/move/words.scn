@@ -1,0 +1,16 @@
+# ^Right and ^Left move by words, over punctuation and across lines.
+args: words.txt
+file words.txt:
+| one, two  three-four
+|   (five) six
+keys: {^Right}
+keys: {^Right}
+keys: {^Right}
+keys: {^Right}
+keys: {^Right}
+keys: {^Right}
+keys: {^Left}
+keys: {^Left}
+keys: {^Left}
+keys: {^Left}
+keys: {^X}

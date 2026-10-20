@@ -1,0 +1,315 @@
+// SPDX-License-Identifier: MIT
+//! The text being edited and the cursor in it.
+//!
+//! The text is a rope with "\n" between lines, like the file without its line ends converted.
+//! When the file ends with a newline, the last line is empty: as in nano, the cursor can go
+//! there, and typing on it adds a new empty last line.
+
+use crate::screen::{is_zero_width, width_at};
+use ropey::Rope;
+
+/// The line ends of the file, kept when it is saved.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Format {
+    Unix,
+    Dos,
+    Mac,
+}
+
+/// The first of 256 private-use characters that stand for the bytes of a file that are not
+/// valid UTF-8, so that they survive editing and saving unchanged.
+const RAW_BASE: u32 = 0x10_FF00;
+
+/// The byte a raw-byte character stands for.
+pub fn raw_byte(c: char) -> Option<u8> {
+    (c as u32).checked_sub(RAW_BASE).map(|b| b as u8)
+}
+
+fn raw_char(b: u8) -> char {
+    char::from_u32(RAW_BASE + u32::from(b)).unwrap_or(char::REPLACEMENT_CHARACTER)
+}
+
+/// Bytes to text: invalid UTF-8 becomes raw-byte characters, and so does any character of the
+/// raw-byte range itself (byte by byte), so that `encode` gives back exactly the same bytes.
+pub fn decode(bytes: Vec<u8>) -> String {
+    match String::from_utf8(bytes) {
+        // The usual case, without a copy.
+        Ok(s) if !s.chars().any(|c| raw_byte(c).is_some()) => s,
+        Ok(s) => decode_slow(s.as_bytes()),
+        Err(e) => decode_slow(e.as_bytes()),
+    }
+}
+
+fn decode_slow(bytes: &[u8]) -> String {
+    fn push(out: &mut String, s: &str) {
+        for c in s.chars() {
+            if raw_byte(c).is_some() {
+                out.extend(c.to_string().bytes().map(raw_char));
+            } else {
+                out.push(c);
+            }
+        }
+    }
+    let mut out = String::with_capacity(bytes.len());
+    let mut rest = bytes;
+    loop {
+        match std::str::from_utf8(rest) {
+            Ok(s) => {
+                push(&mut out, s);
+                return out;
+            }
+            Err(e) => {
+                let (good, bad) = rest.split_at(e.valid_up_to());
+                push(&mut out, std::str::from_utf8(good).unwrap_or_default());
+                let n = e.error_len().unwrap_or(bad.len());
+                out.extend(bad[..n].iter().copied().map(raw_char));
+                rest = &bad[n..];
+            }
+        }
+    }
+}
+
+/// Text to bytes: the inverse of `decode`.
+pub fn encode(text: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len());
+    for c in text.chars() {
+        match raw_byte(c) {
+            Some(b) => out.push(b),
+            None => out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes()),
+        }
+    }
+    out
+}
+
+/// The format of the file's line ends, from the first one, and the text with them made "\n".
+pub fn convert_line_ends(text: String) -> (String, Format) {
+    let Some(i) = text.find(['\r', '\n']) else {
+        return (text, Format::Unix);
+    };
+    match &text.as_bytes()[i..] {
+        [b'\r', b'\n', ..] => (text.replace("\r\n", "\n"), Format::Dos),
+        [b'\r', ..] => (text.replace('\r', "\n"), Format::Mac),
+        _ => (text, Format::Unix),
+    }
+}
+
+pub struct Buffer {
+    pub text: Rope,
+    /// The cursor: its line, and its position in the line in characters.
+    pub line: usize,
+    pub x: usize,
+    /// The screen column the cursor keeps when it moves up and down.
+    pub want: usize,
+    /// The first line on the screen.
+    pub top: usize,
+    pub modified: bool,
+    pub format: Format,
+}
+
+impl Buffer {
+    pub fn new(text: &str, format: Format) -> Self {
+        Self {
+            text: Rope::from_str(text),
+            line: 0,
+            x: 0,
+            want: 0,
+            top: 0,
+            modified: false,
+            format,
+        }
+    }
+
+    pub fn lines(&self) -> usize {
+        self.text.len_lines()
+    }
+
+    /// A line without its "\n".
+    pub fn line_text(&self, line: usize) -> String {
+        let mut s = String::from(self.text.line(line));
+        if s.ends_with('\n') {
+            s.pop();
+        }
+        s
+    }
+
+    /// The number of characters in a line, without its "\n".
+    pub fn line_len(&self, line: usize) -> usize {
+        let l = self.text.line(line);
+        let n = l.len_chars();
+        if n > 0 && l.char(n - 1) == '\n' {
+            n - 1
+        } else {
+            n
+        }
+    }
+
+    /// The cursor as a character index in the whole text.
+    pub fn pos(&self) -> usize {
+        self.text.line_to_char(self.line) + self.x
+    }
+
+    pub fn set_pos(&mut self, pos: usize) {
+        self.line = self.text.char_to_line(pos);
+        self.x = pos - self.text.line_to_char(self.line);
+    }
+
+    /// The screen column of the cursor in its line (without horizontal scrolling).
+    pub fn column(&self, tabsize: usize) -> usize {
+        column_of(&self.line_text(self.line), self.x, tabsize)
+    }
+
+    /// Remembers the cursor's column for moving up and down.
+    pub fn keep_column(&mut self, tabsize: usize) {
+        self.want = self.column(tabsize);
+    }
+
+    /// Puts the cursor in `line`, as near the remembered column as the line allows.
+    pub fn goto_line(&mut self, line: usize, tabsize: usize) {
+        self.line = line.min(self.lines() - 1);
+        self.x = index_at(&self.line_text(self.line), self.want, tabsize);
+    }
+
+    /// Inserts text at the cursor and moves the cursor after it.
+    pub fn insert(&mut self, s: &str) {
+        let pos = self.pos();
+        self.text.insert(pos, s);
+        self.set_pos(pos + s.chars().count());
+        self.modified = true;
+    }
+
+    /// Deletes the characters from `from` up to `to` (indexes in the whole text).
+    pub fn remove(&mut self, from: usize, to: usize) {
+        if from < to {
+            self.text.remove(from..to);
+            self.modified = true;
+        }
+    }
+
+    /// Whether the last line is empty: the text ends with a newline, or is empty.
+    pub fn ends_with_newline(&self) -> bool {
+        self.line_len(self.lines() - 1) == 0
+    }
+
+    /// The bytes to save, with the line ends of the file's format.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let text = String::from(&self.text);
+        let text = match self.format {
+            Format::Unix => text,
+            Format::Dos => text.replace('\n', "\r\n"),
+            Format::Mac => text.replace('\n', "\r"),
+        };
+        encode(&text)
+    }
+
+    /// The number of lines a file of this text has, as nano counts them in its messages.
+    pub fn file_lines(&self) -> usize {
+        let n = self.lines();
+        if self.ends_with_newline() { n - 1 } else { n }
+    }
+}
+
+/// The screen column where the character at `index` starts.
+pub fn column_of(line: &str, index: usize, tabsize: usize) -> usize {
+    line.chars()
+        .take(index)
+        .fold(0, |col, c| col + width_at(c, col, tabsize))
+}
+
+/// The index of the character that covers screen column `col`, or the end of the line. A
+/// character with combining marks after it counts as one.
+pub fn index_at(line: &str, col: usize, tabsize: usize) -> usize {
+    let mut at = 0;
+    for (i, c) in line.chars().enumerate() {
+        let w = width_at(c, at, tabsize);
+        if w > 0 && at + w > col {
+            return i;
+        }
+        at += w;
+    }
+    line.chars().count()
+}
+
+/// The index of the next character after `index`, skipping the combining marks of the one at
+/// `index`.
+pub fn next_index(line: &str, index: usize) -> usize {
+    let mut chars = line.chars().skip(index + 1);
+    let mut i = index + 1;
+    while chars.next().is_some_and(is_zero_width) {
+        i += 1;
+    }
+    i
+}
+
+/// The index of the character before `index`, together with its combining marks.
+pub fn prev_index(line: &str, index: usize) -> usize {
+    let chars: Vec<char> = line.chars().take(index).collect();
+    let mut i = index.saturating_sub(1);
+    while i > 0 && is_zero_width(chars[i]) {
+        i -= 1;
+    }
+    i
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_utf8_survives() {
+        let bytes = b"ok \xff\xfe \xc3 x \xf4\x8f\xbc\x81 end\n";
+        let text = decode(bytes.to_vec());
+        assert_eq!(text.chars().filter(|&c| raw_byte(c).is_some()).count(), 7);
+        assert_eq!(encode(&text), bytes);
+    }
+
+    #[test]
+    fn line_ends() {
+        assert_eq!(
+            convert_line_ends("a\r\nb\r\n".into()),
+            ("a\nb\n".into(), Format::Dos)
+        );
+        assert_eq!(
+            convert_line_ends("a\rb\r".into()),
+            ("a\nb\n".into(), Format::Mac)
+        );
+        assert_eq!(
+            convert_line_ends("a\nb\r\n".into()),
+            ("a\nb\r\n".into(), Format::Unix)
+        );
+        let mut b = Buffer::new("a\nb\n", Format::Dos);
+        assert_eq!(b.to_bytes(), b"a\r\nb\r\n");
+        b.format = Format::Mac;
+        assert_eq!(b.to_bytes(), b"a\rb\r");
+        assert_eq!(b.file_lines(), 2);
+    }
+
+    #[test]
+    fn columns() {
+        let line = "a\tb日e\u{301}x";
+        assert_eq!(column_of(line, 2, 8), 8);
+        assert_eq!(column_of(line, 4, 8), 11);
+        assert_eq!(column_of(line, 6, 8), 12);
+        assert_eq!(index_at(line, 5, 8), 1);
+        assert_eq!(index_at(line, 10, 8), 3);
+        assert_eq!(index_at(line, 11, 8), 4);
+        assert_eq!(index_at(line, 99, 8), 7);
+        assert_eq!(next_index(line, 4), 6);
+        assert_eq!(prev_index(line, 6), 4);
+        assert_eq!(prev_index(line, 0), 0);
+    }
+
+    #[test]
+    fn editing() {
+        let mut b = Buffer::new("one\ntwo\n", Format::Unix);
+        assert_eq!(b.lines(), 3);
+        assert!(b.ends_with_newline());
+        b.goto_line(1, 8);
+        b.x = 3;
+        b.insert("!\nnew");
+        assert_eq!(String::from(&b.text), "one\ntwo!\nnew\n");
+        assert_eq!((b.line, b.x), (2, 3));
+        assert!(b.modified);
+        assert_eq!(b.line_len(2), 3);
+        assert_eq!(b.line_text(3), "");
+    }
+}

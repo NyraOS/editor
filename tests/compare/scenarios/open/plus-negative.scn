@@ -1,0 +1,9 @@
+# A negative line number counts from the end.
+args: +-2 lines.txt
+file lines.txt:
+| first
+| second
+| third
+| fourth
+keys: {^C}
+keys: {^X}

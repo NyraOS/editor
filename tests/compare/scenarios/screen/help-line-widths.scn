@@ -1,0 +1,26 @@
+# The two help lines at many widths: more of them on wider screens, cut on narrow ones.
+args: f.txt
+size: 80x6
+file f.txt:
+| hello
+resize: 10x6
+resize: 15x6
+resize: 20x6
+resize: 25x6
+resize: 30x6
+resize: 36x6
+resize: 39x6
+resize: 41x6
+resize: 50x6
+resize: 55x6
+resize: 60x6
+resize: 64x6
+resize: 66x6
+resize: 75x6
+resize: 79x6
+resize: 90x6
+resize: 100x6
+resize: 120x6
+resize: 150x6
+resize: 160x6
+keys: {^X}

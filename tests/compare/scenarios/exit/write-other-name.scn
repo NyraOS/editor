@@ -1,0 +1,10 @@
+# Editing the name in the ^O prompt writes to another file; the title shows the new name.
+args: orig.txt
+file orig.txt:
+| text
+keys: x
+keys: {^O}
+keys: {Left*4}{Bsp}2
+keys: {Home}{Right}{Del}X
+keys: {Enter}
+keys: {^X}

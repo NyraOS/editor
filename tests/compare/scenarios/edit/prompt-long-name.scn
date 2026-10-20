@@ -1,0 +1,9 @@
+# A file name longer than the room in the prompt scrolls in it.
+size: 30x8
+keys: text
+keys: {^O}
+keys: a-very-long-file-name-for-a-narrow-screen.txt
+keys: {Home}
+keys: {End}
+keys: {Enter}
+keys: {^X}

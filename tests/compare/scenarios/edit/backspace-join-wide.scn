@@ -1,0 +1,10 @@
+# Backspace at the start of a line of wide characters joins it to the line above.
+args: w.txt
+file w.txt:
+| 日本語
+| のテキスト
+keys: {Down}
+keys: {Bsp}
+keys: {Bsp}
+keys: {^O}{Enter}
+keys: {^X}
