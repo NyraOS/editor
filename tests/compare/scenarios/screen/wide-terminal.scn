@@ -1,0 +1,9 @@
+# A very wide terminal shows many help items, including the arrows.
+args: f.txt
+size: 230x8
+file f.txt:
+| hello
+keys: {End}
+keys: {^O}
+keys: {^C}
+keys: {^X}

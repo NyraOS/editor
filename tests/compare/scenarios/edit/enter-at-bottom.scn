@@ -1,0 +1,14 @@
+# Enter on the bottom row scrolls the text up by one line.
+args: b.txt
+size: 40x8
+file b.txt:
+| 1
+| 2
+| 3
+| 4
+| 5
+keys: {Down*3}{End}
+keys: {Enter}
+keys: {Enter}x
+keys: {^O}{Enter}
+keys: {^X}

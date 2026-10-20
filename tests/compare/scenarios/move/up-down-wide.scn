@@ -1,0 +1,12 @@
+# Moving down into a line of wide characters lands on the character that covers the column.
+args: wide.txt
+file wide.txt:
+| abcdefgh
+| 日本語のテキスト
+| a日本語
+keys: {Right*3}
+keys: {Down}
+keys: {Down}
+keys: {Up}{Right}
+keys: {Up}
+keys: {^X}

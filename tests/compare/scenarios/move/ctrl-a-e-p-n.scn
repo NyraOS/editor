@@ -1,0 +1,12 @@
+# ^A and ^E go to the start and end of the line, ^P and ^N up and down.
+args: keys.txt
+file keys.txt:
+| first line
+| second line
+| third
+keys: {^E}
+keys: {^N}
+keys: {^A}
+keys: {^N}{^E}
+keys: {^P}
+keys: {^X}

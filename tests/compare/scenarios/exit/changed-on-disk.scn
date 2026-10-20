@@ -1,0 +1,18 @@
+# The file changes on disk while it is edited: ^O warns for a moment, then asks; No keeps the
+# file as it is on disk, Yes writes over it.
+args: c.txt
+file c.txt:
+| original
+keys: {End} edited
+# GNU nano compares the times of change in whole seconds.
+pause: 1100
+file c.txt:
+| changed elsewhere
+keys: {^O}
+keys: {Enter}
+pause: 2000
+keys: n
+keys: {^O}{Enter}
+pause: 2000
+keys: y
+keys: {^X}

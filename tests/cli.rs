@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 fn editor(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_nyra-editor"))
         .args(args)
+        .stdin(Stdio::null())
         .output()
         .unwrap()
 }
@@ -20,9 +21,27 @@ fn version_prints_name_and_version() {
 }
 
 #[test]
-fn anything_else_is_not_usable_yet() {
-    let out = editor(&[]);
-    assert_eq!(out.status.code(), Some(2));
+fn help_lists_the_options() {
+    let out = editor(&["--help"]);
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.starts_with("Usage: editor "), "{text}");
+    assert!(text.contains("--linenumbers"), "{text}");
+}
+
+#[test]
+fn a_bad_option_is_an_error() {
+    let out = editor(&["--no-such-option"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    let err = String::from_utf8(out.stderr).unwrap();
+    assert!(err.contains("--no-such-option"), "{err}");
+}
+
+#[test]
+fn editing_needs_a_terminal() {
+    let out = editor(&["notes.txt"]);
+    assert_eq!(out.status.code(), Some(1));
     assert!(out.stdout.is_empty());
     assert!(!out.stderr.is_empty());
 }

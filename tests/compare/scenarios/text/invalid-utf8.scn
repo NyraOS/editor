@@ -1,0 +1,8 @@
+# Bytes that are not valid UTF-8 are kept as they are when the file is saved.
+args: bad.txt
+file bad.txt:
+| bad \xff\xfe and \xc3 here
+| fine
+keys: {Down}{End} too
+keys: {^O}{Enter}
+keys: {^X}

@@ -1,0 +1,10 @@
+# ^O with the file name erased: nothing is written.
+args: w.txt
+file w.txt:
+| text
+keys: x
+keys: {^O}
+keys: {Bsp*5}
+keys: {Enter}
+keys: {^X}
+keys: n

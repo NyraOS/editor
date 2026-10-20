@@ -1,0 +1,10 @@
+# With line numbers, a long line scrolls sideways in the narrower text area.
+args: -l long.txt
+size: 40x10
+file long.txt:
+| 0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
+| two
+keys: {Right*34}
+keys: {Right}
+keys: {End}
+keys: {^X}

@@ -1,0 +1,11 @@
+# Resizing while the cursor is far right on a long line scrolls the line again.
+args: l.txt
+size: 50x10
+file l.txt:
+| 0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
+keys: {End}
+resize: 30x10
+resize: 90x10
+keys: {Left*30}
+resize: 40x10
+keys: {^X}

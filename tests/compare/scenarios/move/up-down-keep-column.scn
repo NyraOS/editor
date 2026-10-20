@@ -1,0 +1,14 @@
+# Up and Down keep the column the cursor was in, across shorter lines.
+args: cols.txt
+file cols.txt:
+| a fairly long first line
+| short
+|
+| another long line here
+keys: {End}
+keys: {Down}
+keys: {Down}
+keys: {Down}
+keys: {Up*3}
+keys: {Left*4}{Down*3}
+keys: {^X}

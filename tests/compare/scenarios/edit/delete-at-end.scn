@@ -1,0 +1,10 @@
+# Delete at the end of the last line, and on the empty last line, does nothing.
+args: --linenumbers end.txt
+file end.txt:
+| one
+| two
+keys: {Down}{End}
+keys: {Del}
+keys: {Down}
+keys: {Del}
+keys: {^X}

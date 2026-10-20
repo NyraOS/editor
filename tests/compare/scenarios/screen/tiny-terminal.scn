@@ -1,0 +1,11 @@
+# A terminal of five rows leaves one row for the text.
+args: t.txt
+size: 30x5
+file t.txt:
+| one
+| two
+| three
+keys: {Down}
+keys: {Down}
+keys: {Up*2}
+keys: {^X}

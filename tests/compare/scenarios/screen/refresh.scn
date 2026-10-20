@@ -1,0 +1,7 @@
+# ^L draws the screen again; nothing changes.
+args: r.txt
+file r.txt:
+| some text
+keys: {Right*4}
+keys: {^L}
+keys: {^X}

@@ -1,0 +1,9 @@
+# ^O, then ^C: nothing is written.
+args: w.txt
+file w.txt:
+| text
+keys: x
+keys: {^O}
+keys: {^C}
+keys: {^X}
+keys: n

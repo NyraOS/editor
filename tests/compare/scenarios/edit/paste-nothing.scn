@@ -1,0 +1,6 @@
+# ^U with nothing cut.
+args: p.txt
+file p.txt:
+| text
+keys: {^U}
+keys: {^X}

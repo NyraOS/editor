@@ -1,0 +1,6 @@
+# ^X on a new buffer with text: Yes asks for a file name, then saves and exits.
+keys: some text{Enter}more
+keys: {^X}
+keys: y
+keys: out.txt
+keys: {Enter}

@@ -1,0 +1,14 @@
+# A line longer than the screen scrolls sideways when the cursor goes near the edge.
+args: long.txt
+size: 40x10
+file long.txt:
+| 0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
+| short
+keys: {Right*37}
+keys: {Right}
+keys: {End}
+keys: {Down}
+keys: {Up}
+keys: {Left*20}
+keys: {Home}
+keys: {^X}

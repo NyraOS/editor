@@ -1,0 +1,9 @@
+# Tabs typed in the middle of text move the rest to the next tab stop.
+args: t.txt
+file t.txt:
+| abcdefghijkl
+keys: {Right*3}{Tab}
+keys: {Right*5}{Tab}{Tab}
+keys: {Home}{Tab}
+keys: {^O}{Enter}
+keys: {^X}

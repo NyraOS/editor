@@ -1,0 +1,49 @@
+# ^V and ^Y page down and up, like PgDn and PgUp, keeping the column.
+args: long.txt
+size: 50x12
+file long.txt:
+| abcdefgh line 1
+| abcdefgh line 2
+| ab line 3
+| abcdefgh line 4
+| abcdefgh line 5
+| ab line 6
+| abcdefgh line 7
+| abcdefgh line 8
+| ab line 9
+| abcdefgh line 10
+| abcdefgh line 11
+| ab line 12
+| abcdefgh line 13
+| abcdefgh line 14
+| ab line 15
+| abcdefgh line 16
+| abcdefgh line 17
+| ab line 18
+| abcdefgh line 19
+| abcdefgh line 20
+| ab line 21
+| abcdefgh line 22
+| abcdefgh line 23
+| ab line 24
+| abcdefgh line 25
+| abcdefgh line 26
+| ab line 27
+| abcdefgh line 28
+| abcdefgh line 29
+| ab line 30
+| abcdefgh line 31
+| abcdefgh line 32
+| ab line 33
+| abcdefgh line 34
+| abcdefgh line 35
+| ab line 36
+| abcdefgh line 37
+| abcdefgh line 38
+| ab line 39
+| abcdefgh line 40
+keys: {Right*6}
+keys: {^V}
+keys: {^V}
+keys: {^Y}
+keys: {^X}

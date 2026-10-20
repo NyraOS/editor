@@ -1,0 +1,10 @@
+# With --constantshow a message shows until the next key, then the position again.
+args: -c m.txt
+file m.txt:
+| text
+keys: x
+keys: {^O}{Enter}
+keys: {Right}
+keys: {^U}
+keys: {Left}
+keys: {^X}

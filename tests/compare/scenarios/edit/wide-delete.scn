@@ -1,0 +1,10 @@
+# Deleting wide characters and emoji with Delete and Backspace.
+args: wide.txt
+file wide.txt:
+| 日本語のテキスト
+| emoji 🙂🚀 end
+keys: {Right*2}{Del}
+keys: {Bsp}
+keys: {Down}{End}{Left*4}{Bsp}
+keys: {^O}{Enter}
+keys: {^X}

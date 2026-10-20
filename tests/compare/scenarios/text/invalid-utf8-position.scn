@@ -1,0 +1,9 @@
+# The position counts each byte that is not valid UTF-8 as one character.
+args: -c bad.txt
+file bad.txt:
+| a\xffb\xc3\xa9\xc3 end \xe2\x82
+| \x80\x80x
+keys: {Right*2}
+keys: {Down}{End}
+keys: {^C}
+keys: {^X}

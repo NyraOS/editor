@@ -1,0 +1,13 @@
+# A message stays for 19 more keys and goes with the 20th; a typed é counts as two keys.
+args: m.txt
+file m.txt:
+| 0123456789012345678901234567890123456789
+keys: {Right*18}
+keys: {Right}
+keys: {Right}
+keys: {^C}
+keys: {Right*17}
+keys: é
+keys: é
+keys: {^X}
+keys: n

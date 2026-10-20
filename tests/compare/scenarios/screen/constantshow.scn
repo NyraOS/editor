@@ -1,0 +1,11 @@
+# --constantshow keeps the cursor position in the status bar while moving and typing.
+args: -c pos.txt
+file pos.txt:
+| first line
+| second
+keys: {Right*3}
+keys: {Down}
+keys: abc
+keys: {End}{Right}
+keys: {^X}
+keys: n

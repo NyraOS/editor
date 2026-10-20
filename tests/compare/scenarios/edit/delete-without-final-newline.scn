@@ -1,0 +1,8 @@
+# Delete at the end of the next-to-last line of a file without a final newline joins the lines.
+args: --linenumbers nonl.txt
+file nonl.txt:
+| one
+| two\
+keys: {End}{Del}
+keys: {^O}{Enter}
+keys: {^X}

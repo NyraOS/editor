@@ -1,0 +1,10 @@
+# The title bar shows Modified after a change, until the file is written.
+args: m.txt
+file m.txt:
+| text
+keys: x
+keys: {^O}
+keys: {Enter}
+keys: {Bsp}
+keys: {^X}
+keys: n

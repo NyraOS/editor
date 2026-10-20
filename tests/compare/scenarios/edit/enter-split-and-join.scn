@@ -1,0 +1,11 @@
+# Enter splits a line; Backspace at the start of a line and Delete at its end join lines.
+args: join.txt
+file join.txt:
+| helloworld
+| next
+keys: {Right*5}
+keys: {Enter}
+keys: {Bsp}
+keys: {End}{Del}
+keys: {^O}{Enter}
+keys: {^X}

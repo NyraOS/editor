@@ -1,0 +1,12 @@
+# The title bar on narrow screens: the name of the program goes first, then the file name is cut.
+args: a-rather-long-file-name.txt
+size: 50x8
+file a-rather-long-file-name.txt:
+| x
+resize: 40x8
+keys: y
+resize: 30x8
+resize: 20x8
+resize: 15x8
+keys: {^X}
+keys: n

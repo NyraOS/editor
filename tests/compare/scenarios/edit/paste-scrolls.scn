@@ -1,0 +1,16 @@
+# Pasting lines on the bottom row scrolls the text so the cursor stays on the screen.
+args: p.txt
+size: 30x9
+file p.txt:
+| a
+| b
+| c
+| d
+| e
+| f
+keys: {^K*3}
+keys: {Down*2}
+keys: {^U}
+keys: {^U}
+keys: {^O}{Enter}
+keys: {^X}

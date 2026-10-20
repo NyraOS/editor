@@ -1,0 +1,10 @@
+# Moving over bytes that are not valid UTF-8, deleting one and typing next to another.
+args: bad.txt
+file bad.txt:
+| a\xffb\xfe\xc3 end
+keys: {Right}
+keys: {Right}
+keys: {Left}{Del}
+keys: {End}{Left*5}x
+keys: {^O}{Enter}
+keys: {^X}

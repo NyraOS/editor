@@ -1,0 +1,9 @@
+# New lines in a DOS file are saved with DOS line ends too.
+args: d.txt
+file d.txt:
+| one\r
+| two\r
+keys: {End}{Enter}between
+keys: {M-/}last
+keys: {^O}{Enter}
+keys: {^X}

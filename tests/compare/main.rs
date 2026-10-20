@@ -87,10 +87,20 @@ fn scenario_files() -> Vec<(String, PathBuf)> {
     out
 }
 
-/// Runs one scenario file; the files of a failed run stay under target/tmp/compare.
-fn run_file(name: &str, path: &Path, nano: &[String], editor: &[String]) -> Result<(), String> {
+/// Runs one scenario file; the files of a failed run stay under target/tmp/compare. Ok(false):
+/// skipped, as it is pending and `skip_pending` is set.
+fn run_file(
+    name: &str,
+    path: &Path,
+    nano: &[String],
+    editor: &[String],
+    skip_pending: bool,
+) -> Result<bool, String> {
     let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let scenario = scenario::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    if skip_pending && scenario.pending.is_some() {
+        return Ok(false);
+    }
     // Named after the scenario file, so that no two scenarios share a directory.
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join("compare")
@@ -105,7 +115,9 @@ fn run_file(name: &str, path: &Path, nano: &[String], editor: &[String]) -> Resu
     if result.is_ok() {
         let _ = fs::remove_dir_all(&dir);
     }
-    result.map_err(|e| format!("{e}  (the files are kept in {})\n", dir.display()))
+    result
+        .map(|()| true)
+        .map_err(|e| format!("{e}  (the files are kept in {})\n", dir.display()))
 }
 
 #[test]
@@ -125,8 +137,11 @@ fn scenarios() {
         editor.join(" ")
     );
 
+    // Pending scenarios run only with GNU nano as the editor, which checks them.
+    let skip_pending = editor != nano;
     let start = Instant::now();
     let next = AtomicUsize::new(0);
+    let skipped = AtomicUsize::new(0);
     let failures = Mutex::new(Vec::new());
     let threads = std::thread::available_parallelism().map_or(2, |n| n.get());
     std::thread::scope(|s| {
@@ -134,12 +149,17 @@ fn scenarios() {
             s.spawn(|| {
                 while let Some((name, path)) = list.get(next.fetch_add(1, Ordering::Relaxed)) {
                     let t = Instant::now();
-                    let result = run_file(name, path, &nano, &editor);
+                    let result = run_file(name, path, &nano, &editor, skip_pending);
                     let secs = t.elapsed().as_secs_f32();
-                    println!(
-                        "{} {name} ({secs:.1} s)",
-                        if result.is_ok() { "ok  " } else { "FAIL" }
-                    );
+                    let status = match result {
+                        Ok(true) => "ok  ",
+                        Ok(false) => "skip",
+                        Err(_) => "FAIL",
+                    };
+                    println!("{status} {name} ({secs:.1} s)");
+                    if result == Ok(false) {
+                        skipped.fetch_add(1, Ordering::Relaxed);
+                    }
                     if let Err(report) = result {
                         failures
                             .lock()
@@ -152,11 +172,17 @@ fn scenarios() {
     });
     let mut failures = failures.into_inner().unwrap();
     failures.sort();
+    let skipped = skipped.into_inner();
     println!(
-        "{} of {} scenarios passed in {:.1} s",
-        list.len() - failures.len(),
+        "{} of {} scenarios passed in {:.1} s{}",
+        list.len() - failures.len() - skipped,
         list.len(),
-        start.elapsed().as_secs_f32()
+        start.elapsed().as_secs_f32(),
+        if skipped > 0 {
+            format!(" ({skipped} pending, skipped)")
+        } else {
+            String::new()
+        }
     );
     assert!(
         failures.is_empty(),
@@ -175,8 +201,8 @@ fn a_wrong_editor_fails_with_a_readable_report() {
     let Some(nano) = nano() else { return };
     let wrong = [nano.clone(), vec!["--constantshow".to_string()]].concat();
     let path = scenarios_dir().join("basic/type-and-save.scn");
-    let report =
-        run_file("selftest/wrong-editor", &path, &nano, &wrong).expect_err("a wrong editor passed");
+    let report = run_file("selftest/wrong-editor", &path, &nano, &wrong, false)
+        .expect_err("a wrong editor passed");
     println!("Expected failure (the harness's self-test), with nano --constantshow as the editor:");
     println!("{report}");
     assert!(report.starts_with("screens differ after line "), "{report}");
@@ -185,12 +211,39 @@ fn a_wrong_editor_fails_with_a_readable_report() {
     assert!(report.lines().any(carets), "{report}");
 }
 
+/// A file rewritten during a scenario must not hide what an editor saved before it: GNU nano with
+/// --nonewlines saves without the final newline, and that must show before the rewrite.
+#[test]
+fn a_rewrite_does_not_hide_a_save() {
+    let Some(nano) = nano() else { return };
+    let wrong = [nano.clone(), vec!["--nonewlines".to_string()]].concat();
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("selftest");
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("rewrite.scn");
+    fs::write(
+        &path,
+        "# Save, then the file is rewritten.\n\
+         args: r.txt\n\
+         file r.txt:\n\
+         | one\n\
+         keys: {Down}x\n\
+         keys: {^O}{Enter}\n\
+         file r.txt:\n\
+         | three\n\
+         keys: {^X}\n",
+    )
+    .unwrap();
+    let report = run_file("selftest/rewrite", &path, &nano, &wrong, false)
+        .expect_err("a wrong save was hidden by the rewrite");
+    assert!(report.starts_with("files differ before line 7"), "{report}");
+}
+
 /// A reference that cannot run must fail the scenario, not match an editor that cannot run either.
 #[test]
 fn a_reference_that_cannot_run_fails() {
     let missing = vec!["/nonexistent/nano".to_string()];
     let path = scenarios_dir().join("basic/exit-discard.scn");
-    let report = run_file("selftest/missing-nano", &path, &missing, &missing)
+    let report = run_file("selftest/missing-nano", &path, &missing, &missing, false)
         .expect_err("a missing nano passed");
     assert!(report.contains("nano could not run"), "{report}");
 }
@@ -242,13 +295,20 @@ fn scenario_format() {
                 size: 100x30\n\
                 differ: rows 22-23: the help lines\n\
                 differ: row 0 cols 2-9: the name\n\
+                pending: the editor cannot do this yet\n\
                 file notes.txt:\n\
                 | one\\ttab\n\
                 |\n\
                 | no newline\\\n\
                 file empty:\n\
                 keys: hi{Enter}\n\
-                resize: 90x20\n";
+                resize: 90x20\n\
+                differ: none\n\
+                file notes.txt:\n\
+                | new\n\
+                pause: 1500\n\
+                differ: row 7 col 3: a column\n\
+                keys: x\n";
     let s = scenario::parse(text).unwrap();
     assert_eq!(s.args, ["-l", "notes.txt"]);
     assert_eq!((s.cols, s.rows), (100, 30));
@@ -258,13 +318,27 @@ fn scenario_format() {
     );
     assert_eq!(s.files[1], ("empty".into(), Vec::new()));
     assert_eq!(s.steps[0].action, scenario::Action::Keys(b"hi\r".to_vec()));
-    assert_eq!(s.steps[0].line, 11);
+    assert_eq!(s.steps[0].line, 12);
     assert_eq!(
         s.steps[1].action,
         scenario::Action::Resize { cols: 90, rows: 20 }
     );
     assert!(s.differ[0].contains(23, 79) && !s.differ[0].contains(21, 0));
     assert!(s.differ[1].contains(0, 9) && !s.differ[1].contains(0, 10));
+    // Differences apply from where they are declared, until `differ: none`.
+    assert_eq!(s.steps[0].differ, s.differ);
+    assert_eq!(s.steps[1].differ, s.differ);
+    assert_eq!(
+        s.steps[2].action,
+        scenario::Action::Write {
+            name: "notes.txt".into(),
+            bytes: b"new\n".to_vec()
+        }
+    );
+    assert!(s.steps[2].differ.is_empty());
+    assert_eq!(s.steps[3].action, scenario::Action::Pause(1500));
+    assert!(s.steps[4].differ[0].contains(7, 3) && !s.steps[4].differ[0].contains(7, 4));
+    assert_eq!(s.pending.as_deref(), Some("the editor cannot do this yet"));
 
     for (bad, line) in [
         ("keys: a\nsize: 80\n", "line 2:"),
@@ -274,6 +348,8 @@ fn scenario_format() {
         ("args: a\nargs: b\nkeys: a\n", "line 2:"),
         ("differ: rows 1-2\nkeys: a\n", "line 1:"),
         ("bogus: 1\nkeys: a\n", "line 1:"),
+        ("pending:\nkeys: a\n", "line 1:"),
+        ("keys: a\npause: 0\n", "line 2:"),
         ("args: x\n", "no steps"),
     ] {
         let err = scenario::parse(bad).unwrap_err();

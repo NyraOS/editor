@@ -1,0 +1,9 @@
+# ^D deletes the character under the cursor and ^H the one before it.
+args: keys.txt
+file keys.txt:
+| abcdef
+keys: {Right*2}
+keys: {^D}
+keys: {^H}
+keys: {^O}{Enter}
+keys: {^X}

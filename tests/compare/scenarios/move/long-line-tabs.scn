@@ -1,0 +1,11 @@
+# A long line with tabs scrolls sideways; a tab cut by the edge is shown in part.
+args: tabs.txt
+size: 40x10
+file tabs.txt:
+| 	tab	line	with	many	tabs	that	goes	far	beyond
+| 12345678901234567	x
+keys: {End}
+keys: {Home}{Right*39}
+keys: {Right}
+keys: {Down}{End}
+keys: {^X}

@@ -1,0 +1,17 @@
+# ^End goes to the last line and ^Home to the first.
+args: long.txt
+size: 40x8
+file long.txt:
+| alpha
+| beta
+| gamma
+| delta
+| epsilon
+| zeta
+| eta
+| theta
+| iota
+keys: {Down}{Right*2}
+keys: {^End}
+keys: {^Home}
+keys: {^X}

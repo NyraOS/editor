@@ -56,6 +56,7 @@ jobs:
 
   # The comparison tests (tests/compare) against GNU nano 8.4, built by tools/build-nano.sh from
   # the GNU tarball pinned by its SHA-256 and cached; with $NANO set, they fail on any other version.
+  # They run twice: GNU nano as the editor under test, then the editor itself.
   compare:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
@@ -75,7 +76,15 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends libncurses-dev
           tools/build-nano.sh ~/nano-8.4
-      - run: NANO="$HOME/nano-8.4/bin/nano" cargo test --locked --test compare -- --nocapture
+      # First GNU nano against itself, which checks the scenarios and the harness; then the
+      # editor against GNU nano, in every scenario that has no `pending:` line.
+      - name: Scenarios and harness, on GNU nano
+        run: NANO="$HOME/nano-8.4/bin/nano" cargo test --locked --test compare -- --nocapture
+      - run: cargo build --locked
+      - name: The editor against GNU nano
+        run: >-
+          NANO="$HOME/nano-8.4/bin/nano" COMPARE_EDITOR=target/debug/nyra-editor
+          cargo test --locked --test compare scenarios -- --nocapture
 
   deny:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository

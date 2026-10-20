@@ -1,0 +1,25 @@
+# Page down near the end, and page up near the start, of a file a little longer than the screen.
+args: long.txt
+size: 40x10
+file long.txt:
+| line 1
+| line 2
+| line 3
+| line 4
+| line 5
+| line 6
+| line 7
+| line 8
+| line 9
+| line 10
+| line 11
+| line 12
+| line 13
+keys: {Down*2}
+keys: {PgDn}
+keys: {PgDn}
+keys: {PgDn}
+keys: {PgUp}
+keys: {PgUp}
+keys: {PgUp}
+keys: {^X}

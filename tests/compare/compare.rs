@@ -53,20 +53,41 @@ pub fn run(
     }
 
     let mut what = "at the start".to_string();
-    compare_screens(&mut terms, scenario, &what)?;
+    let mut differ = &scenario.differ;
+    compare_screens(&mut terms, differ, &what)?;
     if let Some(log) = show.as_deref_mut() {
         log_screen(log, &what, terms[0].screen());
     }
     for step in &scenario.steps {
         what = format!("after line {}, {}", step.line, step.text);
-        for term in &mut terms {
+        differ = &step.differ;
+        // What a rewrite replaces is compared first, so that it cannot hide what was saved.
+        if let Action::Write { .. } = step.action {
+            let mut files = NAMES.map(|name| list_files(&dir.join(name).join("work")));
+            drop_editor_locks(&mut files);
+            if let Some(r) = diff_files(&files[0], &files[1]) {
+                return Err(format!(
+                    "files differ before line {}, {}\n{r}",
+                    step.line, step.text
+                ));
+            }
+        }
+        for (name, term) in NAMES.iter().zip(&mut terms) {
             match &step.action {
                 Action::Keys(bytes) => term.send(bytes),
                 Action::Resize { cols, rows } => term.resize(*cols, *rows),
+                Action::Write { name: file, bytes } => {
+                    fs::write(dir.join(name).join("work").join(file), bytes)
+                }
+                // Both editors wait together, below.
+                Action::Pause(_) => Ok(()),
             }
             .map_err(io_err)?;
         }
-        compare_screens(&mut terms, scenario, &what)?;
+        if let Action::Pause(ms) = step.action {
+            std::thread::sleep(Duration::from_millis(ms));
+        }
+        compare_screens(&mut terms, differ, &what)?;
         if let Some(log) = show.as_deref_mut() {
             log_screen(log, &what, terms[0].screen());
         }
@@ -87,7 +108,7 @@ pub fn run(
             nano.join(" ")
         ));
     }
-    if let Some(report) = diff_screens(&terms, scenario) {
+    if let Some(report) = diff_screens(&terms, differ) {
         return Err(format!("screens differ {end}\n{report}"));
     }
     if exits[0] != exits[1] {
@@ -97,7 +118,11 @@ pub fn run(
             exit_text(&exits[1])
         ));
     }
-    let files = NAMES.map(|name| list_files(&dir.join(name).join("work")));
+    let mut files = NAMES.map(|name| list_files(&dir.join(name).join("work")));
+    // Killed while running, the editor leaves its lock file, as a killed nano -G would.
+    if exits[1] == Exit::Running {
+        drop_editor_locks(&mut files);
+    }
     if let Some(log) = show {
         log_screen(log, end, terms[0].screen());
         let _ = writeln!(log, "nano {}; its files:", exit_text(&exits[0]));
@@ -130,13 +155,13 @@ fn exit_text(exit: &Exit) -> String {
 }
 
 /// Compares after a short pause and, if the screens differ, again after a long one.
-fn compare_screens(terms: &mut [Term], scenario: &Scenario, what: &str) -> Result<(), String> {
+fn compare_screens(terms: &mut [Term], differ: &[Region], what: &str) -> Result<(), String> {
     for quiet in [QUIET, QUIET_SURE] {
         for (name, term) in NAMES.iter().zip(terms.iter_mut()) {
             term.settle(quiet)
                 .map_err(|e| format!("{name}, {what}: {e}"))?;
         }
-        let Some(report) = diff_screens(terms, scenario) else {
+        let Some(report) = diff_screens(terms, differ) else {
             return Ok(());
         };
         if quiet == QUIET_SURE {
@@ -153,7 +178,7 @@ fn compare_screens(terms: &mut [Term], scenario: &Scenario, what: &str) -> Resul
 }
 
 /// One screen cell: its text and its look.
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 struct Cell {
     text: String,
     style: String,
@@ -208,6 +233,58 @@ fn mask_title(nano: &mut [Vec<Cell>], editor: &mut [Vec<Cell>]) {
     }
 }
 
+/// nano's welcome message (shown when it starts without a file) names nano; the editor's leaves
+/// the name out. The two are masked against each other only in the status bar (the third row from
+/// the bottom, or the last with `-x`), and only when each shows its whole message in brackets,
+/// centred the way nano centres messages, or, when that does not fit, the message from the left
+/// edge cut at the right edge; all of a message's cells must have the look of nano's message,
+/// and the rest of the row must be blank and plain. Then both rows read as `*`.
+fn mask_welcome(nano: &mut [Vec<Cell>], editor: &mut [Vec<Cell>]) {
+    const NANO: &str = "Welcome to nano.  For basic help, type Ctrl+G.";
+    const EDITOR: &str = "For basic help, type Ctrl+G.";
+    let rows = nano.len().min(editor.len());
+    for r in [rows.wrapping_sub(3), rows.wrapping_sub(1)] {
+        if r >= rows {
+            continue;
+        }
+        let Some(look) = shown(&nano[r], NANO, None) else {
+            continue;
+        };
+        if shown(&editor[r], EDITOR, Some(&look)).is_some() {
+            for cell in nano[r].iter_mut().chain(editor[r].iter_mut()) {
+                cell.text = "*".into();
+                cell.style = "masked".into();
+            }
+        }
+    }
+}
+
+/// Whether `row` shows `message` as a message, with the look `look` if given; its look if so.
+fn shown(row: &[Cell], message: &str, look: Option<&str>) -> Option<String> {
+    let width = row.len();
+    let bracketed = format!("[ {message} ]");
+    let len = bracketed.chars().count();
+    let (start, text) = if len <= width {
+        ((width - len) / 2, bracketed)
+    } else {
+        (0, message.chars().take(width).collect())
+    };
+    let end = start + text.chars().count();
+    let look = look.map_or_else(
+        || row.get(start).map(|c| c.style.clone()),
+        |l| Some(l.into()),
+    )?;
+    let matches = row.iter().enumerate().all(|(i, cell)| {
+        if (start..end).contains(&i) {
+            cell.style == look
+        } else {
+            cell.text == " " && cell.style == "plain"
+        }
+    });
+    let row_text: String = row[start..end].iter().map(|c| c.text.as_str()).collect();
+    (matches && row_text == text).then_some(look)
+}
+
 fn style(cell: &vt100::Cell) -> String {
     let mut parts = Vec::new();
     for (on, name) in [
@@ -245,10 +322,11 @@ fn cursor(screen: &vt100::Screen) -> String {
 }
 
 /// The differences between the two screens, as a readable report; None if they match.
-fn diff_screens(terms: &[Term], scenario: &Scenario) -> Option<String> {
+fn diff_screens(terms: &[Term], differ: &[Region]) -> Option<String> {
     let screens = [terms[0].screen(), terms[1].screen()];
     let [mut a, mut b] = screens.map(cells);
     mask_title(&mut a, &mut b);
+    mask_welcome(&mut a, &mut b);
     let mut report = String::new();
     if a.len() != b.len() || a[0].len() != b[0].len() {
         let size = |c: &Vec<Vec<Cell>>| format!("{}x{}", c[0].len(), c.len());
@@ -256,10 +334,7 @@ fn diff_screens(terms: &[Term], scenario: &Scenario) -> Option<String> {
     }
     let ignored = |row: usize, col: usize| {
         let (row, col) = (row as u16, col as u16);
-        scenario
-            .differ
-            .iter()
-            .any(|r: &Region| r.contains(row, col))
+        differ.iter().any(|r: &Region| r.contains(row, col))
     };
     // Whether a cell's text differs (or its look, with `look`).
     let differs = |row: usize, col: usize, look: bool| {
@@ -370,6 +445,17 @@ fn list_files(dir: &Path) -> BTreeMap<String, Entry> {
     out
 }
 
+/// The editor always locks its file (nano only with -G): while it runs, or when it was killed,
+/// its lock files (`.NAME.swp`) that nano does not have are not compared.
+fn drop_editor_locks(files: &mut [BTreeMap<String, Entry>; 2]) {
+    let lock = |name: &str| {
+        let base = name.rsplit('/').next().unwrap_or(name);
+        base.starts_with('.') && base.ends_with(".swp")
+    };
+    let [nano, editor] = files;
+    editor.retain(|name, _| !lock(name) || nano.contains_key(name));
+}
+
 fn diff_files(a: &BTreeMap<String, Entry>, b: &BTreeMap<String, Entry>) -> Option<String> {
     let mut report = String::new();
     for name in a.keys().chain(b.keys().filter(|k| !a.contains_key(*k))) {
@@ -418,7 +504,7 @@ fn diff_files(a: &BTreeMap<String, Entry>, b: &BTreeMap<String, Entry>) -> Optio
 
 #[cfg(test)]
 mod tests {
-    use super::{Cell, mask_title};
+    use super::{Cell, mask_title, mask_welcome};
 
     fn screen(row0: &str) -> Vec<Vec<Cell>> {
         let cell = |c: char| Cell {
@@ -459,5 +545,48 @@ mod tests {
         let (a, b) = masked("  GNU nano 8.4   abc.txt", "  GNU nano 8.4   xyz.txt");
         assert!(a.trim_end().ends_with("abc.txt"), "{a}");
         assert!(b.trim_end().ends_with("xyz.txt"), "{b}");
+    }
+
+    /// A screen of three rows, the first two blank and plain, the status bar centred in 60
+    /// columns, inverse.
+    fn status(message: &str, centred: bool) -> Vec<Vec<Cell>> {
+        let blank = || Cell {
+            text: " ".into(),
+            style: "plain".into(),
+        };
+        let mut row = vec![blank(); 60];
+        let len = message.chars().count();
+        let start = if centred { (60 - len) / 2 } else { 0 };
+        for (i, c) in message.chars().enumerate() {
+            row[start + i] = Cell {
+                text: c.to_string(),
+                style: "inverse".into(),
+            };
+        }
+        vec![vec![blank(); 60], vec![blank(); 60], row]
+    }
+
+    fn masked_welcome(nano: Vec<Vec<Cell>>, editor: Vec<Vec<Cell>>) -> bool {
+        let (mut a, mut b) = (nano, editor);
+        mask_welcome(&mut a, &mut b);
+        a[2].iter().chain(&b[2]).all(|c| c.text == "*")
+    }
+
+    #[test]
+    fn only_the_two_welcome_messages_are_masked() {
+        let nano = || status("[ Welcome to nano.  For basic help, type Ctrl+G. ]", true);
+        let ours = "[ For basic help, type Ctrl+G. ]";
+        assert!(masked_welcome(nano(), status(ours, true)));
+        // Not centred, another look, another text, another row: compared as usual.
+        assert!(!masked_welcome(nano(), status(ours, false)));
+        let mut plain = status(ours, true);
+        for c in &mut plain[2] {
+            c.style = "plain".into();
+        }
+        assert!(!masked_welcome(nano(), plain));
+        assert!(!masked_welcome(nano(), status("[ Something else ]", true)));
+        let mut moved = status(ours, true);
+        moved.swap(1, 2);
+        assert!(!masked_welcome(nano(), moved));
     }
 }

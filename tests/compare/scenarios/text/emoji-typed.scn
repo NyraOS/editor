@@ -1,0 +1,11 @@
+# Emoji typed into a line, moved over and deleted.
+args: e.txt
+file e.txt:
+| ab
+keys: {Right}🙂🚀
+keys: {Left}
+keys: {Left}
+keys: {Del}
+keys: {End}🎉
+keys: {^O}{Enter}
+keys: {^X}

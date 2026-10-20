@@ -1,0 +1,7 @@
+# A line number past the end puts the cursor on the last line.
+args: +99 lines.txt
+file lines.txt:
+| first
+| second
+keys: {^C}
+keys: {^X}

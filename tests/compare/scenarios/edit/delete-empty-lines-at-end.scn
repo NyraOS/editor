@@ -1,0 +1,12 @@
+# Delete and Backspace on empty lines at the end of the text remove them, down to the last one.
+args: --linenumbers e.txt
+file e.txt:
+| text
+|
+|
+keys: {Down}
+keys: {Del}
+keys: {Down}{Bsp}
+keys: {Bsp}
+keys: {^O}{Enter}
+keys: {^X}

@@ -1,0 +1,16 @@
+# -x hides the help lines: the text gets two more rows and the status bar is the last row.
+args: -x long.txt
+size: 40x8
+file long.txt:
+| 1
+| 2
+| 3
+| 4
+| 5
+| 6
+| 7
+| 8
+| 9
+keys: {Down*6}
+keys: {^C}
+keys: {^X}

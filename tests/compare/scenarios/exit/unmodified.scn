@@ -1,0 +1,6 @@
+# ^X on an unchanged file exits at once.
+args: u.txt
+file u.txt:
+| text
+keys: {Right*2}
+keys: {^X}

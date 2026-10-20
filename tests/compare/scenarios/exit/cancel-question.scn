@@ -1,0 +1,10 @@
+# ^X on a changed file, then ^C: the question is cancelled and editing goes on.
+args: c.txt
+file c.txt:
+| text
+keys: x
+keys: {^X}
+keys: {^C}
+keys: y
+keys: {^X}
+keys: n

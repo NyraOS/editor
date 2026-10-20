@@ -1,0 +1,11 @@
+# Writing a new buffer under the name of a file that exists asks first; No goes back to the
+# name, Yes writes over the file.
+file other.txt:
+| other
+keys: new text
+keys: {^O}
+keys: other.txt{Enter}
+keys: n
+keys: {Enter}
+keys: y
+keys: {^X}

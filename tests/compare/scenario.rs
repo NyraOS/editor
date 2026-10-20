@@ -14,7 +14,11 @@ pub struct Scenario {
     pub rows: u16,
     pub files: Vec<(String, Vec<u8>)>,
     pub steps: Vec<Step>,
+    /// The deliberate differences at the start, before the first step.
     pub differ: Vec<Region>,
+    /// Why the editor does not pass this scenario yet: it is skipped when the editor under test
+    /// is not GNU nano itself.
+    pub pending: Option<String>,
 }
 
 #[derive(Debug)]
@@ -23,16 +27,28 @@ pub struct Step {
     pub line: usize,
     pub text: String,
     pub action: Action,
+    /// The deliberate differences after this step.
+    pub differ: Vec<Region>,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Action {
     Keys(Vec<u8>),
-    Resize { cols: u16, rows: u16 },
+    Resize {
+        cols: u16,
+        rows: u16,
+    },
+    /// A file (re)written in the working directories while the editors run.
+    Write {
+        name: String,
+        bytes: Vec<u8>,
+    },
+    /// A wait of this many milliseconds, for something the editors show for a while.
+    Pause(u64),
 }
 
 /// Screen cells that may differ: a deliberate difference from GNU nano.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Region {
     pub rows: RangeInclusive<u16>,
     pub cols: RangeInclusive<u16>,
@@ -53,8 +69,11 @@ pub fn parse(text: &str) -> Result<Scenario, String> {
         files: Vec::new(),
         steps: Vec::new(),
         differ: Vec::new(),
+        pending: None,
     };
     let (mut seen_args, mut seen_size) = (false, false);
+    // The deliberate differences from here on.
+    let mut differ = Vec::new();
     // Whether the last file can still take content lines.
     let mut in_file = false;
     for (i, line) in text.lines().enumerate() {
@@ -66,8 +85,16 @@ pub fn parse(text: &str) -> Result<Scenario, String> {
                 None if line == "|" => "",
                 None => return Err(err("a content line starts with \"| \"".into())),
             };
-            let Some((_, bytes)) = s.files.last_mut().filter(|_| in_file) else {
-                return Err(err("a content line outside a file block".into()));
+            let bytes = match s.steps.last_mut() {
+                Some(Step {
+                    action: Action::Write { bytes, .. },
+                    ..
+                }) if in_file => bytes,
+                Some(_) => None.ok_or_else(|| err("a content line outside a file block".into()))?,
+                None => match s.files.last_mut().filter(|_| in_file) {
+                    Some((_, bytes)) => bytes,
+                    None => return Err(err("a content line outside a file block".into())),
+                },
             };
             // An odd number of backslashes at the end: the last one drops the newline.
             let trailing = content.len() - content.trim_end_matches('\\').len();
@@ -99,7 +126,11 @@ pub fn parse(text: &str) -> Result<Scenario, String> {
                 seen_size = true;
                 (s.cols, s.rows) = size(value).map_err(err)?;
             }
-            "differ" => s.differ.push(region(value).map_err(err)?),
+            "differ" if value == "none" => differ.clear(),
+            "differ" => differ.push(region(value).map_err(err)?),
+            "pending" if s.pending.is_none() && !value.is_empty() => {
+                s.pending = Some(value.into());
+            }
             "keys" => {
                 let bytes = keys(value).map_err(err)?;
                 if bytes.is_empty() || bytes.len() > MAX_STEP_BYTES {
@@ -109,6 +140,22 @@ pub fn parse(text: &str) -> Result<Scenario, String> {
                     line: n,
                     text: line.into(),
                     action: Action::Keys(bytes),
+                    differ: differ.clone(),
+                });
+            }
+            "pause" => {
+                let ms = value
+                    .parse()
+                    .ok()
+                    .filter(|ms| (1..=10_000).contains(ms))
+                    .ok_or_else(|| {
+                        err(format!("expected 1 to 10000 milliseconds, got {value:?}"))
+                    })?;
+                s.steps.push(Step {
+                    line: n,
+                    text: line.into(),
+                    action: Action::Pause(ms),
+                    differ: differ.clone(),
                 });
             }
             "resize" => {
@@ -117,6 +164,7 @@ pub fn parse(text: &str) -> Result<Scenario, String> {
                     line: n,
                     text: line.into(),
                     action: Action::Resize { cols, rows },
+                    differ: differ.clone(),
                 });
             }
             _ => match key.strip_prefix("file ") {
@@ -127,17 +175,40 @@ pub fn parse(text: &str) -> Result<Scenario, String> {
                         || name
                             .split('/')
                             .any(|p| p.is_empty() || p == "." || p == "..");
-                    if bad || s.files.iter().any(|(f, _)| f == name) {
+                    let repeated = s.steps.is_empty() && s.files.iter().any(|(f, _)| f == name);
+                    if bad || repeated {
                         return Err(err(format!("bad or repeated file name {name:?}")));
                     }
-                    s.files.push((name.into(), Vec::new()));
+                    if s.steps.is_empty() {
+                        s.files.push((name.into(), Vec::new()));
+                    } else {
+                        s.steps.push(Step {
+                            line: n,
+                            text: line.into(),
+                            action: Action::Write {
+                                name: name.into(),
+                                bytes: Vec::new(),
+                            },
+                            differ: differ.clone(),
+                        });
+                    }
                     in_file = true;
                 }
                 _ => return Err(err(format!("unknown or repeated {key:?}"))),
             },
         }
     }
-    if s.steps.is_empty() {
+    // The differences declared before the first step apply at the start too.
+    s.differ = s
+        .steps
+        .first()
+        .map(|st| st.differ.clone())
+        .unwrap_or_default();
+    if !s
+        .steps
+        .iter()
+        .any(|st| matches!(st.action, Action::Keys(_)))
+    {
         return Err("no steps: add at least one \"keys:\" line".into());
     }
     Ok(s)

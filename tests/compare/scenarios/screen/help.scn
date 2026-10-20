@@ -1,5 +1,7 @@
 # Open the help screen with ^G, scroll it and close it.
+differ: rows 0-20: the help text is the editor's own (nano's is GPL and describes nano)
 keys: {^G}
 keys: {PgDn}
+differ: none
 keys: {^X}
 keys: {^X}
