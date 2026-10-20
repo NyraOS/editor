@@ -62,7 +62,13 @@ fn editor(nano: &[String]) -> Vec<String> {
 fn nano_sysconfdir(nano: &str) -> Result<PathBuf, String> {
     let dir = match std::env::var_os("NANO_SYSCONFDIR") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-        _ if nano.contains('/') => Path::new(nano).join("../../etc"),
+        _ if nano.contains('/') => {
+            // `<prefix>/bin/nano` -> `<prefix>/etc`
+            let prefix = Path::new(nano).parent().and_then(Path::parent);
+            prefix
+                .ok_or("NANO has no bin directory to go up from")?
+                .join("etc")
+        }
         _ => return Err("set NANO to a nano from tools/build-nano.sh or NANO_SYSCONFDIR".into()),
     };
     let dir = fs::canonicalize(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -182,15 +188,28 @@ fn scenarios() {
 
     // As root, nano ignores $HOME (it takes the home from the password database), so the
     // scenarios with nanorc files cannot be run in a directory of their own.
-    let sysconfdir = if rustix::process::geteuid().is_root() {
+    let root = rustix::process::geteuid().is_root();
+    let sysconfdir = if root {
         Err("running as root, where nano ignores $HOME".to_string())
     } else {
         nano_sysconfdir(&nano[0])
     };
+    // With $NANO set (as in CI) the nanorc scenarios must run, so a missing sysconfdir is a failure.
+    if let (Err(why), Some(_), false) = (&sysconfdir, std::env::var_os("NANO"), root) {
+        panic!("NANO is set, but its system nanorc cannot be used: {why}");
+    }
     if let Err(why) = &sysconfdir {
         eprintln!("skipped: the scenarios with nanorc files ({why}); see tests/compare/README.md");
     }
     let sysconfdir = sysconfdir.ok();
+    let with_rc_files = list
+        .iter()
+        .filter(|(_, path)| {
+            let text = fs::read_to_string(path).unwrap_or_default();
+            scenario::parse(&text).is_ok_and(|s| !s.home_files.is_empty())
+        })
+        .count();
+    println!("{with_rc_files} of those scenarios have nanorc files");
 
     // Pending scenarios run only with GNU nano as the editor, which checks them.
     let skip_pending = editor != nano;

@@ -80,7 +80,7 @@ jobs:
       # editor against GNU nano, in every scenario that has no `pending:` line.
       - name: Scenarios and harness, on GNU nano
         run: NANO="$HOME/nano-8.4/bin/nano" cargo test --locked --test compare -- --nocapture
-      - run: cargo build --locked
+      - run: cargo build --locked --features test-sysconfdir
       - name: The editor against GNU nano
         run: >-
           NANO="$HOME/nano-8.4/bin/nano" COMPARE_EDITOR=target/debug/nyra-editor

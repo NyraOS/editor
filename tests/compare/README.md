@@ -8,7 +8,7 @@ match (text, colours and attributes, cursor), and at the end the **exit status**
 left in the working directory (names, contents, permissions) must match.
 
 By default the editor under test is GNU nano itself, which checks the scenarios and the harness.
-`COMPARE_EDITOR=target/debug/nyra-editor` (after `cargo build`) compares the editor. CI does both,
+`COMPARE_EDITOR=target/debug/nyra-editor` (after `cargo build --features test-sysconfdir`) compares the editor. CI does both,
 in this order.
 
 ## Running
@@ -38,18 +38,20 @@ NANO=~/nano-8.4/bin/nano cargo test --test compare -- --nocapture
 
 `tools/build-nano.sh` builds nano with its system nanorc at `PREFIX/etc/nanorc`, empty. The tests
 point the editor under test there with `NYRA_EDITOR_SYSCONFDIR`, which replaces its system files
-(`/usr/share/nyra-editor/nanorc` and `/etc/nanorc`). The editor ignores that variable for root and
+(`/usr/share/nyra-editor/nanorc` and `/etc/nanorc`). Only a build with the `test-sysconfdir`
+feature reads that variable; release builds never do. The editor ignores that variable for root and
 when its real and effective users differ, so an inherited environment (`sudo`, `su -m`) cannot
 choose the administrator's settings of a privileged editor. With a nano from a package, whose
-`/etc/nanorc` cannot be replaced, the scenarios with nanorc files are skipped, unless
-`NANO_SYSCONFDIR=/etc` says to use the host's file (which must then have no settings, only
+`/etc/nanorc` cannot be replaced, the scenarios with nanorc files are skipped (they fail when `NANO` is set),
+unless `NANO_SYSCONFDIR=/etc` says to use the host's file (which must then have no settings, only
 comments, as the stock one).
 
 As root, those scenarios are skipped too: nano takes root's home from the password database, so
 the test directory is not its `HOME`. Run the tests as a normal user.
 
 CI does the same on every push (the `compare` job), with the build cached, and fails if `$NANO` is
-not 8.4.
+not 8.4 or if, with `$NANO` set, its system nanorc cannot be used (the nanorc scenarios are never
+skipped there; the log says how many there are).
 
 ## The scenario format
 

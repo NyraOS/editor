@@ -9,7 +9,9 @@
 //! `/etc/passwd` is looked at.
 //!
 //! For the tests only, `NYRA_EDITOR_SYSCONFDIR=DIR` replaces the two system files by
-//! `DIR/nanorc`, so that the host's files cannot change a result. It is ignored for root and when
+//! `DIR/nanorc`, so that the host's files cannot change a result. Only builds with the
+//! `test-sysconfdir` feature (or unit tests) read it: a release binary always reads the real system
+//! files. Even then it is ignored for root and when
 //! the real and effective user differ: an environment that can be inherited (`sudo`, `su -m`) must
 //! not choose the administrator's settings of a privileged editor.
 //!
@@ -35,6 +37,7 @@ use std::path::{Path, PathBuf};
 
 const SYSTEM_FILES: [&str; 2] = ["/usr/share/nyra-editor/nanorc", "/etc/nanorc"];
 /// Only for the tests, see the top of this file.
+#[cfg(any(test, feature = "test-sysconfdir"))]
 const SYSCONFDIR_VARIABLE: &str = "NYRA_EDITOR_SYSCONFDIR";
 const MAX_FILE: u64 = 1 << 20;
 const MAX_MESSAGES: usize = 50;
@@ -145,13 +148,14 @@ pub fn load(options: Options) -> (Options, Option<String>) {
 /// The system files in the order they are read.
 fn system_files() -> Vec<PathBuf> {
     let user = rustix::process::getuid();
-    let dir = std::env::var_os(SYSCONFDIR_VARIABLE).filter(|v| !v.is_empty());
-    match dir {
-        Some(dir) if !user.is_root() && user == rustix::process::geteuid() => {
-            vec![Path::new(&dir).join("nanorc")]
+    #[cfg(any(test, feature = "test-sysconfdir"))]
+    if let Some(dir) = std::env::var_os(SYSCONFDIR_VARIABLE).filter(|v| !v.is_empty()) {
+        if !user.is_root() && user == rustix::process::geteuid() {
+            return vec![Path::new(&dir).join("nanorc")];
         }
-        _ => SYSTEM_FILES.iter().map(PathBuf::from).collect(),
     }
+    let _ = user;
+    SYSTEM_FILES.iter().map(PathBuf::from).collect()
 }
 
 /// `$HOME`, or when it is not set, or for root, the home directory of the effective user.

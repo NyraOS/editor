@@ -1988,7 +1988,7 @@ mod tests {
             ed.buf = Buffer::new("one two\nx", Format::Unix);
             let mut at = Vec::new();
             for _ in 0..3 {
-                typed(&mut ed, &[ctrl_right.clone()]);
+                typed(&mut ed, std::slice::from_ref(&ctrl_right));
                 at.push(ed.buf.pos());
             }
             assert_eq!(at, stops, "afterends {afterends}");
