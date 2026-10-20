@@ -1589,12 +1589,55 @@ fn control_characters_in_a_lock_file_are_not_shown() {
     let s = Scratch::new(Who::Me);
     let path = s.path("f");
     s.file(&path, b"text", 0o644, geteuid().as_raw());
-    let mut data = nano_lock("evil\x1b]0;t\x07\x1b[2J\u{9b}x", 7, "f");
+    let mut data = nano_lock("evil\x1b]0;t\x07\x1b[2J\u{9b}x\u{202e}\u{2066}", 7, "f");
     data[2..12].copy_from_slice(b"n\x7fo\x1b[1m8.4");
     stdfs::write(s.path(".f.swp"), data).unwrap();
     let Locking::Busy(info) = lock(&path, false).unwrap() else {
         panic!("not busy");
     };
-    assert_eq!(info.user, "evil?]0;t??[2J?x");
+    assert_eq!(info.user, "evil?]0;t??[2J?x??");
     assert_eq!(info.program, "n?o?[1m8.4");
+}
+
+#[test]
+fn root_does_not_create_a_file_through_another_users_symlink() {
+    if !needs_root("root_does_not_create_a_file_through_another_users_symlink") {
+        return;
+    }
+    // A user's ~/.ssh/authorized_keys, a symlink to a file that does not exist yet.
+    let s = Scratch::new(Who::Me);
+    let ssh = s.base.join("ssh");
+    s.mkdir(&ssh, 0o700, USER);
+    let elsewhere = s.base.join("elsewhere");
+    s.mkdir(&elsewhere, 0o755, 0);
+    let link = ssh.join("authorized_keys");
+    std::os::unix::fs::symlink(elsewhere.join("keys"), &link).unwrap();
+    own(&link, USER);
+    let result = s.run("save", Some(&link), &new(), "");
+    assert_eq!(
+        result,
+        "error: Refusing to create a file through another user's symlink"
+    );
+    assert_eq!(names(&elsewhere), Vec::<String>::new());
+    // Through a chain that starts with root's own symlink, too.
+    let chain = s.path("chain");
+    std::os::unix::fs::symlink(&link, &chain).unwrap();
+    let result = s.run("save", Some(&chain), &new(), "");
+    assert!(result.starts_with("error: Refusing"), "{result}");
+    // An existing file through it is saved, as by nano.
+    s.file(&elsewhere.join("keys"), &old(), 0o600, USER);
+    assert_eq!(s.run("save", Some(&link), &new(), ""), "replaced");
+    assert_eq!(read(&elsewhere.join("keys")), new());
+    // Root's own dangling symlink creates the file.
+    let mine = s.path("mine");
+    std::os::unix::fs::symlink(elsewhere.join("created"), &mine).unwrap();
+    assert_eq!(s.run("save", Some(&mine), &new(), ""), "replaced");
+    assert_eq!(read(&elsewhere.join("created")), new());
+    // A user's own dangling symlink still works for that user.
+    let s = Scratch::new(Who::User);
+    let link = s.path("link");
+    std::os::unix::fs::symlink("target", &link).unwrap();
+    own(&link, USER);
+    assert_eq!(s.run("save", Some(&link), &new(), ""), "replaced");
+    assert_eq!(read(&s.path("target")), new());
 }

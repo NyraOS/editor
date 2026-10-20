@@ -19,6 +19,9 @@
 //! the save before the file changes. In a directory where no file can be created, no copy can be
 //! made: a crash in the middle of that write can leave a mixed file (the editor still has the
 //! text). A symlink is followed: the file it points to is saved, and the symlink stays a symlink.
+//! Unlike nano, root does not create a file through another user's symlink to a file that does
+//! not exist (a user's dangling `~/.ssh/authorized_keys` link would let that user choose where
+//! root's new file appears); saving over an existing file through it works as in nano.
 //!
 //! Files the editor creates (temporary files, copies, backups, emergency copies, lock files) are
 //! always new files, created with `O_EXCL | O_NOFOLLOW` in a directory opened once, so no
@@ -138,6 +141,8 @@ struct Target {
     /// The path of the directory, only to name backups in a backup directory.
     dir_path: PathBuf,
     name: OsString,
+    /// A symlink of another user was followed to get here.
+    foreign_link: bool,
 }
 
 /// Splits a path into its directory and its last component, which must be a name.
@@ -157,6 +162,7 @@ fn split(path: &Path) -> Result<(&Path, &OsStr), Errno> {
 /// symlink cannot send a save somewhere else.
 fn resolve(path: &Path) -> Result<Target, Errno> {
     let mut path = path.to_path_buf();
+    let mut foreign_link = false;
     // The kernel's limit on symlinks in one lookup.
     for _ in 0..40 {
         let (parent, name) = split(&path)?;
@@ -168,6 +174,7 @@ fn resolve(path: &Path) -> Result<Target, Errno> {
                 if sticky_and_writable && st.stx_uid != sys::euid() && st.stx_uid != d.stx_uid {
                     return Err(Errno::ACCESS);
                 }
+                foreign_link |= st.stx_uid != sys::euid();
                 let link = fs::readlinkat(&dir, name, Vec::new())?.into_bytes();
                 let link = PathBuf::from(OsString::from_vec(link));
                 path = parent.join(link);
@@ -177,6 +184,7 @@ fn resolve(path: &Path) -> Result<Target, Errno> {
                     dir,
                     dir_path: parent.to_path_buf(),
                     name: name.to_os_string(),
+                    foreign_link,
                 });
             }
             Err(e) => return Err(e),

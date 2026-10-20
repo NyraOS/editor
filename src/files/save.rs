@@ -110,6 +110,12 @@ pub fn save(
     ) {
         Ok(fd) => fd,
         Err(Errno::NOENT) => {
+            if target.foreign_link && sys::euid() == 0 {
+                return Err(SaveError::write(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "Refusing to create a file through another user's symlink",
+                )));
+            }
             return match expected {
                 Expected::Absent => save_new(&target, bytes),
                 Expected::File(_) => Err(SaveError::Changed),

@@ -201,12 +201,17 @@ fn read_existing(dir: &OwnedFd, name: &OsString) -> io::Result<Option<LockInfo>>
     if len < SIZE || !data.starts_with(b"b0") {
         return Ok(None);
     }
-    // Shown on the screen: control characters (C0, DEL, C1, such as escape sequences) become `?`.
+    // Shown on the screen: control characters (C0, DEL, C1, such as escape sequences) and the
+    // bidirectional embeddings, overrides and isolates (which reorder the text shown) become `?`.
     let text = |field: &[u8]| {
         let end = field.iter().position(|&b| b == 0).unwrap_or(field.len());
         let text = String::from_utf8_lossy(&field[..end]);
         text.chars()
-            .map(|c| if c.is_control() { '?' } else { c })
+            .map(|c| match c {
+                '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' => '?',
+                c if c.is_control() => '?',
+                c => c,
+            })
             .collect()
     };
     Ok(Some(LockInfo {
