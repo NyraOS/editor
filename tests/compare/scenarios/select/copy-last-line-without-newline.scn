@@ -1,0 +1,12 @@
+# M-6 on a last line that has no newline copies just the text and the cursor goes to its end.
+args: t.txt
+file t.txt:
+| one
+| two
+| three\
+keys: {Down*2}
+keys: {M-6}
+keys: {Home}
+keys: {^U}
+keys: {^X}
+keys: n

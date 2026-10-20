@@ -1,0 +1,14 @@
+# A selection cut through the end of the text, then saved.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+| seven eight
+keys: {Right*3}
+keys: {M-a}
+keys: {Down*2}
+keys: {End}
+keys: {^K}
+keys: {^X}
+keys: y
+keys: {Enter}

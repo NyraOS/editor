@@ -1,0 +1,10 @@
+# A selection made with Shift is cut with ^K.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {S-Right*4}
+keys: {^K}
+keys: {^X}
+keys: y
+keys: {Enter}

@@ -1,0 +1,8 @@
+# A tab in a paste is a tab, not a key.
+args: t.txt
+file t.txt:
+| one two three
+keys: {M-[}200~a{Tab}b{M-[}201~
+keys: {^X}
+keys: y
+keys: {Enter}

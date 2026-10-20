@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 //! Keys: the bytes the terminal sends, read as keys the way xterm sends them.
 
-/// A key, with its modifiers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+use crate::buffer;
+
+/// A key, with its modifiers; or a part of a bracketed paste.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Key {
     /// A typed character.
     Char(char),
@@ -15,6 +17,13 @@ pub enum Key {
     Meta(char),
     /// A named key, with Ctrl, Alt and Shift.
     Named(Named, Mods),
+    /// A bracketed paste begins: what follows, up to `PasteEnd`, is text, not keys.
+    PasteStart,
+    /// Text of a paste: printable characters, tabs and "\n" for each line break.
+    Paste(String),
+    /// The paste is over. It is flawed when something that is not text came in it: the paste
+    /// stops there, as in nano.
+    PasteEnd { flawed: bool },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,21 +73,42 @@ pub fn named(n: Named) -> Key {
 #[derive(Default)]
 pub struct Reader {
     pending: Vec<u8>,
+    /// Inside a bracketed paste, the text so far (nano holds it until the paste ends), and
+    /// whether its last byte was a CR (a LF after it is the same line break).
+    pasting: bool,
+    held: String,
+    after_cr: bool,
     /// Escape was the last key: the next one comes with Alt, as in nano.
     escape: bool,
 }
 
 impl Reader {
+    /// Whether a paste has begun and not ended: nothing of it shows until it does.
+    pub fn pasting(&self) -> bool {
+        self.pasting
+    }
+
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<Key> {
         self.pending.extend_from_slice(bytes);
         let mut keys = Vec::new();
         let mut i = 0;
         while i < self.pending.len() {
+            if self.pasting {
+                if !self.paste(&mut i, &mut keys) {
+                    break;
+                }
+                continue;
+            }
             let Some((key, len)) = parse(&self.pending[i..]) else {
                 break;
             };
             i += len;
             match key {
+                Some(Key::PasteStart) => {
+                    self.escape = false;
+                    self.pasting = true;
+                    self.after_cr = false;
+                }
                 None => self.escape = true,
                 Some(key) if self.escape => {
                     self.escape = false;
@@ -90,7 +120,75 @@ impl Reader {
         self.pending.drain(..i);
         keys
     }
+
+    /// Reads the text of a paste from `pending[*i..]` as far as it goes. Returns false when the
+    /// rest is only the start of something and needs more bytes.
+    fn paste(&mut self, i: &mut usize, keys: &mut Vec<Key>) -> bool {
+        let mut end = None;
+        let mut complete = true;
+        while *i < self.pending.len() {
+            let b = &self.pending[*i..];
+            if b.starts_with(PASTE_END) {
+                *i += PASTE_END.len();
+                end = Some(false);
+                break;
+            }
+            if PASTE_END.starts_with(b) {
+                complete = false;
+                break;
+            }
+            match b[0] {
+                b'\r' | b'\n' => {
+                    if !(b[0] == b'\n' && self.after_cr) {
+                        self.held.push('\n');
+                    }
+                    self.after_cr = b[0] == b'\r';
+                    *i += 1;
+                    continue;
+                }
+                b'\t' | 0x20..=0x7e => {
+                    self.held.push(char::from(b[0]));
+                    *i += 1;
+                }
+                0x80.. => match parse_utf8(b) {
+                    Some((Some(Key::Char(c)), len)) => {
+                        self.held.push(c);
+                        *i += len;
+                    }
+                    Some((_, len)) => {
+                        self.held.push_str(&buffer::raw(b[0]));
+                        *i += len;
+                    }
+                    None => {
+                        complete = false;
+                        break;
+                    }
+                },
+                // A control character or an escape sequence: the paste stops, and the input
+                // that came with it is dropped.
+                _ => {
+                    self.pending.clear();
+                    *i = 0;
+                    end = Some(true);
+                    break;
+                }
+            }
+            self.after_cr = false;
+        }
+        if let Some(flawed) = end {
+            self.pasting = false;
+            keys.push(Key::PasteStart);
+            if !self.held.is_empty() {
+                keys.push(Key::Paste(std::mem::take(&mut self.held)));
+            }
+            keys.push(Key::PasteEnd { flawed });
+        }
+        complete
+    }
 }
+
+/// What ends a bracketed paste.
+const PASTE_END: &[u8] = b"\x1b[201~";
 
 fn with_alt(key: Key) -> Key {
     match key {
@@ -189,6 +287,7 @@ fn parse_csi(b: &[u8]) -> Option<(Option<Key>, usize)> {
         (b'H', _) | (b'~', 1 | 7) => Named::Home,
         (b'F', _) | (b'~', 4 | 8) => Named::End,
         (b'Z', _) => Named::BackTab,
+        (b'~', 200) => return Some((Some(Key::PasteStart), end + 1)),
         (b'~', 2) => Named::Insert,
         (b'~', 3) => Named::Delete,
         (b'~', 5) => Named::PageUp,
@@ -268,5 +367,35 @@ mod tests {
             )]
         );
         assert_eq!(r.feed(b"\xff"), [Key::Byte(0xff)]);
+    }
+
+    #[test]
+    fn paste_is_held_until_it_ends() {
+        let mut r = Reader::default();
+        assert_eq!(r.feed(b"\x1b[200~ab\r\nc\td"), []);
+        assert!(r.pasting());
+        assert_eq!(r.feed(b"\x1b[20"), []);
+        assert_eq!(
+            r.feed(b"1~x"),
+            [
+                Key::PasteStart,
+                Key::Paste("ab\nc\td".into()),
+                Key::PasteEnd { flawed: false },
+                Key::Char('x'),
+            ]
+        );
+        assert!(!r.pasting());
+    }
+
+    #[test]
+    fn a_control_key_makes_the_paste_flawed() {
+        assert_eq!(
+            keys(b"\x1b[200~ab\x0bcd\x1b[201~z"),
+            [
+                Key::PasteStart,
+                Key::Paste("ab".into()),
+                Key::PasteEnd { flawed: true },
+            ]
+        );
     }
 }

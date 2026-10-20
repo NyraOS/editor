@@ -1,0 +1,9 @@
+# Ctrl and Shift with Left and Right select by words.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {^S-Right*2}
+keys: {^S-Left}
+keys: {^X}
+keys: n

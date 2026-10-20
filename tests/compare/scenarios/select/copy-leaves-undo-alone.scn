@@ -1,0 +1,11 @@
+# A copy is not a step of undo: the next undo takes back the typing before it.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {Right}
+keys: x
+keys: {M-6}
+keys: {M-u}
+keys: {^X}
+keys: n

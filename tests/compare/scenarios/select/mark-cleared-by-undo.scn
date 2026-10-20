@@ -1,0 +1,12 @@
+# A successful undo takes the mark away.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: x
+keys: {M-a}
+keys: {Right*2}
+keys: {M-u}
+keys: {Right}
+keys: {^X}
+keys: n

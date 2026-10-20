@@ -65,7 +65,7 @@ fn run(opts: config::Options) -> io::Result<()> {
     // Restore the terminal if the editor panics, so the shell stays usable.
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = io::Write::write_all(&mut io::stdout(), b"\x1b[0m\x1b[?25h\x1b[?1049l");
+        let _ = io::Write::write_all(&mut io::stdout(), b"\x1b[0m\x1b[?25h\x1b[?2004l\x1b[?1049l");
         hook(info);
     }));
     let result = edit(&mut ed, &mut term, &winch, &stop);
@@ -108,7 +108,11 @@ fn edit(
             }
             continue;
         }
-        term.draw(&screen::compose(ed))?;
+        let mut frame = screen::compose(ed);
+        if reader.pasting() {
+            frame.cursor = None;
+        }
+        term.draw(&frame)?;
         let stdin = io::stdin();
         let mut fds = [
             PollFd::new(&stdin, PollFlags::IN),

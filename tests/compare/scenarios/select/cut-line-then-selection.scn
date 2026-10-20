@@ -1,0 +1,13 @@
+# A selection cut after a line cut does not add to the line.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+| seven eight
+keys: {^K}
+keys: {M-a}
+keys: {Right*3}
+keys: {^K}
+keys: {^U}
+keys: {^X}
+keys: n

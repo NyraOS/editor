@@ -1,0 +1,10 @@
+# Ctrl-^ sets and unsets the mark like M-A.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {^^}
+keys: {Right*5}
+keys: {^^}
+keys: {^X}
+keys: n

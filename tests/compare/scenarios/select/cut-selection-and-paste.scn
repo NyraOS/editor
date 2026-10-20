@@ -1,0 +1,13 @@
+# ^K cuts the selection and ^U puts it back in another place.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {M-a}
+keys: {Right*4}
+keys: {^K}
+keys: {Down}
+keys: {^U}
+keys: {^X}
+keys: y
+keys: {Enter}

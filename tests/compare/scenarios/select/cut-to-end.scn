@@ -1,0 +1,12 @@
+# M-T cuts from the cursor to the end of the text, and undo brings it back.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+| seven eight
+keys: {Down}
+keys: {Right*4}
+keys: {M-t}
+keys: {M-u}
+keys: {^X}
+keys: n

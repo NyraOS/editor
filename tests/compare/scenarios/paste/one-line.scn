@@ -1,0 +1,7 @@
+# A bracketed paste inserts the text.
+args: t.txt
+file t.txt:
+| one two three
+keys: {M-[}200~hello{M-[}201~
+keys: {^X}
+keys: n

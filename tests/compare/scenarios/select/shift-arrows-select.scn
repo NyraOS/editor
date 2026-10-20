@@ -1,0 +1,12 @@
+# Shift with the arrows selects without setting the mark by hand; M-6 copies it.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {S-Right*3}
+keys: {S-Down}
+keys: {M-6}
+keys: {End}
+keys: {^U}
+keys: {^X}
+keys: n

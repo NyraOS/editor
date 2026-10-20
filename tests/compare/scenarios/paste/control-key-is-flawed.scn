@@ -1,0 +1,8 @@
+# A control key inside a paste is not run: the paste ends there as flawed.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {M-[}200~ab{^K}cd{M-[}201~
+keys: {^X}
+keys: n

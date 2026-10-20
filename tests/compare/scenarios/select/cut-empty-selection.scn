@@ -1,0 +1,11 @@
+# With the mark on the cursor nothing is cut, the mark goes, and the cut buffer is as it was.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {^K}
+keys: {M-a}
+keys: {^K}
+keys: {^U}
+keys: {^X}
+keys: n

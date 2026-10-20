@@ -147,6 +147,15 @@ struct Edit {
     after: usize,
 }
 
+/// The mark that starts a selection, a character index. A soft one comes from selecting with
+/// Shift and goes with the next key that moves or types; a hard one (M-A) stays until it is
+/// unset.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mark {
+    pub at: usize,
+    pub soft: bool,
+}
+
 pub struct Buffer {
     pub text: Rope,
     /// The cursor: its line, and its position in the line in characters.
@@ -158,6 +167,7 @@ pub struct Buffer {
     pub top: usize,
     pub modified: bool,
     pub format: Format,
+    pub mark: Option<Mark>,
     /// The edits made, and how many of them are in effect: the rest can be redone.
     edits: Vec<Edit>,
     done: usize,
@@ -177,6 +187,7 @@ impl Buffer {
             top: 0,
             modified: false,
             format,
+            mark: None,
             edits: Vec::new(),
             done: 0,
             saved: Some(0),
@@ -206,6 +217,13 @@ impl Buffer {
         } else {
             n
         }
+    }
+
+    /// The selected text as the character indexes where it starts and ends: between the mark and
+    /// the cursor, whichever comes first.
+    pub fn selection(&self) -> Option<(usize, usize)> {
+        let (mark, pos) = (self.mark?.at, self.pos());
+        Some((mark.min(pos), mark.max(pos)))
     }
 
     /// The cursor as a character index in the whole text.
@@ -239,6 +257,9 @@ impl Buffer {
         let pos = self.pos();
         self.text.insert(pos, s);
         let end = pos + s.chars().count();
+        if let Some(m) = self.mark.as_mut().filter(|m| m.at > pos) {
+            m.at += s.chars().count();
+        }
         self.seam(end);
         let end = end + self.seam(pos);
         self.set_pos(end);
@@ -248,6 +269,13 @@ impl Buffer {
     /// Deletes the characters from `from` up to `to` (indexes in the whole text).
     pub fn remove(&mut self, from: usize, to: usize) {
         if from < to {
+            if let Some(m) = &mut self.mark {
+                m.at = if m.at >= to {
+                    m.at - (to - from)
+                } else {
+                    m.at.min(from)
+                };
+            }
             self.text.remove(from..to);
             self.seam(from);
             self.modified = true;
@@ -279,7 +307,7 @@ impl Buffer {
             .filter(|l| self.open && l.kind == kind)
         {
             let joined = match kind {
-                Kind::Add if last.after == at => {
+                Kind::Add | Kind::Paste if last.after == at => {
                     // Not at the end of `last.new` when it ends with the final newline.
                     let skip = at - last.at;
                     let i = last
@@ -351,6 +379,7 @@ impl Buffer {
         let edit = self.edits.get(self.done.checked_sub(1)?)?;
         let (kind, at, before) = (edit.kind, edit.at, edit.before);
         let (new_len, old) = (edit.new.chars().count(), edit.old.clone());
+        self.mark = None;
         self.replace(at, new_len, &old);
         self.done -= 1;
         self.finish(before);
@@ -362,6 +391,7 @@ impl Buffer {
         let edit = self.edits.get(self.done)?;
         let (kind, at, after) = (edit.kind, edit.at, edit.after);
         let (old_len, new) = (edit.old.chars().count(), edit.new.clone());
+        self.mark = None;
         self.replace(at, old_len, &new);
         self.done += 1;
         self.finish(after);
@@ -647,5 +677,29 @@ mod tests {
         assert!(b.modified);
         b.undo();
         assert!(b.modified);
+    }
+
+    #[test]
+    fn the_mark_moves_with_the_text() {
+        let mut b = Buffer::new("one two\n", Format::Unix);
+        b.mark = Some(Mark { at: 4, soft: false });
+        b.insert("xx");
+        assert_eq!(b.selection(), Some((2, 6)));
+        b.set_pos(0);
+        b.insert("yy");
+        assert_eq!(b.mark.unwrap().at, 8);
+        b.remove(0, 3);
+        assert_eq!(b.mark.unwrap().at, 5);
+    }
+
+    #[test]
+    fn undo_takes_the_mark_away() {
+        let mut b = Buffer::new("abc\n", Format::Unix);
+        let at = b.pos();
+        b.insert("x");
+        b.record(Kind::Add, at, String::new(), "x".into(), at);
+        b.mark = Some(Mark { at: 0, soft: true });
+        assert!(b.undo().is_some());
+        assert_eq!(b.mark, None);
     }
 }

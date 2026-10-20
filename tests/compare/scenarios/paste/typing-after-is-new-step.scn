@@ -1,0 +1,10 @@
+# Typing after a paste makes a new step: undo takes back the typing, then the paste.
+args: t.txt
+file t.txt:
+| one two three
+keys: {M-[}200~ab{M-[}201~
+keys: zz
+keys: {M-u}
+keys: {M-u}
+keys: {^X}
+keys: n

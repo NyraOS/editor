@@ -1,0 +1,9 @@
+# A paste that arrives in several reads is still one step of undo.
+args: t.txt
+file t.txt:
+| one two three
+keys: {M-[}200~foo
+keys: bar{M-[}201~
+keys: {M-u}
+keys: {^X}
+keys: n

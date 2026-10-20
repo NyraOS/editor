@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! The editor's state and its commands: what each key does.
 
-use crate::buffer::{self, Buffer, Format, Kind, next_index, prev_index};
+use crate::buffer::{self, Buffer, Format, Kind, Mark, next_index, prev_index};
 use crate::config::Options;
 use crate::files::{self, Expected, Locking, Meta, SaveError, SaveOptions};
 use crate::keys::{Key, Mods, Named};
@@ -98,6 +98,15 @@ pub enum PromptKind {
     Goto,
 }
 
+/// What the last key did to the cut buffer: the next cut, or copy, of a line adds to it when
+/// it is the same.
+#[derive(Clone, Copy, PartialEq)]
+enum Chain {
+    None,
+    Cut,
+    Copy,
+}
+
 pub struct Editor {
     pub buf: Buffer,
     /// The file name, empty for a new buffer.
@@ -109,9 +118,9 @@ pub struct Editor {
     pub rows: usize,
     pub mode: Mode,
     pub message: Option<Message>,
-    /// The lines cut with ^K, and whether the last key was a ^K (the next one adds to them).
+    /// The text cut or copied last, and what the last key did to it.
     cut: String,
-    cutting: bool,
+    chain: Chain,
     /// The searches so far, the oldest first, and whether case matters (kept from search to
     /// search, as in nano).
     history: Vec<String>,
@@ -294,6 +303,46 @@ const HELP_KEYS: &[(&str, &str, &str)] = &[
     ("^L", "", "Draw the screen again"),
 ];
 
+/// A cursor key with Shift selects as it moves: the key without Shift, and whether it had it.
+fn unshift(key: Key) -> (Key, bool) {
+    use Named::*;
+    match key {
+        Key::Named(n @ (Up | Down | Left | Right | Home | End | PageUp | PageDown), mods)
+            if mods.shift && !mods.alt =>
+        {
+            (
+                Key::Named(
+                    n,
+                    Mods {
+                        shift: false,
+                        ..mods
+                    },
+                ),
+                true,
+            )
+        }
+        other => (other, false),
+    }
+}
+
+/// Whether a key that is not shifted takes a soft mark away: the keys that move the cursor and
+/// the ones that put text in.
+fn ends_soft_mark(key: &Key) -> bool {
+    use Named::*;
+    matches!(
+        key,
+        Key::Char(_)
+            | Key::Byte(_)
+            | Key::Paste(_)
+            | Key::Ctrl('I' | 'M' | 'H' | 'A' | 'E' | 'P' | 'N' | 'Y' | 'V')
+            | Key::Meta('\\' | '/')
+            | Key::Named(
+                Up | Down | Left | Right | Home | End | PageUp | PageDown | Backspace,
+                _
+            )
+    )
+}
+
 fn plural(n: usize, what: &str) -> String {
     format!("{n} {what}{}", if n == 1 { "" } else { "s" })
 }
@@ -320,7 +369,7 @@ impl Editor {
             mode: Mode::Edit,
             message: None,
             cut: String::new(),
-            cutting: false,
+            chain: Chain::None,
             history: Vec::new(),
             case_sensitive: false,
             spot: None,
@@ -478,9 +527,22 @@ impl Editor {
 
     /// One key.
     pub fn key(&mut self, key: Key) {
+        // Text pasted into a question or a prompt goes in as if it were typed.
+        if let (Key::Paste(text), false) = (&key, matches!(self.mode, Mode::Edit)) {
+            for c in text.chars() {
+                match c {
+                    '\n' => {}
+                    '\t' => self.key(Key::Ctrl('I')),
+                    c => self.key(Key::Char(c)),
+                }
+            }
+            return;
+        }
         // nano counts the bytes of a typed character as keys.
-        let n = match key {
+        let n = match &key {
             Key::Char(c) => c.len_utf8() as u8,
+            Key::Paste(text) => text.len().min(usize::from(u8::MAX)) as u8,
+            Key::PasteStart | Key::PasteEnd { .. } => 0,
             _ => 1,
         };
         if let Some(m) = &mut self.message {
@@ -499,9 +561,9 @@ impl Editor {
         {
             self.spot = None;
         }
-        let cutting = std::mem::take(&mut self.cutting);
+        let chain = std::mem::replace(&mut self.chain, Chain::None);
         match &mut self.mode {
-            Mode::Edit => self.edit_key(key, cutting),
+            Mode::Edit => self.edit_key(key, chain),
             Mode::Help(_) => self.help_key(key),
             Mode::Prompt(_) => self.prompt_key(key),
             Mode::Ask(_) => self.ask_key(key),
@@ -514,13 +576,21 @@ impl Editor {
         }
     }
 
-    fn edit_key(&mut self, key: Key, cutting: bool) {
+    fn edit_key(&mut self, key: Key, chain: Chain) {
         use Named::*;
         let tab = self.opts.tabsize;
         let ctrl = Mods {
             ctrl: true,
             ..Mods::default()
         };
+        let (key, shifted) = unshift(key);
+        if shifted && self.buf.mark.is_none() {
+            let at = self.buf.pos();
+            self.buf.mark = Some(Mark { at, soft: true });
+        }
+        if !shifted && self.buf.mark.is_some_and(|m| m.soft) && ends_soft_mark(&key) {
+            self.buf.mark = None;
+        }
         match key {
             Key::Char(c) => self.type_text(&c.to_string()),
             Key::Byte(b) => self.type_text(&buffer::raw(b)),
@@ -546,7 +616,10 @@ impl Editor {
             Key::Ctrl('V') | Key::Named(PageDown, _) => self.page_down(),
             Key::Meta('\\') | Key::Named(Home, _) => self.first_line(),
             Key::Meta('/') | Key::Named(End, _) => self.last_line(),
-            Key::Ctrl('K') | Key::Named(F(9), _) => self.cut_line(cutting),
+            Key::Ctrl('K') | Key::Named(F(9), _) => self.cut(chain),
+            Key::Meta('t') => self.cut_to_end(),
+            Key::Meta('6' | '^') => self.copy(chain),
+            Key::Meta('a') | Key::Ctrl('^') => self.toggle_mark(),
             Key::Ctrl('U') | Key::Named(F(10), _) => self.paste(),
             Key::Ctrl('G') | Key::Named(F(1), _) => {
                 self.message = None;
@@ -568,6 +641,17 @@ impl Editor {
             Key::Ctrl('_') | Key::Meta('g') => self.ask_goto(String::new()),
             // The main loop draws the whole screen again.
             Key::Ctrl('L') => {}
+            Key::PasteStart => {
+                self.buf.end_group();
+                self.message = None;
+            }
+            Key::Paste(text) => self.insert_text(&text, Kind::Paste),
+            Key::PasteEnd { flawed } => {
+                self.buf.end_group();
+                if flawed {
+                    self.error("Flawed paste");
+                }
+            }
             Key::Meta('u') => self.undo(),
             Key::Meta('e') => self.redo(),
             _ => self.error("Not available in this version yet"),
@@ -791,36 +875,127 @@ impl Editor {
         }
     }
 
-    fn cut_line(&mut self, cutting: bool) {
+    /// ^K: the selection, or else the line; cutting lines in a row adds them to the cut buffer.
+    fn cut(&mut self, chain: Chain) {
+        if let Some((from, to)) = self.buf.selection() {
+            self.buf.mark = None;
+            if from == to {
+                return self.say("Nothing was cut");
+            }
+            self.cut = String::from(self.buf.text.slice(from..to));
+            self.erase_cut(from, to);
+            return;
+        }
+        let (from, to) = self.line_range();
+        if from == to {
+            return self.say("Nothing was cut");
+        }
+        if chain != Chain::Cut {
+            self.cut.clear();
+            // Only cuts with nothing pressed between them make one step, as in nano.
+            self.buf.end_group();
+        }
+        self.cut
+            .push_str(&String::from(self.buf.text.slice(from..to)));
         let b = &mut self.buf;
+        let before = b.pos();
+        b.x = 0;
+        b.erase(Kind::Cut, from, to, before);
+        b.keep_column(self.opts.tabsize);
+        self.chain = Chain::Cut;
+        self.message = None;
+    }
+
+    /// M-T: everything from the cursor to the end of the text.
+    fn cut_to_end(&mut self) {
+        let (from, to) = (self.buf.pos(), self.buf.text.len_chars());
+        if from == to {
+            return self.say("Nothing was cut");
+        }
+        self.cut = String::from(self.buf.text.slice(from..to));
+        self.erase_cut(from, to);
+    }
+
+    /// Deletes the text between `from` and `to` as one step of undo of its own, with the cursor
+    /// left at `from`.
+    fn erase_cut(&mut self, from: usize, to: usize) {
+        let b = &mut self.buf;
+        let before = b.pos();
+        b.end_group();
+        b.set_pos(from);
+        b.erase(Kind::Cut, from, to, before);
+        b.end_group();
+        b.keep_column(self.opts.tabsize);
+        self.message = None;
+    }
+
+    /// The first character of the cursor's line, and where the next line starts (the end of the
+    /// text on the last line).
+    fn line_range(&self) -> (usize, usize) {
+        let b = &self.buf;
         let from = b.text.line_to_char(b.line);
         let to = if b.line + 1 < b.lines() {
             b.text.line_to_char(b.line + 1)
         } else {
             b.text.len_chars()
         };
-        if from == to {
-            return self.say("Nothing was cut");
-        }
-        if !cutting {
+        (from, to)
+    }
+
+    /// M-6: copies the selection, or else the line and goes to the next one; copying lines in a
+    /// row adds them to the cut buffer.
+    fn copy(&mut self, chain: Chain) {
+        let mut next = Chain::Copy;
+        let (from, to) = match self.buf.selection() {
+            Some(range) => {
+                next = Chain::None;
+                self.buf.mark = None;
+                range
+            }
+            None => self.line_range(),
+        };
+        if chain != Chain::Copy || next == Chain::None {
             self.cut.clear();
-            // Only cuts with nothing pressed between them make one step, as in nano.
-            b.end_group();
         }
-        self.cut.push_str(&String::from(b.text.slice(from..to)));
-        let before = b.pos();
-        b.x = 0;
-        b.erase(Kind::Cut, from, to, before);
-        b.keep_column(self.opts.tabsize);
-        self.cutting = true;
+        if from == to {
+            return self.say("Copied nothing");
+        }
+        self.cut
+            .push_str(&String::from(self.buf.text.slice(from..to)));
+        self.chain = next;
         self.message = None;
+        let b = &mut self.buf;
+        if next == Chain::Copy {
+            if b.line + 1 < b.lines() {
+                b.line += 1;
+                b.x = 0;
+            } else {
+                b.x = b.line_len(b.line);
+            }
+            b.keep_column(self.opts.tabsize);
+        }
+    }
+
+    /// M-A: sets the mark, or takes it away.
+    fn toggle_mark(&mut self) {
+        if self.buf.mark.take().is_some() {
+            self.say("Mark Unset");
+        } else {
+            let at = self.buf.pos();
+            self.buf.mark = Some(Mark { at, soft: false });
+            self.say("Mark Set");
+        }
     }
 
     fn paste(&mut self) {
         if self.cut.is_empty() {
             return self.error("Cutbuffer is empty");
         }
+        if self.buf.mark.is_some_and(|m| m.soft) {
+            self.buf.mark = None;
+        }
         let text = self.cut.clone();
+        self.buf.end_group();
         self.insert_text(&text, Kind::Paste);
         self.message = None;
     }
@@ -1230,7 +1405,10 @@ impl Editor {
             .chars()
             .count()
             .min(self.buf.line_len(found.line) - found.x);
-        self.spot = Some((found.line, found.x, found.x + len));
+        // nano shows the selection instead of the match.
+        if self.buf.mark.is_none() {
+            self.spot = Some((found.line, found.x, found.x + len));
+        }
         if (found.line, found.x) == start {
             self.say("This is the only occurrence");
         } else if found.wrapped {
@@ -1419,5 +1597,76 @@ mod tests {
         after_warning(&mut ed);
         drop(ed);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn typed(ed: &mut Editor, keys: &[Key]) {
+        for key in keys {
+            ed.key(key.clone());
+        }
+    }
+
+    fn text(ed: &Editor) -> String {
+        String::from(&ed.buf.text)
+    }
+
+    fn editor(text: &str) -> Editor {
+        let mut ed = Editor::open(Options::default(), 80, 24);
+        ed.buf = Buffer::new(text, Format::Unix);
+        ed
+    }
+
+    #[test]
+    fn a_cut_selection_is_pasted_and_undone() {
+        let mut ed = editor("one two\n");
+        typed(&mut ed, &[Key::Meta('a')]);
+        let right = Key::Named(Named::Right, Mods::default());
+        typed(
+            &mut ed,
+            &[right.clone(), right.clone(), right, Key::Ctrl('K')],
+        );
+        assert_eq!(text(&ed), " two\n");
+        assert_eq!(ed.buf.mark, None);
+        typed(&mut ed, &[Key::Ctrl('U')]);
+        assert_eq!(text(&ed), "one two\n");
+        typed(&mut ed, &[Key::Meta('u'), Key::Meta('u')]);
+        assert_eq!(text(&ed), "one two\n");
+    }
+
+    #[test]
+    fn copy_keeps_the_text_and_the_next_copy_adds_a_line() {
+        let mut ed = editor("a\nb\nc\n");
+        typed(&mut ed, &[Key::Meta('6'), Key::Meta('6')]);
+        assert_eq!(ed.cut, "a\nb\n");
+        assert_eq!(text(&ed), "a\nb\nc\n");
+        assert!(!ed.buf.modified);
+    }
+
+    #[test]
+    fn shift_selects_and_a_plain_move_unselects() {
+        let mut ed = editor("abc\n");
+        let shifted = Mods {
+            shift: true,
+            ..Mods::default()
+        };
+        typed(&mut ed, &[Key::Named(Named::Right, shifted)]);
+        assert_eq!(ed.buf.selection(), Some((0, 1)));
+        typed(&mut ed, &[Key::Named(Named::Right, Mods::default())]);
+        assert_eq!(ed.buf.mark, None);
+    }
+
+    #[test]
+    fn a_paste_is_one_step_and_is_not_interpreted() {
+        let mut ed = editor("x\n");
+        typed(
+            &mut ed,
+            &[
+                Key::PasteStart,
+                Key::Paste("a\n\tb".into()),
+                Key::PasteEnd { flawed: false },
+            ],
+        );
+        assert_eq!(text(&ed), "a\n\tbx\n");
+        typed(&mut ed, &[Key::Meta('u')]);
+        assert_eq!(text(&ed), "x\n");
     }
 }

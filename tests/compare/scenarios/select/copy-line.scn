@@ -1,0 +1,11 @@
+# M-6 without a mark copies the line and goes to the next one.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {M-6}
+keys: {^U}
+keys: {^U}
+keys: {^X}
+keys: y
+keys: {Enter}
