@@ -1,0 +1,11 @@
+# An Alt key (Escape and a key) inside a paste is dropped, not run, and the paste goes on.
+# GNU nano ends the paste there and drops the rest of the read; the editor keeps the text
+# (a combining accent, which takes no column, so that the cursors still match).
+args: t.txt
+file t.txt:
+| one two three
+| four five
+differ: row 1: the text after the Alt key; nano types the key as text
+keys: {M-[}200~x{M-́}{M-[}201~
+keys: {^X}
+keys: n

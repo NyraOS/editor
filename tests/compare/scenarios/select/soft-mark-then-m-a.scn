@@ -1,0 +1,10 @@
+# M-A over a soft mark unsets it.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {S-Right*2}
+keys: {M-a}
+keys: {Right}
+keys: {^X}
+keys: n

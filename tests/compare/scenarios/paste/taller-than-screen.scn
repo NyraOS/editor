@@ -1,0 +1,9 @@
+# A paste taller than the screen puts the cursor line in the middle of it.
+args: t.txt
+file t.txt:
+| one
+| two
+keys: {Down}{M-[}200~p0{Enter}p1{Enter}p2{Enter}p3{Enter}p4{Enter}p5{Enter}p6{Enter}p7{Enter}p8{Enter}p9{Enter}p10{Enter}p11{Enter}p12{Enter}p13{Enter}p14{Enter}p15{Enter}p16{Enter}p17{Enter}p18{Enter}p19{Enter}p20{Enter}p21{Enter}p22{Enter}p23{Enter}p24{Enter}p25{Enter}p26{Enter}p27{Enter}p28{Enter}p29{Enter}{M-[}201~
+keys: {M-u}
+keys: {^X}
+keys: n

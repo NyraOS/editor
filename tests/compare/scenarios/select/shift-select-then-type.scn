@@ -1,0 +1,10 @@
+# Typing takes a soft mark away.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {S-Right*3}
+keys: x
+keys: {S-Right}
+keys: {^X}
+keys: n

@@ -1,0 +1,16 @@
+# A selection over several lines is cut with its line ends and pasted at the end of a line.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+| seven eight
+keys: {Right*4}
+keys: {M-a}
+keys: {Down}
+keys: {Right*2}
+keys: {^K}
+keys: {End}
+keys: {^U}
+keys: {^X}
+keys: y
+keys: {Enter}

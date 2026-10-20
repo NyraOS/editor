@@ -1,0 +1,9 @@
+# A paste is one step of undo and of redo.
+args: t.txt
+file t.txt:
+| one two three
+keys: {M-[}200~a{Enter}b{Enter}c{M-[}201~
+keys: {M-u}
+keys: {M-e}
+keys: {^X}
+keys: n

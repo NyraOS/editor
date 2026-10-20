@@ -1,0 +1,11 @@
+# Copying an empty selection says so and empties the cut buffer.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {^K}
+keys: {M-a}
+keys: {M-6}
+keys: {^U}
+keys: {^X}
+keys: n

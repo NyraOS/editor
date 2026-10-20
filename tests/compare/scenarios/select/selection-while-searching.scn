@@ -1,0 +1,12 @@
+# The selection stays drawn while the search prompt is open.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {M-a}
+keys: {Right*3}
+keys: {^W}
+keys: tw
+keys: {Enter}
+keys: {^X}
+keys: n

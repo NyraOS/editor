@@ -1,0 +1,11 @@
+# A control key inside a paste is never run: it is dropped, and the paste goes on to its end.
+# GNU nano ends the paste at the key and drops the rest of the read; the editor keeps the text
+# (here a combining accent, which takes no column, so that the cursors still match).
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+differ: row 1: the text after the control key
+keys: {M-[}200~ab{^K}́{M-[}201~
+keys: {^X}
+keys: n

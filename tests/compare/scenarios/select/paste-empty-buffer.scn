@@ -1,0 +1,7 @@
+# ^U with nothing cut says so.
+args: t.txt
+file t.txt:
+| one two three
+keys: {^U}
+keys: {^X}
+keys: n

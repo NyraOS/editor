@@ -1,0 +1,13 @@
+# M-6 copies the selection, takes the mark away and leaves the text and the cursor alone.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {M-a}
+keys: {Right*3}
+keys: {M-6}
+keys: {Down}
+keys: {^U}
+keys: {^X}
+keys: y
+keys: {Enter}

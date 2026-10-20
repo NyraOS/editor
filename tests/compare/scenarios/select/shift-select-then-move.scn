@@ -1,0 +1,10 @@
+# A move without Shift takes a soft mark away; the next shifted move starts a new one.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {S-Right*3}
+keys: {Right}
+keys: {S-Down}
+keys: {^X}
+keys: n

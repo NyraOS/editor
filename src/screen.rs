@@ -389,6 +389,19 @@ pub fn compose(ed: &Editor) -> Frame {
                     cells[col - start].style = SPOT;
                 }
             }
+            if let Some((lo, hi)) = ed.buf.selection() {
+                let first = ed.buf.text.line_to_char(line);
+                let len = text.chars().count();
+                if lo < first + len && hi > first {
+                    let from = column_of(&text, lo.saturating_sub(first), ed.opts.tabsize);
+                    let to = column_of(&text, (hi - first).min(len), ed.opts.tabsize);
+                    for col in from.max(start)..to.min(start + width) {
+                        if let Some(cell) = cells.get_mut(col - start) {
+                            cell.style = INVERSE;
+                        }
+                    }
+                }
+            }
             let row = &mut screen[1 + r];
             if margin > 0 {
                 put(row, 0, &format!("{:>digits$}", line + 1), INVERSE);
@@ -465,7 +478,7 @@ impl Terminal {
         raw.make_raw();
         termios::tcsetattr(io::stdin(), OptionalActions::Flush, &raw)?;
         let mut out = io::stdout().lock();
-        out.write_all(b"\x1b[?1049h\x1b[H\x1b[2J")?;
+        out.write_all(b"\x1b[?1049h\x1b[H\x1b[2J\x1b[?2004h")?;
         out.flush()?;
         Ok(Self {
             saved,
@@ -517,7 +530,7 @@ impl Terminal {
     /// Leaves the alternate screen and restores the terminal's settings.
     pub fn stop(&mut self) {
         let mut out = io::stdout().lock();
-        let _ = out.write_all(b"\x1b[0m\x1b[?25h\x1b[?1049l");
+        let _ = out.write_all(b"\x1b[0m\x1b[?25h\x1b[?2004l\x1b[?1049l");
         let _ = out.flush();
         let _ = termios::tcsetattr(io::stdin(), OptionalActions::Flush, &self.saved);
     }

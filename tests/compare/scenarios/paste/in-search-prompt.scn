@@ -1,0 +1,10 @@
+# A paste into a prompt goes into the answer, and its line ends do not accept it.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {^W}
+keys: {M-[}200~fi{Enter}ve{M-[}201~
+keys: {Enter}
+keys: {^X}
+keys: n

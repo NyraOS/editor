@@ -1,0 +1,11 @@
+# Shift with Home and End selects to the start and the end of the line.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {Right*4}
+keys: {S-End}
+keys: {Down}
+keys: {S-Home}
+keys: {^X}
+keys: n

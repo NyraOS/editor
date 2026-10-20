@@ -1,0 +1,14 @@
+# A cut selection replaces the cut buffer; it is not added to it.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {M-a}
+keys: {Right*3}
+keys: {^K}
+keys: {M-a}
+keys: {Right*4}
+keys: {^K}
+keys: {^U}
+keys: {^X}
+keys: n

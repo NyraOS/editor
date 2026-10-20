@@ -1,0 +1,14 @@
+# A cut selection is one step of undo and of redo.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {M-a}
+keys: {Down}
+keys: {Right*2}
+keys: {^K}
+keys: {M-u}
+keys: {M-e}
+keys: {M-u}
+keys: {^X}
+keys: n

@@ -1,0 +1,10 @@
+# M-A sets the mark and M-A again unsets it, with their messages.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {M-a}
+keys: {Right*3}
+keys: {M-a}
+keys: {^X}
+keys: n

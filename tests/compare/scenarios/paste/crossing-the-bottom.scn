@@ -1,0 +1,8 @@
+# A paste shorter than the screen only scrolls as far as the cursor needs.
+args: t.txt
+file t.txt:
+| one
+keys: {Enter}{Enter}{Enter}{Enter}{Enter}{Enter}{Enter}{Enter}{Enter}{Enter}{Enter}{Enter}{Enter}{Enter}{Enter}{Enter}{Enter}{Enter}{Enter}{Enter}
+keys: {M-[}200~p0{Enter}p1{Enter}p2{Enter}{M-[}201~
+keys: {^X}
+keys: n

@@ -1,0 +1,12 @@
+# A line cut after a copy does not add to the copied text.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+| seven eight
+keys: {M-6}
+keys: {^K}
+keys: {^U}
+keys: {^X}
+keys: y
+keys: {Enter}

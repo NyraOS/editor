@@ -1,0 +1,8 @@
+# Commands in a later read of a flawed paste are not run: ^O, ^X would write and exit.
+args: t.txt
+file t.txt:
+| one
+keys: {M-[}200~ab
+keys: {^A}{^O}{^X}{M-[}201~
+keys: {^X}
+keys: n

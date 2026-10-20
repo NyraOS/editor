@@ -1,0 +1,11 @@
+# The cursor may be before the mark: the same text is cut, and the cursor ends where it starts.
+args: t.txt
+file t.txt:
+| one two three
+keys: {Right*7}
+keys: {M-a}
+keys: {Left*3}
+keys: {^K}
+keys: {^U}
+keys: {^X}
+keys: n

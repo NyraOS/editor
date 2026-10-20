@@ -1,0 +1,14 @@
+# A long paste over several reads clears the status bar while it is held; it is one undo step.
+args: t.txt
+size: 80x70
+file t.txt:
+| one two three
+| four five
+keys: {^C}
+keys: {Down}{End}{M-[}200~line 000 with some text{Enter}line 001 with some text{Enter}line 002 with some text{Enter}line 003 with some text{Enter}line 004 with some text{Enter}line 005 with some text{Enter}line 006 with some text{Enter}line 007 with some text{Enter}line 008 with some text{Enter}line 009 with some text{Enter}line 010 with some text{Enter}line 011 with some text{Enter}line 012 with some text{Enter}line 013 with some text{Enter}line 014 with some text{Enter}line 015 with some text{Enter}line 016 with some text{Enter}line 017 with some text{Enter}line 018 with some text{Enter}line 019 with some text{Enter}line 020 with some text{Enter}line 021 with some text{Enter}line 022 with some text{Enter}line 023 with some text{Enter}line 024 with some text{Enter}line 025 with some text{Enter}line 026 with some text{Enter}line 027 with some text{Enter}line 028 with some text{Enter}line 029 w
+keys: ith some text{Enter}line 000 with some text{Enter}line 001 with some text{Enter}line 002 with some text{Enter}line 003 with some text{Enter}line 004 with some text{Enter}line 005 with some text{Enter}line 006 with some text{Enter}line 007 with some text{Enter}line 008 with some text{Enter}line 009 with some text{Enter}
+keys: line 010 with some text{Enter}line 011 with some text{Enter}line 012 with some text{Enter}line 013 with some text{Enter}line 014 with some text{Enter}line 015 with some text{Enter}line 016 with some text{Enter}line 017 with some text{Enter}line 018 with some text{Enter}line 019 with some text{Enter}line 020 with some text{Enter}line 021 with some text{Enter}line 022 with some text{Enter}line 023 with some text{Enter}line 024 with some text{Enter}line 025 with some text{Enter}line 026 with some text{Enter}line 027 with some text{Enter}line 028 with some text{Enter}line 029 with some text{Enter}{M-[}201~
+keys: {M-u}
+keys: {M-e}
+keys: {^O}{Enter}
+keys: {^X}

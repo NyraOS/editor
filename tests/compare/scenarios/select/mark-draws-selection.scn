@@ -1,0 +1,13 @@
+# The selection is drawn in reverse over several lines, and over the whole width of a tab.
+args: t.txt
+file t.txt:
+| a\tb c
+| next line
+| last
+keys: {Right}
+keys: {M-a}
+keys: {Right}
+keys: {Down}
+keys: {Right*2}
+keys: {^X}
+keys: n

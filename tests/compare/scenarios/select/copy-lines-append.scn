@@ -1,0 +1,11 @@
+# Lines copied with M-6 in a row are added to the cut buffer.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+| seven eight
+keys: {M-6}
+keys: {M-6}
+keys: {^U}
+keys: {^X}
+keys: n

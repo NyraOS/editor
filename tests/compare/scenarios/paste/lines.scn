@@ -1,0 +1,10 @@
+# A bracketed paste with line ends inserts them as they are.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {Down}
+keys: {M-[}200~a{Enter}b{Enter}c{M-[}201~
+keys: {^X}
+keys: y
+keys: {Enter}

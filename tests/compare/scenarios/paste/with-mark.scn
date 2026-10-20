@@ -1,0 +1,9 @@
+# A paste keeps a mark set before it: the selection grows with the text.
+args: t.txt
+file t.txt:
+| one two three
+keys: {M-a}
+keys: {M-[}200~abc{M-[}201~
+keys: {Right}
+keys: {^X}
+keys: n

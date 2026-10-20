@@ -1,0 +1,11 @@
+# A mark set with M-A stays while typing, and moves with the text.
+args: t.txt
+file t.txt:
+| one two three
+| four five six
+keys: {M-a}
+keys: {Right*2}
+keys: xy
+keys: {Left*3}
+keys: {^X}
+keys: n
