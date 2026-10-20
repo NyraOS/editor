@@ -1,0 +1,15 @@
+# Move with the arrows, Home and End, and delete with Backspace and Delete.
+args: words.txt
+file words.txt:
+| alpha beta gamma
+| delta epsilon
+| zeta
+keys: {Right*6}
+keys: {Del*5}
+keys: {Down}{End}
+keys: {Bsp*3}
+keys: {Up}{Home}
+keys: X
+keys: {Down*2}{End}!
+keys: {^O}{Enter}
+keys: {^X}

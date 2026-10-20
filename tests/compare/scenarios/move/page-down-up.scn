@@ -1,0 +1,69 @@
+# Page down and up through a file longer than the screen, then jump to the end and the start.
+args: long.txt
+file long.txt:
+| line 1 of the long file
+| line 2 of the long file
+| line 3 of the long file
+| line 4 of the long file
+| line 5 of the long file
+| line 6 of the long file
+| line 7 of the long file
+| line 8 of the long file
+| line 9 of the long file
+| line 10 of the long file
+| line 11 of the long file
+| line 12 of the long file
+| line 13 of the long file
+| line 14 of the long file
+| line 15 of the long file
+| line 16 of the long file
+| line 17 of the long file
+| line 18 of the long file
+| line 19 of the long file
+| line 20 of the long file
+| line 21 of the long file
+| line 22 of the long file
+| line 23 of the long file
+| line 24 of the long file
+| line 25 of the long file
+| line 26 of the long file
+| line 27 of the long file
+| line 28 of the long file
+| line 29 of the long file
+| line 30 of the long file
+| line 31 of the long file
+| line 32 of the long file
+| line 33 of the long file
+| line 34 of the long file
+| line 35 of the long file
+| line 36 of the long file
+| line 37 of the long file
+| line 38 of the long file
+| line 39 of the long file
+| line 40 of the long file
+| line 41 of the long file
+| line 42 of the long file
+| line 43 of the long file
+| line 44 of the long file
+| line 45 of the long file
+| line 46 of the long file
+| line 47 of the long file
+| line 48 of the long file
+| line 49 of the long file
+| line 50 of the long file
+| line 51 of the long file
+| line 52 of the long file
+| line 53 of the long file
+| line 54 of the long file
+| line 55 of the long file
+| line 56 of the long file
+| line 57 of the long file
+| line 58 of the long file
+| line 59 of the long file
+| line 60 of the long file
+keys: {PgDn}
+keys: {PgDn}
+keys: {PgUp}
+keys: {M-/}
+keys: {M-\}
+keys: {^X}

@@ -1,0 +1,12 @@
+# Tabs in the file and typed: the cursor jumps over them.
+args: tabs.txt
+file tabs.txt:
+| \tindented
+| a\tb\tc
+| \t\tdouble
+keys: {Right}
+keys: {Down}{Right*2}
+keys: {Tab}x
+keys: {Down}{End}{Tab}end
+keys: {^O}{Enter}
+keys: {^X}

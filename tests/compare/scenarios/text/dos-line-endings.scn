@@ -1,0 +1,9 @@
+# A file with DOS line endings is converted when read and saved back in DOS format.
+args: dos.txt
+file dos.txt:
+| first\r
+| second\r
+keys: {End} line
+keys: {^O}
+keys: {Enter}
+keys: {^X}

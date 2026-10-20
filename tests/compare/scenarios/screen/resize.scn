@@ -1,0 +1,11 @@
+# The terminal grows and shrinks while a file is open.
+args: -l notes.txt
+size: 60x15
+file notes.txt:
+| a line long enough to need more than sixty columns on a narrow terminal
+| short
+keys: {End}
+resize: 100x30
+resize: 40x10
+keys: {Home}
+keys: {^X}

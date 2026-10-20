@@ -1,0 +1,9 @@
+# ^C shows where the cursor is; --linenumbers and --constantshow change the screen.
+args: --linenumbers --constantshow pos.txt
+file pos.txt:
+| first
+| second
+| third
+keys: {Down}{Right*3}
+keys: {^C}
+keys: {^X}

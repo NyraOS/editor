@@ -1,0 +1,13 @@
+# Search forward with ^W, again with M-W, and for a word that is not there.
+args: text.txt
+file text.txt:
+| the cat sat
+| on the mat
+| with the hat
+keys: {^W}
+keys: the
+keys: {Enter}
+keys: {M-w}
+keys: {M-w}
+keys: {^W}dog{Enter}
+keys: {^X}

@@ -1,0 +1,7 @@
+# Change a file, then exit and answer No to saving: the file stays as it was.
+args: keep.txt
+file keep.txt:
+| keep me
+keys: {End} changed
+keys: {^X}
+keys: n

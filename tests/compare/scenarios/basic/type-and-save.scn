@@ -1,0 +1,9 @@
+# Type two lines into an existing file, save with ^O and exit with ^X.
+args: notes.txt
+file notes.txt:
+| first line
+keys: Hello, world{Enter}
+keys: second line
+keys: {^O}
+keys: {Enter}
+keys: {^X}

@@ -10,3 +10,12 @@ repository = "https://github.com/NyraOS/editor"
 description = "A nano-compatible terminal editor written from scratch in Rust"
 
 [dependencies]
+
+[dev-dependencies]
+# The comparison tests (tests/compare): rustix opens the pseudo-terminal, vt100 is the terminal emulator.
+rustix = { version = "1.1.5", features = ["event", "pty", "termios"] }
+vt100 = "0.18.1"
+
+[[test]]
+name = "compare"
+path = "tests/compare/main.rs"
