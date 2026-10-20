@@ -1,0 +1,7 @@
+# unbind is read and ignored for now (so is bind, see the unit tests): the options after it count.
+nanorc: unbind M-z main
+nanorc: set linenumbers
+args: a.txt
+file a.txt:
+| text
+keys: {^X}

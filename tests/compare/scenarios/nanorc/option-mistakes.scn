@@ -1,0 +1,20 @@
+# The mistakes of set and unset, each reported with its line, in nano's words.
+size: 100x30
+nanorc: set
+nanorc: unset
+nanorc: set bogus
+nanorc: unset bogus yes
+nanorc: set tabsize
+nanorc: set wordchars
+nanorc: unset tabsize
+nanorc: unset wordchars
+nanorc: set tabsize 0
+nanorc: set tabsize -2
+nanorc: set tabsize abc
+nanorc: set tabsize 4x
+nanorc: set fill x
+nanorc: set linenumbers
+args: a.txt
+file a.txt:
+| text
+keys: {^X}

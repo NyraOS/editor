@@ -1,0 +1,6 @@
+# With a file to open, the message about the mistakes is the one left in the status bar.
+nanorc: set bogus
+args: a.txt
+file a.txt:
+| text
+keys: {^X}

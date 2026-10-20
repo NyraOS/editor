@@ -1,0 +1,15 @@
+# Options nano accepts and that change nothing here, with or without arguments: no mistake.
+nanorc: set atblanks
+nanorc: set nowrap
+nanorc: set trimblanks
+nanorc: set bookstyle
+nanorc: set locking
+nanorc: unset locking
+nanorc: set fill 20
+nanorc: set fill -5
+nanorc: set speller "spell -x"
+nanorc: set linenumbers
+args: a.txt
+file a.txt:
+| text
+keys: {^X}

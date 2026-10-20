@@ -1,0 +1,7 @@
+# The command line wins over the file: -T over set tabsize; set linenumbers still applies.
+nanorc: set tabsize 2
+nanorc: set linenumbers
+args: -T 6 a.txt
+file a.txt:
+| \tone
+keys: {^X}

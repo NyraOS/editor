@@ -1,0 +1,6 @@
+# An empty ~/.nanorc changes nothing, and says nothing.
+nanorc:
+args: a.txt
+file a.txt:
+| text
+keys: {^X}

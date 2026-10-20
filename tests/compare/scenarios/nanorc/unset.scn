@@ -1,0 +1,10 @@
+# unset turns off what an earlier line turned on; the lines after still count.
+nanorc: set linenumbers
+nanorc: set nohelp
+nanorc: unset linenumbers
+nanorc: set constantshow
+nanorc: unset constantshow
+args: a.txt
+file a.txt:
+| text
+keys: {^X}

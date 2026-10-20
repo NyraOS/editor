@@ -57,7 +57,9 @@ keys: {^X}
 | Line | Meaning |
 |---|---|
 | `# ...` | A comment (only at the start of a line). Start every scenario with one saying what it checks. |
-| `args: ...` | Command-line arguments for both editors, split on spaces (no quoting). Both always get `--ignorercfiles` first. Default: none. |
+| `args: ...` | Command-line arguments for both editors, split on spaces (no quoting). Both always get `--ignorercfiles` first, unless the scenario has a `nanorc:` or `xdgrc:` line. Default: none. |
+| `nanorc: LINE` | One line (escapes as in keys: `\t`, `\\`, `\xHH`; may be empty) of `~/.nanorc`, written into each side's own `HOME` before it starts. Repeat for more lines. With it, `--ignorercfiles` is not passed, so the system files are read too (the host's `/etc/nanorc` must be the stock one). `HOME` is then the relative `../home`, so an error message naming the file reads the same on both sides. |
+| `xdgrc: LINE` | The same for `~/.config/nano/nanorc`. |
 | `size: COLSxROWS` | The terminal size. Default: `80x24`. |
 | `file NAME:` | A file in the working directory, created before the editors start; its lines follow, each starting with `\| ` (or just `\|` for an empty line). No lines: an empty file. `NAME` is relative and may have directories. After the first step, it is a step: the file is (re)written in both working directories while the editors run; the files are compared first, so that the rewrite cannot hide what was saved. |
 | `keys: ...` | A step: keys sent at once (see below). The screens are compared after each step. |
@@ -112,7 +114,8 @@ the same step, it reads as Alt.
 
 - The environment: `TERM=xterm-256color`, `LANG` and `LC_ALL` `C.UTF-8`, `TZ=UTC`, a fixed `PATH`,
   and an empty `HOME` per editor; nothing else is inherited.
-- No configuration: `--ignorercfiles`, and the empty `HOME` has no nanorc.
+- No configuration: `--ignorercfiles`, and the empty `HOME` has no nanorc (except in scenarios with
+  `nanorc:` or `xdgrc:` lines, see above).
 - Each editor runs in its own fresh working directory under `target/tmp/compare/<name>.scn/`, in
   its own session with the pseudo-terminal as the controlling terminal (so a resize sends
   `SIGWINCH`). A failed scenario's directories are kept there for a look.

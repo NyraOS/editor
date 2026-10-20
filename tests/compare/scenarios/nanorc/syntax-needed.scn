@@ -1,0 +1,18 @@
+# A syntax command with no name, and the commands that need a syntax before them.
+size: 100x30
+nanorc: color red "x"
+nanorc: icolor red "x"
+nanorc: header "x"
+nanorc: comment "#"
+nanorc: linter x
+nanorc: formatter x
+nanorc: tabgives " "
+nanorc: syntax
+nanorc: syntax "ok"
+nanorc: color red "x"
+nanorc: syntax
+nanorc: color red "x"
+args: a.txt
+file a.txt:
+| text
+keys: {^X}

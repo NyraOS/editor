@@ -1,0 +1,7 @@
+# An unknown command: nano says so on the standard error, starts anyway and shows "Mistakes in"
+# in the status bar; the lines after it still count.
+nanorc: frobnicate yes
+nanorc: set linenumbers
+keys: a
+keys: {^X}
+keys: n

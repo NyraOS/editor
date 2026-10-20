@@ -1,0 +1,24 @@
+# include with a glob: the files in order of name, hidden ones left out; syntax commands are fine.
+size: 100x30
+nanorc: include "rc.d/*.rc"
+nanorc: include "rc.d/?.conf"
+nanorc: include "rc.d/[a-b].txt"
+nanorc: include "rc.d/[!a].txt"
+nanorc: set linenumbers
+args: a.txt
+file rc.d/a.rc:
+| syntax "a" "\\.a$"
+| color red "x"
+file rc.d/b.rc:
+| frob b
+file rc.d/.hidden.rc:
+| frob hidden
+file rc.d/x.conf:
+| frob x
+file rc.d/a.txt:
+| frob a
+file rc.d/c.txt:
+| frob c
+file a.txt:
+| text
+keys: {^X}

@@ -1,0 +1,8 @@
+# A backup directory that does not exist: the mistakes of the file are on the screen, then nano
+# stops with its message (the same one as for -C).
+nanorc: frob
+nanorc: set backupdir "nowhere"
+args: a.txt
+file a.txt:
+| text
+keys: {^X}

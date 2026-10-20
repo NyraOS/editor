@@ -1,0 +1,10 @@
+# Several boolean options from ~/.nanorc: line numbers, no help lines, the position always shown.
+nanorc: set linenumbers
+nanorc: set nohelp
+nanorc: set constantshow
+args: a.txt
+file a.txt:
+| first
+| second
+keys: {Down}
+keys: {^X}

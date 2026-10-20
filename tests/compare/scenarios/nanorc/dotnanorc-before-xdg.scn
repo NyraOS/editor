@@ -1,0 +1,7 @@
+# With both, only ~/.nanorc is read.
+nanorc: set nohelp
+xdgrc: set linenumbers
+args: a.txt
+file a.txt:
+| text
+keys: {^X}

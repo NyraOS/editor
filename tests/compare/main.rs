@@ -310,6 +310,12 @@ fn scenario_format() {
                 differ: row 7 col 3: a column\n\
                 keys: x\n";
     let s = scenario::parse(text).unwrap();
+    let rc = scenario::parse("nanorc: set a\\tb\nnanorc:\nxdgrc: set c\nkeys: x\n").unwrap();
+    assert_eq!(rc.home_files[0], (".nanorc", b"set a\tb\n\n".to_vec()));
+    assert_eq!(
+        rc.home_files[1],
+        (".config/nano/nanorc", b"set c\n".to_vec())
+    );
     assert_eq!(s.args, ["-l", "notes.txt"]);
     assert_eq!((s.cols, s.rows), (100, 30));
     assert_eq!(

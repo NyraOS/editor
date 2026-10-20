@@ -44,12 +44,15 @@ pub enum Exit {
 }
 
 impl Term {
-    /// Starts `command` in `dir`, with a fixed environment and an empty `home`.
+    /// Starts `command` in `dir`, with a fixed environment and `home`. When the editor reads rc
+    /// files (`dir` is then `../work` of `home`), HOME is the relative path `../home`, so that
+    /// the paths in its messages are the same for both editors.
     pub fn spawn(
         command: &[String],
         args: &[String],
         dir: &Path,
         home: &Path,
+        read_rc_files: bool,
         cols: u16,
         rows: u16,
     ) -> io::Result<Self> {
@@ -64,12 +67,19 @@ impl Term {
         let child = Command::new("setsid")
             .args(["--ctty", "--wait"])
             .args(command)
-            .arg("--ignorercfiles")
+            .args((!read_rc_files).then_some("--ignorercfiles"))
             .args(args)
             .current_dir(dir)
             .env_clear()
             .env("PATH", "/usr/local/bin:/usr/bin:/bin")
-            .env("HOME", home)
+            .env(
+                "HOME",
+                if read_rc_files {
+                    Path::new("../home")
+                } else {
+                    home
+                },
+            )
             .env("TERM", "xterm-256color")
             .env("LANG", "C.UTF-8")
             .env("LC_ALL", "C.UTF-8")
