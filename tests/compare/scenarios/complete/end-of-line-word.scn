@@ -1,0 +1,17 @@
+# A word at the end of a line that is only one byte longer than the fragment is not offered, as in nano.
+args: t.txt
+size: 30x14
+file t.txt:
+| xa1
+| xa2 xa
+| xaé
+| xa13
+| xa
+keys: {Down*4}{End}
+keys: {^]}
+keys: {^]}
+keys: {^]}
+keys: {^]}
+keys: {^]}
+keys: {^X}
+keys: n

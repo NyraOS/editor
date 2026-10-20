@@ -1,0 +1,12 @@
+# On the last line of a file with no final newline, the completion and its undo leave the newline as nano does.
+args: t.txt
+file t.txt:
+| wonder
+| won\
+keys: {Down}{End}
+keys: {^]}
+keys: {M-u}
+keys: {M-e}
+keys: {^O}
+keys: {Enter}
+keys: {^X}

@@ -1,0 +1,11 @@
+# The messages of ^] go as others do, after some keys.
+args: t.txt
+file t.txt:
+| abc
+| zq
+keys: {Down}{End}
+keys: {^]}
+keys: {Left}
+keys: {Right*4}
+keys: {Right*16}
+keys: {^X}

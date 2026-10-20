@@ -1,0 +1,12 @@
+# A completion, however many words were tried, is one step of undo and redo.
+args: t.txt
+file t.txt:
+| foo foobar foobaz
+| foo
+keys: {Down}{End}
+keys: {^]}{^]}
+keys: {M-u}
+keys: {M-e}
+keys: {M-u}
+keys: {M-u}
+keys: {^X}

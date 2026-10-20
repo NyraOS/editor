@@ -1,0 +1,10 @@
+# Words end at an underscore, so each part is a word of its own.
+args: t.txt
+file t.txt:
+| my_value_long other_thing
+| val th
+keys: {Down}{End}
+keys: {^]}
+keys: {Left*3}{^]}
+keys: {^X}
+keys: n

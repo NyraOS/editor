@@ -1,0 +1,12 @@
+# Any other key ends the row of ^]: the next one starts again from the fragment before the cursor.
+args: t.txt
+file t.txt:
+| foo foobar foobaz
+| foo
+keys: {Down}{End}
+keys: {^]}
+keys: {Left}{Right}{^]}
+keys: {^]}
+keys: {Home}{^]}
+keys: {^X}
+keys: n

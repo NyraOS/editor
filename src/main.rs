@@ -3,6 +3,7 @@
 
 mod buffer;
 mod commands;
+mod complete;
 mod config;
 // Parts of its API are for options still to come (backups: -B, -C).
 #[allow(dead_code, unused_imports)]

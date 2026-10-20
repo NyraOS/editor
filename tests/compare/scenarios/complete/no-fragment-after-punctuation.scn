@@ -1,0 +1,10 @@
+# After a space or punctuation there is no fragment, and the underscore is not a word character.
+args: t.txt
+file t.txt:
+| alpha beta_gamma
+| (alp) x_
+keys: {Down}{Right*5}
+keys: {^]}
+keys: {End}{^]}
+keys: {Left}{^]}
+keys: {^X}

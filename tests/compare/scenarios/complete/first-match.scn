@@ -1,0 +1,10 @@
+# ^] completes the fragment before the cursor with the first word that starts with it.
+args: t.txt
+file t.txt:
+| The quick brown fox
+| quickly
+| qui
+keys: {Down*2}{End}
+keys: {^]}
+keys: {^X}
+keys: n

@@ -1,0 +1,11 @@
+# After the last word, the fragment is back with a message; the next ^] starts again.
+args: t.txt
+file t.txt:
+| alpha alpine
+| alp
+keys: {Down}{End}
+keys: {^]}{^]}
+keys: {^]}
+keys: {^]}
+keys: {^X}
+keys: n
