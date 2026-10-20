@@ -1,0 +1,10 @@
+# The +/ search is in the history: ^W offers it, and the case and regular expression modifiers
+# stay on for the searches after it.
+args: +cr/S.c lines.txt
+file lines.txt:
+| first line
+| the second line
+| the Second line
+keys: {^W}
+keys: {Enter}
+keys: {^X}

@@ -1,0 +1,5 @@
+# After --, an argument that starts with a dash is a file name.
+args: -l -- -dash.txt
+file -dash.txt:
+| a file named with a dash
+keys: {^X}

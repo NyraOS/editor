@@ -1,0 +1,7 @@
+# +/text with a single match, at the very start of the file.
+args: +/first lines.txt
+file lines.txt:
+| first line
+| the second line
+keys: {M-w}
+keys: {^X}

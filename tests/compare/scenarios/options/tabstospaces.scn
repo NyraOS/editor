@@ -1,0 +1,9 @@
+# -E with -T 4: a typed Tab writes spaces up to the next tab stop, also in the middle of a line.
+args: -E -T 4 spaces.txt
+file spaces.txt:
+| ab
+keys: {Tab}x
+keys: {Tab}y{Tab}
+keys: {Down}{Tab}z
+keys: {^O}{Enter}
+keys: {^X}

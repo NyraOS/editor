@@ -1,0 +1,4 @@
+# A long option that takes no argument, given one.
+args: --backup=yes
+differ: rows 0-1: the program's name
+keys: {^X}

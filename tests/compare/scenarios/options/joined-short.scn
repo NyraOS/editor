@@ -1,0 +1,6 @@
+# Short options joined, with the tab size glued to its letter, and an option after the file.
+args: -lcxT4 tabs.txt -L
+file tabs.txt:
+| \tone
+keys: {End}
+keys: {^X}

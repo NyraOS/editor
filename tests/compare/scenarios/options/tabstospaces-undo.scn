@@ -1,0 +1,9 @@
+# --tabstospaces: the spaces of a Tab are one step of undo; a pasted tab stays a tab.
+args: --tabstospaces -T 3 t.txt
+file t.txt:
+| a
+keys: {End}{Tab}{Tab}
+keys: {M-u}
+keys: {M-e}
+keys: {^O}{Enter}
+keys: {^X}

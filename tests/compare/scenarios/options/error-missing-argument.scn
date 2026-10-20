@@ -1,0 +1,4 @@
+# An option that needs an argument, with none: short, last on the line.
+args: -lT
+differ: rows 0-1: the program's name
+keys: {^X}

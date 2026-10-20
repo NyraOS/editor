@@ -1,0 +1,8 @@
+# +c?text: a case sensitive search backwards, from the start of the file, wrapping to the end.
+args: +c?Line lines.txt
+file lines.txt:
+| first Line
+| the second line
+| third Line, second mention
+keys: {M-w}
+keys: {^X}

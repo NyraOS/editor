@@ -1,0 +1,9 @@
+# -Z: Backspace and Delete erase the selection; without a selection they work as usual.
+args: -Z words.txt
+file words.txt:
+| one two three four
+keys: {Right*4}{M-a}{Right*4}{Bsp}
+keys: {Right*2}{M-a}{Right*4}{Del}
+keys: {Bsp}{Del}
+keys: {^O}{Enter}
+keys: {^X}

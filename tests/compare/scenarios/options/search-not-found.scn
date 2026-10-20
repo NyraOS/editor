@@ -1,0 +1,5 @@
+# +/text that is not in the file.
+args: +/missing lines.txt
+file lines.txt:
+| first line
+keys: {^X}

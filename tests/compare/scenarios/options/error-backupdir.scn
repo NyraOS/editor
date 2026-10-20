@@ -1,0 +1,3 @@
+# A backup directory that does not exist.
+args: -B -C missing-dir file.txt
+keys: {^X}

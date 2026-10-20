@@ -438,14 +438,33 @@ impl Editor {
         if let Some((line, col)) = ed.opts.start {
             ed.goto(Some(line), Some(col));
         }
+        if let Some(found) = ed.opts.search.take() {
+            ed.case_sensitive = found.case_sensitive;
+            ed.regexp = found.regexp;
+            ed.history.push(found.text);
+            ed.search(found.backwards);
+            // As in nano, the wrapping and the reading of the file are not said, only a failure.
+            if ed.message.as_ref().is_some_and(|m| !m.error) {
+                ed.message = None;
+            }
+        }
+        // After the messages of reading the file and searching, as in nano.
+        if let Some(alert) = ed.opts.start_alert.take() {
+            ed.error(&alert);
+        }
         ed
     }
 
     fn read_file(&mut self) {
         match files::read(Path::new(&self.name)) {
             Ok(loaded) => {
-                let (text, format) = buffer::convert_line_ends(buffer::decode(loaded.bytes));
-                self.buf = Buffer::new(&text, format);
+                let text = buffer::decode(loaded.bytes);
+                let (text, format) = if self.opts.noconvert {
+                    (text, Format::Unix)
+                } else {
+                    buffer::convert_line_ends(text)
+                };
+                self.buf = Buffer::new(&text, if self.opts.unix { Format::Unix } else { format });
                 self.meta = Some(loaded.meta);
                 let mut msg = format!("Read {}", plural(self.buf.file_lines(), "line"));
                 self.magic_line();
@@ -643,7 +662,7 @@ impl Editor {
         match key {
             Key::Char(c) => self.type_text(&c.to_string()),
             Key::Byte(b) => self.type_text(&buffer::raw(b)),
-            Key::Ctrl('I') => self.type_text("\t"),
+            Key::Ctrl('I') => self.tab(),
             Key::Ctrl('M') => self.enter(),
             Key::Ctrl('H') | Key::Named(Backspace, _) => self.backspace(),
             Key::Ctrl('D') | Key::Named(Delete, _) => self.delete(),
@@ -653,10 +672,7 @@ impl Editor {
             Key::Named(Right, m) if m == ctrl => self.word_right(),
             Key::Named(Left, _) => self.left(),
             Key::Named(Right, _) => self.right(),
-            Key::Ctrl('A') | Key::Named(Home, Mods { ctrl: false, .. }) => {
-                self.buf.x = 0;
-                self.buf.keep_column(tab);
-            }
+            Key::Ctrl('A') | Key::Named(Home, Mods { ctrl: false, .. }) => self.home(),
             Key::Ctrl('E') | Key::Named(End, Mods { ctrl: false, .. }) => {
                 self.buf.x = self.buf.line_len(self.buf.line);
                 self.buf.keep_column(tab);
@@ -729,7 +745,14 @@ impl Editor {
     }
 
     fn type_text(&mut self, s: &str) {
-        self.insert_text(s, if s == "\n" { Kind::Enter } else { Kind::Add });
+        self.insert_text(
+            s,
+            if s.starts_with('\n') {
+                Kind::Enter
+            } else {
+                Kind::Add
+            },
+        );
     }
 
     fn insert_text(&mut self, s: &str, kind: Kind) {
@@ -755,7 +778,43 @@ impl Editor {
     }
 
     fn enter(&mut self) {
-        self.type_text("\n");
+        let mut text = String::from("\n");
+        if self.opts.autoindent {
+            let line = self.buf.line_text(self.buf.line);
+            let indent = line.chars().take_while(|c| matches!(c, ' ' | '\t'));
+            text.extend(indent.take(self.buf.x));
+        }
+        self.type_text(&text);
+    }
+
+    /// With `-E`, the spaces up to the next tab stop.
+    fn tab(&mut self) {
+        if self.opts.tabstospaces {
+            let tab = self.opts.tabsize;
+            let spaces = tab - self.buf.column(tab) % tab;
+            self.type_text(&" ".repeat(spaces));
+        } else {
+            self.type_text("\t");
+        }
+    }
+
+    /// The start of the line; with `-A`, first the first character that is not a blank, as long
+    /// as the cursor is not there already.
+    fn home(&mut self) {
+        let b = &mut self.buf;
+        let indent = b
+            .line_text(b.line)
+            .chars()
+            .take_while(|c| matches!(c, ' ' | '\t'))
+            .count();
+        // On a line of blanks only, nano's Home does not stop at the end of them.
+        let blank_line = indent == b.line_len(b.line);
+        b.x = if self.opts.smarthome && b.x != indent && !blank_line {
+            indent
+        } else {
+            0
+        };
+        b.keep_column(self.opts.tabsize);
     }
 
     fn undo(&mut self) {
@@ -779,8 +838,7 @@ impl Editor {
     /// ^] completes the word fragment before the cursor with a word of the text; again in a
     /// row, it takes the next one, and after the last it puts the fragment back.
     fn complete_word(&mut self, completion: Option<Completion>) {
-        // There is no `wordchars` option yet: the default is none.
-        let wordchars = "";
+        let wordchars = self.opts.wordchars.clone();
         let first = completion.is_none();
         let mut completion = match completion {
             Some(c) => {
@@ -791,7 +849,7 @@ impl Editor {
             None => {
                 let text = &self.buf.text;
                 let cursor = self.buf.pos();
-                let start = complete::fragment_start(text, cursor, wordchars);
+                let start = complete::fragment_start(text, cursor, &wordchars);
                 if start == cursor {
                     self.error("No word fragment");
                     return;
@@ -799,7 +857,7 @@ impl Editor {
                 Completion::new(String::from(text.slice(start..cursor)), start)
             }
         };
-        let Some(ending) = completion.next_ending(&self.buf.text, wordchars) else {
+        let Some(ending) = completion.next_ending(&self.buf.text, &wordchars) else {
             self.buf.keep_column(self.opts.tabsize);
             self.error(if first {
                 "No matches"
@@ -818,6 +876,9 @@ impl Editor {
     /// Deletes the code point before the cursor (as in nano, a combining mark on its own), or
     /// at the start of a line, goes back to the line above and deletes its line end.
     fn backspace(&mut self) {
+        if self.zap_selection() {
+            return;
+        }
         let b = &mut self.buf;
         if b.x > 0 {
             let pos = b.pos();
@@ -840,7 +901,23 @@ impl Editor {
     /// Deletes the character under the cursor with its combining marks, or at the end of a
     /// line, joins the next line to it.
     fn delete(&mut self) {
+        if self.zap_selection() {
+            return;
+        }
         self.delete_at(self.buf.pos());
+    }
+
+    /// For `-Z`: erases the selection, which does not go to the cut buffer. Returns whether there
+    /// was one.
+    fn zap_selection(&mut self) -> bool {
+        let Some((from, to)) = self.buf.selection().filter(|_| self.opts.zap) else {
+            return false;
+        };
+        self.buf.mark = None;
+        if from != to {
+            self.erase_cut(from, to, Kind::Zap);
+        }
+        true
     }
 
     /// `delete`, for the cursor that was at `before` (it is moved when Backspace joins lines).
@@ -899,17 +976,22 @@ impl Editor {
         (pos < self.buf.text.len_chars()).then(|| self.buf.text.char(pos))
     }
 
-    fn is_word(c: Option<char>) -> bool {
-        c.is_some_and(char::is_alphanumeric)
+    /// Letters and digits, the `-X` characters, and with `-W` also punctuation.
+    fn is_word(&self, c: Option<char>) -> bool {
+        c.is_some_and(|c| {
+            c.is_alphanumeric()
+                || self.opts.wordchars.contains(c)
+                || (self.opts.wordbounds && !c.is_whitespace() && !c.is_control())
+        })
     }
 
     /// To the start of the next word.
     fn word_right(&mut self) {
         let mut pos = self.buf.pos();
-        while Self::is_word(self.char_at(pos)) {
+        while self.is_word(self.char_at(pos)) {
             pos += 1;
         }
-        while self.char_at(pos).is_some() && !Self::is_word(self.char_at(pos)) {
+        while self.char_at(pos).is_some() && !self.is_word(self.char_at(pos)) {
             pos += 1;
         }
         self.buf.set_pos(pos);
@@ -919,10 +1001,10 @@ impl Editor {
     /// To the start of this word, or of the one before.
     fn word_left(&mut self) {
         let mut pos = self.buf.pos();
-        while pos > 0 && !Self::is_word(self.char_at(pos - 1)) {
+        while pos > 0 && !self.is_word(self.char_at(pos - 1)) {
             pos -= 1;
         }
-        while pos > 0 && Self::is_word(self.char_at(pos - 1)) {
+        while pos > 0 && self.is_word(self.char_at(pos - 1)) {
             pos -= 1;
         }
         self.buf.set_pos(pos);
@@ -993,10 +1075,14 @@ impl Editor {
                 return self.say("Nothing was cut");
             }
             self.cut = String::from(self.buf.text.slice(from..to));
-            self.erase_cut(from, to);
+            self.erase_cut(from, to, Kind::Cut);
             return;
         }
-        let (from, to) = self.line_range();
+        let (from, to) = if self.opts.cutfromcursor {
+            self.cursor_to_line_end()
+        } else {
+            self.line_range()
+        };
         if from == to {
             return self.say("Nothing was cut");
         }
@@ -1009,7 +1095,9 @@ impl Editor {
             .push_str(&String::from(self.buf.text.slice(from..to)));
         let b = &mut self.buf;
         let before = b.pos();
-        b.x = 0;
+        if !self.opts.cutfromcursor {
+            b.x = 0;
+        }
         b.erase(Kind::Cut, from, to, before);
         b.keep_column(self.opts.tabsize);
         self.chain = Chain::Cut;
@@ -1023,17 +1111,17 @@ impl Editor {
             return self.say("Nothing was cut");
         }
         self.cut = String::from(self.buf.text.slice(from..to));
-        self.erase_cut(from, to);
+        self.erase_cut(from, to, Kind::Cut);
     }
 
     /// Deletes the text between `from` and `to` as one step of undo of its own, with the cursor
     /// left at `from`.
-    fn erase_cut(&mut self, from: usize, to: usize) {
+    fn erase_cut(&mut self, from: usize, to: usize, kind: Kind) {
         let b = &mut self.buf;
         let before = b.pos();
         b.end_group();
         b.set_pos(from);
-        b.erase(Kind::Cut, from, to, before);
+        b.erase(kind, from, to, before);
         b.end_group();
         b.keep_column(self.opts.tabsize);
         self.message = None;
@@ -1050,6 +1138,18 @@ impl Editor {
             b.text.len_chars()
         };
         (from, to)
+    }
+
+    /// For `-k`: from the cursor to the end of the line; at the end of a line, its line break.
+    fn cursor_to_line_end(&self) -> (usize, usize) {
+        let b = &self.buf;
+        let from = b.pos();
+        let end = b.text.line_to_char(b.line) + b.line_len(b.line);
+        if from < end || b.line + 1 == b.lines() {
+            (from, end)
+        } else {
+            (from, end + 1)
+        }
     }
 
     /// M-6: copies the selection, or else the line and goes to the next one; copying lines in a
@@ -1131,7 +1231,15 @@ impl Editor {
     }
 
     fn exit(&mut self) {
-        if self.buf.modified {
+        if self.buf.modified && self.opts.saveonexit {
+            if self.name.is_empty() {
+                // As nano: a warning for a moment, then the usual question.
+                self.error("No file name");
+                self.warning = Some(Question::SaveOnExit);
+            } else {
+                self.save_as(self.name.clone(), true);
+            }
+        } else if self.buf.modified {
             self.mode = Mode::Ask(Question::SaveOnExit);
         } else {
             self.done = true;
@@ -1281,7 +1389,12 @@ impl Editor {
     fn save(&mut self, name: String, expected: Expected, exit: bool) {
         self.magic_line();
         let bytes = self.buf.to_bytes();
-        match files::save(Path::new(&name), &bytes, expected, &SaveOptions::default()) {
+        let options = SaveOptions {
+            backup: self.opts.backup,
+            backup_dir: self.opts.backupdir.clone(),
+            ..SaveOptions::default()
+        };
+        match files::save(Path::new(&name), &bytes, expected, &options) {
             Ok(saved) => {
                 self.meta = Some(saved.meta);
                 self.buf.mark_saved();

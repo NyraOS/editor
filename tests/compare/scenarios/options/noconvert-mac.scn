@@ -1,0 +1,7 @@
+# --noconvert: a Mac file is one line with carriage returns in it.
+args: --noconvert mac.txt
+file mac.txt:
+| one\rtwo\rthree\
+keys: {Down}
+keys: {^C}
+keys: {^X}

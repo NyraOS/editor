@@ -1,0 +1,8 @@
+# -k: a selection is cut as it is, not to the end of the line.
+args: -k words.txt
+file words.txt:
+| one two three
+keys: {Right*4}{M-a}{Right*3}{^K}
+keys: {^U}{^U}
+keys: {^X}
+keys: n

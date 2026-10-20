@@ -1,0 +1,10 @@
+# -i: a new line starts with the blanks of the line before, only those before the cursor.
+args: -i code.txt
+file code.txt:
+| \t  start
+| \tsecond line
+keys: {End}{Enter}x
+keys: {Down}{Home}{Right}{Right}{Enter}y
+keys: {Down}{Home}{Enter}z
+keys: {^O}{Enter}
+keys: {^X}

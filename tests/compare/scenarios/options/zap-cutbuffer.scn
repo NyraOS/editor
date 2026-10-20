@@ -1,0 +1,12 @@
+# --zap: the erased selection is not in the cut buffer, and is one step of undo.
+args: --zap words.txt
+file words.txt:
+| keep cut buffer
+| second
+keys: {^K}
+keys: {M-a}{Right*4}{Bsp}
+keys: {M-u}
+keys: {M-a}{Down}{Del}
+keys: {^U}
+keys: {^X}
+keys: n

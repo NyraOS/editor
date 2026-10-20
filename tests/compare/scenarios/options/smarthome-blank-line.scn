@@ -1,0 +1,11 @@
+# -A on a line of blanks only, and from the middle of the blanks.
+args: --smarthome blanks.txt
+file blanks.txt:
+|     
+|   x
+keys: {End}
+keys: {Home}
+keys: {Home}
+keys: {Down}{Right}{Home}
+keys: {^A}
+keys: {^X}

@@ -1,0 +1,14 @@
+# --cutfromcursor: at the end of the last line there is nothing to cut; on an empty line, ^K
+# takes the line break.
+args: --cutfromcursor words.txt
+file words.txt:
+| first
+|
+| last
+keys: {Down}{^K}
+keys: {Down}{End}{^K}
+keys: {^K}
+keys: {^U}
+keys: {M-u}
+keys: {^X}
+keys: n

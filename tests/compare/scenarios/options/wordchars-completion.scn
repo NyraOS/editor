@@ -1,0 +1,8 @@
+# Completion uses the -X characters as parts of words.
+args: -X _ words.txt
+file words.txt:
+| my_long_word
+| my_
+keys: {Down}{End}{^]}
+keys: {^X}
+keys: n
