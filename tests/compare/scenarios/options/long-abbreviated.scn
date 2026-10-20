@@ -1,0 +1,6 @@
+# Long options shortened, the argument after = and in the next word.
+args: --line --const --nohel --tabsize 3 --wordc=x tabs.txt
+file tabs.txt:
+| \tone
+keys: {End}
+keys: {^X}

@@ -1,0 +1,4 @@
+# A long option that does not exist, as the second of two arguments.
+args: -l --bogus=1 file.txt
+differ: rows 0-1: the program's name
+keys: {^X}

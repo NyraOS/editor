@@ -1,0 +1,12 @@
+# -W: with word bounds, punctuation is a word of its own for the word keys.
+args: -W code.txt
+file code.txt:
+| foo.bar(baz, qux)  end
+keys: {^Right}
+keys: {^Right}
+keys: {^Right}
+keys: {^Right}
+keys: {^Right}
+keys: {^Left}
+keys: {^Left}
+keys: {^X}

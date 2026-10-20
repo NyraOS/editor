@@ -120,6 +120,8 @@ pub enum Kind {
     Del,
     Join,
     Cut,
+    /// `-Z`: the selection erased.
+    Zap,
     Paste,
     Replace,
 }
@@ -132,6 +134,7 @@ impl Kind {
             Kind::Back | Kind::Del => "deletion",
             Kind::Join => "line join",
             Kind::Cut => "cut",
+            Kind::Zap => "erasure",
             Kind::Paste => "paste",
             Kind::Replace => "replacement",
         }

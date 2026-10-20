@@ -1,0 +1,9 @@
+# -N: a file with DOS line ends is not converted: the carriage returns are text, shown as ^M.
+args: -N dos.txt
+file dos.txt:
+| first\r
+| second\r
+keys: {End} more
+keys: {^O}
+keys: {Enter}
+keys: {^X}

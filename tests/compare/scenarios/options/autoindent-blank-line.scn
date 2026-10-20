@@ -1,0 +1,9 @@
+# -i: Enter at the end of a line of blanks only moves the blanks to the new line; the old line
+# is left empty.
+args: -i a.txt
+file a.txt:
+| \t  mixed
+keys: {End}{Enter}
+keys: {Enter}
+keys: {^O}{Enter}
+keys: {^X}

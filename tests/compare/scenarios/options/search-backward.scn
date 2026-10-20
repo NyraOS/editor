@@ -1,0 +1,9 @@
+# +?text: a search backwards, from the start of the file: it wraps round, and the search is the
+# last one, for M-W.
+args: +?line lines.txt
+file lines.txt:
+| first line
+| the second line
+| third line, second mention
+keys: {M-w}
+keys: {^X}

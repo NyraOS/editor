@@ -1,0 +1,8 @@
+# After --, an argument that starts with a plus is still a position.
+args: -- +2,3 lines.txt
+file lines.txt:
+| first
+| second
+| third
+keys: {^C}
+keys: {^X}

@@ -1,0 +1,9 @@
+# -u: a DOS file is saved in Unix format, with a note that it was converted when read.
+args: -u dos.txt
+file dos.txt:
+| first\r
+| second\r
+keys: {End} more
+keys: {^O}
+keys: {Enter}
+keys: {^X}

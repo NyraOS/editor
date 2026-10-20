@@ -1,0 +1,6 @@
+# --saveonexit: a buffer without a name warns for a moment, then asks as usual.
+args: --saveonexit
+keys: typed text
+keys: {^X}
+pause: 2500
+keys: n

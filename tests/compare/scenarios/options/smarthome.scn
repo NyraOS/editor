@@ -1,0 +1,11 @@
+# -A: Home goes to the first non-blank character, then to the start of the line, then back.
+args: -A indented.txt
+file indented.txt:
+| \t  text after blanks
+| plain
+keys: {End}
+keys: {Home}
+keys: {Home}
+keys: {Home}
+keys: {Down}{Home}
+keys: {^X}

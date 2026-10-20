@@ -1,0 +1,9 @@
+# -B: saving keeps the old file as NAME~, replaced at the next save.
+args: -B notes.txt
+file notes.txt:
+| old
+keys: {End} one
+keys: {^O}{Enter}
+keys: {End} two
+keys: {^O}{Enter}
+keys: {^X}

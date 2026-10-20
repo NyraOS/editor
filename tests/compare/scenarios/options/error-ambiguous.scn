@@ -1,0 +1,4 @@
+# A shortened long option that fits several: they are listed in nano's order.
+args: --no
+differ: rows 0-2: the program's name, and where the message wraps
+keys: {^X}

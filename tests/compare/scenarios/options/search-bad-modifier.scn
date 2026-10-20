@@ -1,0 +1,5 @@
+# A modifier that does not exist, and a search with no text.
+args: +x/text lines.txt
+file lines.txt:
+| first line
+keys: {^X}

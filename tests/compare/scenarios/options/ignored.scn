@@ -1,0 +1,8 @@
+# Options that change nothing on the screen without the ones still to come: -M, -O, -a, -w,
+# -r with a number (also a negative one) and -s with a program.
+args: -MOaw -r -5 -s spell -G lines.txt
+file lines.txt:
+| some words here
+keys: {End} and more
+keys: {^O}{Enter}
+keys: {^X}

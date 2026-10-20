@@ -1,0 +1,4 @@
+# An option that does not exist: the message and the exit status of getopt, as nano gives them.
+args: -3
+differ: rows 0-1: the program's name
+keys: {^X}

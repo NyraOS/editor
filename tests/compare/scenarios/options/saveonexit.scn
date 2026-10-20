@@ -1,0 +1,6 @@
+# -t: ^X on a modified buffer saves it without asking.
+args: -t notes.txt
+file notes.txt:
+| text
+keys: {End} more
+keys: {^X}

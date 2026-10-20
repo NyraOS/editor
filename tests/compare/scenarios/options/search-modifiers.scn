@@ -1,0 +1,8 @@
+# +cr/text: modifiers c (case sensitive) and r (regular expression).
+args: +cr/S.c lines.txt
+file lines.txt:
+| first line
+| the second line
+| the Second line
+keys: {M-w}
+keys: {^X}

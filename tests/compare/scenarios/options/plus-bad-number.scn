@@ -1,0 +1,6 @@
+# A position that is not a number: a message in the status bar, the file opens at the start.
+args: +3x lines.txt
+file lines.txt:
+| first line
+| second line
+keys: {^X}

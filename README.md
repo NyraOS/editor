@@ -7,7 +7,13 @@ Written from scratch in Rust, for [Nyra OS](https://nyraos.com).
 
 Early development. What works, the same way as in GNU nano 8.4:
 
-- opening a file (or a new buffer), `+LINE,COLUMN`, `-l`, `-c`, `-x`, `-T`, `-L`;
+- opening a file (or a new buffer); the command line of nano 8.4 for what is implemented:
+  `+LINE,COLUMN`, `+/TEXT` and `+?TEXT` (with the modifiers `c` `C` `r` `R`), `-A` `-B` `-C` `-E`
+  `-G` `-I` `-L` `-N` `-T` `-W` `-X` `-Z` `-c` `-i` `-k` `-l` `-t` `-u` `-x`, long forms (also
+  shortened), joined short options, `--`, and nano's messages for a wrong option. `-M` `-O` `-a`
+  `-r` `-s` `-w` are accepted and do nothing yet; every other option of nano (colours, soft
+  wrap, several files, the mouse, ...) is refused with "not available yet", rather than ignored.
+  `--help` lists them;
 - moving: arrows, Home and End, `^A` `^E` `^P` `^N`, PgUp and PgDn (`^Y` `^V`), ^Home and ^End
   (`M-\` `M-/`), ^Left and ^Right by words; long lines scroll sideways;
 - typing and deleting, Enter, Tab, Backspace and Delete (`^H` `^D`); UTF-8 with wide characters

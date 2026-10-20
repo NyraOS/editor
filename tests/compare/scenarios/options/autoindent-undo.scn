@@ -1,0 +1,11 @@
+# --autoindent: the new line and its blanks are undone, and done again, as one step.
+args: --autoindent code.txt
+file code.txt:
+|     four
+keys: {End}{Enter}
+keys: {M-u}
+keys: {M-e}
+keys: {Enter}ab
+keys: {M-u}
+keys: {^X}
+keys: n

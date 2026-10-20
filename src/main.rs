@@ -41,7 +41,7 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         Err(e) => {
-            eprintln!("editor: {e}\nType 'editor --help' for the options.");
+            eprintln!("{e}");
             return ExitCode::from(1);
         }
     };

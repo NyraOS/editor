@@ -1,0 +1,13 @@
+# Without -W: how the word keys treat punctuation (the editor's default must match nano's).
+args: code.txt
+file code.txt:
+| foo.bar(baz, qux)  end it's_x
+keys: {^Right}
+keys: {^Right}
+keys: {^Right}
+keys: {^Right}
+keys: {^Right}
+keys: {^Right}
+keys: {^Left}
+keys: {^Left}
+keys: {^X}

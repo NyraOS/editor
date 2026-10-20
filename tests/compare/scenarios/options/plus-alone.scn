@@ -1,0 +1,6 @@
+# A lone +3 is a file name, not a place.
+args: +3
+keys: x
+keys: {^X}
+keys: y
+keys: {Enter}

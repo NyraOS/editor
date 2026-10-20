@@ -1,0 +1,11 @@
+# -X: the characters are parts of words for the word keys.
+args: -X ._ code.txt
+file code.txt:
+| foo.bar(baz_qux, x) end
+keys: {^Right}
+keys: {^Right}
+keys: {^Right}
+keys: {^Right}
+keys: {^Left}
+keys: {^Left}
+keys: {^X}

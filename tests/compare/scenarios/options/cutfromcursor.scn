@@ -1,0 +1,12 @@
+# -k: ^K cuts from the cursor to the end of the line, and ^U pastes it.
+args: -k words.txt
+file words.txt:
+| one two three
+| second line
+| third line
+keys: {Right*4}
+keys: {^K}
+keys: {^K}
+keys: {Down}{^U}
+keys: {^O}{Enter}
+keys: {^X}

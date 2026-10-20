@@ -1,0 +1,3 @@
+# A tab size that is not a positive number.
+args: --tabsize=0 file.txt
+keys: {^X}

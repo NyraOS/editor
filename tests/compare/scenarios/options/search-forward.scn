@@ -1,0 +1,7 @@
+# +/text: the search is made when the file is open, from the start.
+args: +/second lines.txt
+file lines.txt:
+| first line
+| the second line
+| third line, second mention
+keys: {^X}

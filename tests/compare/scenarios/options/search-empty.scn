@@ -1,0 +1,5 @@
+# +/ with nothing after it.
+args: +/ lines.txt
+file lines.txt:
+| first line
+keys: {^X}
