@@ -78,8 +78,23 @@ impl Term {
         Ok(term)
     }
 
+    /// Sends keys; to an editor that exited, they go nowhere, as in a real terminal.
     pub fn send(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.master.write_all(bytes)
+        if self.closed {
+            return Ok(());
+        }
+        match self.master.write_all(bytes) {
+            Err(e) if e.raw_os_error() == Some(rustix::io::Errno::IO.raw_os_error()) => {
+                self.closed = true;
+                Ok(())
+            }
+            other => other,
+        }
+    }
+
+    /// Whether the editor closed the terminal (it exited).
+    pub fn closed(&self) -> bool {
+        self.closed
     }
 
     pub fn resize(&mut self, cols: u16, rows: u16) -> io::Result<()> {

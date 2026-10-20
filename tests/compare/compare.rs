@@ -80,6 +80,13 @@ pub fn run(
         );
     }
     let end = "at the end";
+    // 126 and 127: the shell's codes for a command that could not be executed (from setsid).
+    if let Exit::Code(code @ (126 | 127)) = exits[0] {
+        return Err(format!(
+            "nano could not run (exit status {code}): {}\n  check NANO",
+            nano.join(" ")
+        ));
+    }
     if let Some(report) = diff_screens(&terms, scenario) {
         return Err(format!("screens differ {end}\n{report}"));
     }
@@ -133,7 +140,13 @@ fn compare_screens(terms: &mut [Term], scenario: &Scenario, what: &str) -> Resul
             return Ok(());
         };
         if quiet == QUIET_SURE {
-            return Err(format!("screens differ {what}\n{report}"));
+            let mut report = format!("screens differ {what}\n{report}");
+            for (name, term) in NAMES.iter().zip(terms.iter()) {
+                if term.closed() {
+                    let _ = writeln!(report, "  {name} has exited");
+                }
+            }
+            return Err(report);
         }
     }
     Ok(())
@@ -148,7 +161,7 @@ struct Cell {
 
 fn cells(screen: &vt100::Screen) -> Vec<Vec<Cell>> {
     let (rows, cols) = screen.size();
-    let mut out: Vec<Vec<Cell>> = (0..rows.get())
+    (0..rows.get())
         .map(|row| {
             (0..cols.get())
                 .map(|col| {
@@ -163,23 +176,36 @@ fn cells(screen: &vt100::Screen) -> Vec<Vec<Cell>> {
                 })
                 .collect()
         })
-        .collect();
-    // The program name and version at the left of the title bar (drawn in inverse) may differ:
-    // GNU nano shows "GNU nano 8.4", the editor its own name. They read as asterisks.
-    let title_bar = screen.cell(0, 0).is_some_and(|c| c.inverse());
-    if let Some(title) = out.first_mut().filter(|_| title_bar) {
-        let start = title.iter().position(|c| c.text != " ").unwrap_or(0);
-        let mut end = start;
-        while end < title.len()
-            && !(title[end].text == " " && title.get(end + 1).is_none_or(|c| c.text == " "))
-        {
-            end += 1;
-        }
-        for cell in &mut title[start..end] {
+        .collect()
+}
+
+/// The program name and version at the left of the title bar may differ: nano shows "GNU nano
+/// 8.4", the editor its own name. When nano's row 0 starts with that, the columns of nano's name
+/// and of the editor's first group of words (up to two blanks) read as `*` on both screens.
+fn mask_title(nano: &mut [Vec<Cell>], editor: &mut [Vec<Cell>]) {
+    const BRANDING: &str = "GNU nano 8.4";
+    let (Some(a), Some(b)) = (nano.first_mut(), editor.first_mut()) else {
+        return;
+    };
+    let first = |row: &[Cell]| row.iter().position(|c| c.text != " ");
+    let Some(start) = first(a) else { return };
+    let text: String = a[start..].iter().map(|c| c.text.as_str()).collect();
+    if !text.starts_with(BRANDING) {
+        return;
+    }
+    let mut end = start + BRANDING.len();
+    let mut from = first(b).unwrap_or(start);
+    let mut to = from;
+    while to < b.len() && !(b[to].text == " " && b.get(to + 1).is_none_or(|c| c.text == " ")) {
+        to += 1;
+    }
+    from = from.min(start);
+    end = end.max(to).min(a.len()).min(b.len());
+    for row in [a, b] {
+        for cell in &mut row[from..end] {
             cell.text = "*".into();
         }
     }
-    out
 }
 
 fn style(cell: &vt100::Cell) -> String {
@@ -221,7 +247,8 @@ fn cursor(screen: &vt100::Screen) -> String {
 /// The differences between the two screens, as a readable report; None if they match.
 fn diff_screens(terms: &[Term], scenario: &Scenario) -> Option<String> {
     let screens = [terms[0].screen(), terms[1].screen()];
-    let [a, b] = screens.map(cells);
+    let [mut a, mut b] = screens.map(cells);
+    mask_title(&mut a, &mut b);
     let mut report = String::new();
     if a.len() != b.len() || a[0].len() != b[0].len() {
         let size = |c: &Vec<Vec<Cell>>| format!("{}x{}", c[0].len(), c.len());
@@ -387,4 +414,50 @@ fn diff_files(a: &BTreeMap<String, Entry>, b: &BTreeMap<String, Entry>) -> Optio
         }
     }
     (!report.is_empty()).then_some(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cell, mask_title};
+
+    fn screen(row0: &str) -> Vec<Vec<Cell>> {
+        let cell = |c: char| Cell {
+            text: c.to_string(),
+            style: "inverse".into(),
+        };
+        vec![format!("{row0:<40}").chars().map(cell).collect()]
+    }
+
+    fn masked(nano: &str, editor: &str) -> (String, String) {
+        let (mut a, mut b) = (screen(nano), screen(editor));
+        mask_title(&mut a, &mut b);
+        let text = |s: &[Vec<Cell>]| s[0].iter().map(|c| c.text.as_str()).collect::<String>();
+        (text(&a), text(&b))
+    }
+
+    #[test]
+    fn an_editor_name_of_another_length_is_masked() {
+        let (a, b) = masked(
+            "  GNU nano 8.4      notes.txt",
+            "  Editor 0.1.0      notes.txt",
+        );
+        assert_eq!(a, b);
+        assert!(a.starts_with("  ************ "), "{a}");
+        let (a, b) = masked(
+            "  GNU nano 8.4      notes.txt",
+            "  Ed 1              notes.txt",
+        );
+        assert_eq!(a, b);
+        assert_eq!(a.trim_end(), "  ************      notes.txt");
+    }
+
+    #[test]
+    fn a_file_name_is_never_masked() {
+        // On a narrow screen nano leaves its name out: the file name comes first.
+        let (a, b) = masked("    abc.txt", "    xyz.txt");
+        assert_ne!(a, b);
+        let (a, b) = masked("  GNU nano 8.4   abc.txt", "  GNU nano 8.4   xyz.txt");
+        assert!(a.trim_end().ends_with("abc.txt"), "{a}");
+        assert!(b.trim_end().ends_with("xyz.txt"), "{b}");
+    }
 }

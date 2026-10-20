@@ -30,7 +30,7 @@ fn nano() -> Option<Vec<String>> {
         .and_then(|out| String::from_utf8(out.stdout).ok())
         .and_then(|out| Some(out.lines().next()?.trim().to_string()));
     if version.as_deref() == Some(NANO_VERSION) {
-        return Some(vec![path]);
+        return Some(vec![program(&path)]);
     }
     let found = version.unwrap_or_else(|| "not found".into());
     assert!(!required, "NANO={path}: want {NANO_VERSION}, found {found}");
@@ -45,9 +45,22 @@ fn nano() -> Option<Vec<String>> {
 /// itself while the editor cannot edit yet, which checks the scenarios and the harness.
 fn editor(nano: &[String]) -> Vec<String> {
     match std::env::var("COMPARE_EDITOR") {
-        Ok(cmd) if !cmd.trim().is_empty() => cmd.split_whitespace().map(String::from).collect(),
+        Ok(cmd) if !cmd.trim().is_empty() => {
+            let mut words = cmd.split_whitespace().map(String::from);
+            let first = words.next().map(|p| program(&p));
+            first.into_iter().chain(words).collect()
+        }
         _ => nano.to_vec(),
     }
+}
+
+/// A program path made absolute, as the editors start in their own directories; a bare name
+/// (looked up in PATH) stays as it is.
+fn program(path: &str) -> String {
+    if !path.contains('/') {
+        return path.to_string();
+    }
+    std::path::absolute(path).map_or_else(|_| path.to_string(), |p| p.display().to_string())
 }
 
 fn scenarios_dir() -> PathBuf {
@@ -78,9 +91,10 @@ fn scenario_files() -> Vec<(String, PathBuf)> {
 fn run_file(name: &str, path: &Path, nano: &[String], editor: &[String]) -> Result<(), String> {
     let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let scenario = scenario::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    // Named after the scenario file, so that no two scenarios share a directory.
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join("compare")
-        .join(name.replace('/', "-"));
+        .join(format!("{name}.scn"));
     let _ = fs::remove_dir_all(&dir);
     let mut log = String::new();
     let show = std::env::var_os("COMPARE_SHOW")
@@ -169,6 +183,25 @@ fn a_wrong_editor_fails_with_a_readable_report() {
     assert!(report.contains("\n    editor: |"), "{report}");
     let carets = |l: &str| l.starts_with("             ") && l.trim_start().starts_with('^');
     assert!(report.lines().any(carets), "{report}");
+}
+
+/// A reference that cannot run must fail the scenario, not match an editor that cannot run either.
+#[test]
+fn a_reference_that_cannot_run_fails() {
+    let missing = vec!["/nonexistent/nano".to_string()];
+    let path = scenarios_dir().join("basic/exit-discard.scn");
+    let report = run_file("selftest/missing-nano", &path, &missing, &missing)
+        .expect_err("a missing nano passed");
+    assert!(report.contains("nano could not run"), "{report}");
+}
+
+#[test]
+fn program_paths_are_made_absolute() {
+    assert_eq!(program("nano"), "nano");
+    let relative = program("../usr/bin/nano");
+    assert!(Path::new(&relative).is_absolute(), "{relative}");
+    assert!(relative.ends_with("usr/bin/nano"), "{relative}");
+    assert_eq!(program("/usr/bin/nano"), "/usr/bin/nano");
 }
 
 #[test]

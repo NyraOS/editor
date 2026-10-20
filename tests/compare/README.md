@@ -61,7 +61,7 @@ keys: {^X}
 | `file NAME:` | A file in the working directory, created before the editors start; its lines follow, each starting with `\| ` (or just `\|` for an empty line). No lines: an empty file. `NAME` is relative and may have directories. |
 | `keys: ...` | A step: keys sent at once (see below). The screens are compared after each step. |
 | `resize: COLSxROWS` | A step: the terminal changes size. |
-| `differ: rows A-B[ cols C-D]: reason` | A deliberate difference from GNU nano: these screen cells are not compared, in every step. Also `row N`, `col N`. The reason is required. |
+| `differ: rows A-B[ cols C-D]: reason` | A deliberate difference from GNU nano: these screen cells are not compared, in every step. Also `row N`, `col N`. The reason is required. The cursor position is still compared, also inside the region. |
 
 `args` and `size` may appear once; the other lines as often as needed. Steps run in file order.
 
@@ -108,12 +108,17 @@ the same step, it reads as Alt.
 - The environment: `TERM=xterm-256color`, `LANG` and `LC_ALL` `C.UTF-8`, `TZ=UTC`, a fixed `PATH`,
   and an empty `HOME` per editor; nothing else is inherited.
 - No configuration: `--ignorercfiles`, and the empty `HOME` has no nanorc.
-- Each editor runs in its own fresh working directory under `target/tmp/compare/`, in its own
-  session with the pseudo-terminal as the controlling terminal (so a resize sends `SIGWINCH`). A
-  failed scenario's directories are kept there for a look.
-- The title bar's program name and version (the first word group at the left, when row 0 is in
-  inverse video) are not compared: nano shows "GNU nano 8.4", the editor its own name. They show as
-  `*` in the reports.
+- Each editor runs in its own fresh working directory under `target/tmp/compare/<name>.scn/`, in
+  its own session with the pseudo-terminal as the controlling terminal (so a resize sends
+  `SIGWINCH`). A failed scenario's directories are kept there for a look.
+- The title bar's program name and version are not compared: nano shows "GNU nano 8.4", the
+  editor its own name. Only when nano's row 0 starts (after blanks) with `GNU nano 8.4`, the
+  columns of that name and of the editor's first group of words on row 0 (up to two blanks) read
+  as `*` on both screens, in the reports too. On a narrow screen nano leaves its name out, and
+  nothing is masked.
+- A reference nano that cannot run (exit status 126 or 127) fails the scenario, so a wrong
+  `NANO` can never make the scenarios pass. A report also says when an editor has exited. `NANO`, and an editor command with a `/`, are made
+  absolute paths, as the editors start in their own directories.
 
 **Timing.** A step ends when the editor's output pauses for 40 ms. If the screens then differ, both
 editors get a pause of 400 ms and are compared again, so a slow machine only slows the run down;
