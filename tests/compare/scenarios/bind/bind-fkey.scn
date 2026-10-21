@@ -1,0 +1,8 @@
+# F5 for undo, then it shows F5
+nanorc: bind F5 undo main
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: x{F5}

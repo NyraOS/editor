@@ -1,0 +1,10 @@
+# a rebind in the search menu: ^X now toggles case, M-C too, the label changes
+nanorc: bind ^X casesens search
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^F}
+keys: {^X}
+keys: {^C}

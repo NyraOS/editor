@@ -1,0 +1,8 @@
+# the go to line menu: First Line on ^X
+nanorc: bind ^X firstline gotoline
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^_}{^X}

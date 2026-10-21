@@ -34,7 +34,12 @@ Early development. What works, the same way as in GNU nano 8.4:
 - completing a word (`^]`): the fragment before the cursor takes the ending of a word of the
   text, and the next one on each `^]` in a row; one step of undo;
 - the title bar, the status bar and the help lines at any terminal size, the help screen (`^G`);
-- writing the file (`^O` `^S`) and exiting (`^X`).
+- writing the file (`^O` `^S`) and exiting (`^X`);
+- key bindings: `bind KEY FUNCTION MENU` and `unbind KEY MENU` in a nanorc (key names, menus and
+  messages as in `man nanorc`; a function the editor does not have yet is refused with a message,
+  a string as the function types it in the main menu), and `--modernbindings`, applied first. The
+  help lines show the keys as bound. Without a key for Exit (main) or Cancel (yes/no) the editor
+  does not start, as nano.
 
 Saving is safe (a new file renamed over the old one, or a copy first when the file must be
 written in place), and a file changed on disk since it was read is noticed, as in nano. Files are

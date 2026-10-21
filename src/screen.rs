@@ -327,13 +327,18 @@ const YES_NO: [(&str, &str, usize, usize); 4] = [
 ];
 
 /// The help lines of a yes-or-no question.
-fn yes_no_rows(cols: usize, all: bool) -> [Row; 2] {
+fn yes_no_rows(cols: usize, all: bool, cancel: &str) -> [Row; 2] {
     let mut rows = [vec![Cell::blank(); cols], vec![Cell::blank(); cols]];
     let width = (cols / 2).min(16);
     for &(key, label, row, column) in YES_NO.iter().filter(|k| all || k.1 != "All") {
         let from = column * width;
         let to = (from + width).min(cols);
         let cells = &mut rows[row][from.min(cols)..to];
+        // Cancel has the key it is bound to; when it has none, it is not shown.
+        let key = if label == "Cancel" { cancel } else { key };
+        if key.is_empty() {
+            continue;
+        }
         let after = put(cells, 0, key, INVERSE);
         if after < cells.len() {
             put(cells, after + 1, label, PLAIN);
@@ -466,8 +471,16 @@ pub fn compose(ed: &Editor) -> Frame {
     }
     if !ed.opts.nohelp && rows >= 3 && ed.warning.is_none() {
         let bars = match &ed.mode {
-            Mode::Ask(question) => yes_no_rows(cols, matches!(question, Question::Replace(_))),
-            mode => help_rows(crate::commands::menu(mode), cols),
+            Mode::Ask(question) => {
+                let lines = ed.help_lines_of();
+                let cancel = lines.first().map_or("", |l| l.0.as_str());
+                yes_no_rows(cols, matches!(question, Question::Replace(_)), cancel)
+            }
+            _ => {
+                let lines = ed.help_lines_of();
+                let items: Vec<(&str, &str)> = lines.iter().map(|l| (l.0.as_str(), l.1)).collect();
+                help_rows(&items, cols)
+            }
         };
         let [a, b] = bars;
         screen[rows - 2] = a;

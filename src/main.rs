@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! A nano-compatible terminal editor.
 
+mod bindings;
 mod buffer;
 mod commands;
 mod complete;
@@ -46,6 +47,10 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    if let Err(e) = bindings::Bindings::new(opts.modernbindings, &opts.binds).check() {
+        eprintln!("{e}");
+        return ExitCode::from(1);
+    }
     if !rustix::termios::isatty(io::stdin()) || !rustix::termios::isatty(io::stdout()) {
         eprintln!("editor: the input and the output must be a terminal");
         return ExitCode::from(1);

@@ -3,11 +3,13 @@
 //! rcfile.rs). An option the editor cannot honour yet is refused ("not available yet") rather
 //! than ignored, unless nano would show the same screen with it.
 
-use crate::rcfile;
+use crate::{bindings, rcfile};
 use std::path::PathBuf;
 
 /// What the command line asks for.
 #[derive(Debug, PartialEq)]
+// Made once at start: boxing the options would only add a step for the reader.
+#[allow(clippy::large_enum_variant)]
 pub enum Command {
     Edit(Options),
     Version,
@@ -75,6 +77,10 @@ pub struct Options {
     pub casesensitive: bool,
     /// nanorc `set regexp`: searches start with regular expressions.
     pub regexp: bool,
+    /// `-/`: the keys of other editors (^X cuts, ^Q exits, ...), before the nanorc's `bind` lines.
+    pub modernbindings: bool,
+    /// The nanorc's `bind` and `unbind` lines, in order.
+    pub binds: Vec<bindings::Op>,
 }
 
 impl Default for Options {
@@ -105,6 +111,8 @@ impl Default for Options {
             afterends: false,
             casesensitive: false,
             regexp: false,
+            modernbindings: false,
+            binds: Vec::new(),
         }
     }
 }
@@ -164,7 +172,7 @@ const OPTIONS: &[Opt] = &[
     opt('G', "locking", false, Works),
     opt('F', "multibuffer", false, Later),
     opt('m', "mouse", false, Later),
-    opt('/', "modernbindings", false, Later),
+    opt('/', "modernbindings", false, Works),
     opt('_', "minibar", false, Later),
     opt('w', "nowrap", false, Ignored),
     opt('x', "nohelp", false, Works),
@@ -387,6 +395,7 @@ fn apply(p: &mut Parsing, opt: &Opt, value: &str) -> Result<Option<Command>, Str
         "wordchars" => o.wordchars = value.to_string(),
         "nonewlines" => o.nonewlines = true,
         "constantshow" => o.constantshow = true,
+        "modernbindings" => o.modernbindings = true,
         "linenumbers" => o.linenumbers = true,
         "nohelp" => o.nohelp = true,
         "smarthome" => o.smarthome = true,
@@ -539,11 +548,12 @@ Options:
  -t, --saveonexit        Save a modified buffer on exit without asking
  -u, --unix              Save the file in Unix format
  -V, --version           Show the version and exit
+ -/, --modernbindings    Use the keys of other editors (^X cuts, ^Q exits, ^V pastes, ...)
  -x, --nohelp            Do not show the two help lines
 
 Accepted, with no effect yet: -M, -O, -a, -r, -s, -w.
 Not available yet (refused): -D, -F, -H, -J, -K, -P, -Q, -R, -S, -U, -Y, -b, -d, -e, -f, -g,
--j, -m, -n, -o, -p, -q, -v, -y, -z, -@, -%, -_, -0, -/, several files, and - (standard input).
+-j, -m, -n, -o, -p, -q, -v, -y, -z, -@, -%, -_, -0, several files, and - (standard input).
 ";
 
 #[cfg(test)]
@@ -709,7 +719,6 @@ mod tests {
             &["-%"],
             &["-_"],
             &["-0"],
-            &["-/"],
             &["-lv"],
             &["--rebinddelete"],
         ] {
@@ -723,6 +732,7 @@ mod tests {
         assert!(err(&["-S", "-m"]).contains("--softwrap"));
         assert!(err(&["-m", "-T", "x"]).starts_with("Requested tab size"));
         assert!(err(&["a", "b"]).contains("several files"));
+        assert!(edit(&["-/"]).modernbindings);
         assert!(err(&["-"]).contains("standard input"));
     }
 

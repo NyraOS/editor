@@ -1,0 +1,8 @@
+# --modernbindings: the search prompt's help line
+args: --modernbindings a.txt
+file a.txt:
+| one two
+| three
+keys: {^F}
+keys: {^C}{^T}
+keys: {^C}

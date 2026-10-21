@@ -1,0 +1,9 @@
+# Sh-M-X: once used, Alt+Shift+letter is another key than Alt+letter
+nanorc: bind Sh-M-A cut main
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {M-A}
+keys: {M-a}x

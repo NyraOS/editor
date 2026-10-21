@@ -1,0 +1,10 @@
+# Ins and Del as key names
+nanorc: bind Ins whereis main
+nanorc: bind Del cut main
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {Ins}two{Enter}
+keys: {Del}

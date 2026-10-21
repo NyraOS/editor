@@ -1,4 +1,4 @@
-# unbind is read and ignored for now (so is bind, see the unit tests): the options after it count.
+# an unbind line does not stop the lines after it (see scenarios/bind for what it does).
 nanorc: unbind M-z main
 nanorc: set linenumbers
 args: a.txt

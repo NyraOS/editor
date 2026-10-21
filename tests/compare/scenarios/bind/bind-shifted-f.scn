@@ -1,0 +1,8 @@
+# F13 is Shift+F1: bound to cut
+nanorc: bind F13 cut main
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {S-F1}

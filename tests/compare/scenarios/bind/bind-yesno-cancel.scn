@@ -1,0 +1,12 @@
+# the yes/no question: Cancel is bound to ^X, ^C is still a key
+nanorc: bind ^X cancel yesno
+nanorc: unbind ^C yesno
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: x
+keys: {^X}
+keys: {^C}
+keys: {^X}

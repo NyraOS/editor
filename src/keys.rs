@@ -16,6 +16,8 @@ pub enum Key {
     Ctrl(char),
     /// Alt (Meta) with a character; letters are lowercase.
     Meta(char),
+    /// Alt with Shift and a letter, by the lowercase letter.
+    ShiftMeta(char),
     /// A named key, with Ctrl, Alt and Shift.
     Named(Named, Mods),
     /// A bracketed paste begins: what follows, up to `PasteEnd`, is text, not keys.
@@ -264,7 +266,8 @@ fn skip_escape(b: &[u8]) -> Option<usize> {
 
 fn with_alt(key: Key) -> Key {
     match key {
-        Key::Char(c) => Key::Meta(c.to_ascii_lowercase()),
+        Key::Char(c) if c.is_ascii_uppercase() => Key::ShiftMeta(c.to_ascii_lowercase()),
+        Key::Char(c) => Key::Meta(c),
         Key::Named(n, mods) => Key::Named(n, Mods { alt: true, ..mods }),
         // Escape, Escape and a key: Ctrl and the key, as in nano.
         other => other,
@@ -359,6 +362,7 @@ fn parse_csi(b: &[u8]) -> Option<(Option<Key>, usize)> {
         (b'H', _) | (b'~', 1 | 7) => Named::Home,
         (b'F', _) | (b'~', 4 | 8) => Named::End,
         (b'Z', _) => Named::BackTab,
+        (b'P'..=b'S', _) => Named::F(b[end] - b'P' + 1),
         (b'~', 200) => return Some((Some(Key::PasteStart), end + 1)),
         (b'~', 2) => Named::Insert,
         (b'~', 3) => Named::Delete,
@@ -416,7 +420,7 @@ mod tests {
         );
         assert_eq!(
             keys(b"\x1bw\x1bW\x1b/"),
-            [Key::Meta('w'), Key::Meta('w'), Key::Meta('/')]
+            [Key::Meta('w'), Key::ShiftMeta('w'), Key::Meta('/')]
         );
     }
 
