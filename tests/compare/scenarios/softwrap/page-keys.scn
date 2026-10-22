@@ -1,0 +1,24 @@
+# Page Down and Page Up move the screen and the cursor by rows; the first and last line with M-\ and M-/.
+args: -S x.txt
+size: 20x10
+file x.txt:
+| L01aaaaaaaaaaaaaaaaa
+| L02aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbb
+| L03aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+| L04aaaaaaaaaaaaaaaaa
+| L05aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbb
+| L06aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+| L07aaaaaaaaaaaaaaaaa
+| L08aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbb
+| L09aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+| L10aaaaaaaaaaaaaaaaa
+keys: {PgDn}
+keys: {PgDn}
+keys: {PgUp}
+keys: {M-/}
+keys: {PgUp}
+keys: {PgDn}
+keys: {PgDn}
+keys: {M-\}
+keys: {PgUp}
+keys: {^X}

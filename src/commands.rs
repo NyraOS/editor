@@ -430,8 +430,7 @@ impl Editor {
         let col = col.max(1);
         self.buf.x = buffer::index_at(&text, col as usize - 1, tab);
         self.buf.want = col as usize - 1;
-        let rows = self.edit_rows();
-        self.buf.top = self.buf.line.saturating_sub(rows / 2);
+        self.center_cursor();
     }
 
     pub fn display_name(&self) -> &str {
@@ -547,7 +546,6 @@ impl Editor {
 
     fn edit_key(&mut self, key: Key, chain: Chain, completion: Option<Completion>) {
         use Named::*;
-        let tab = self.opts.tabsize;
         let ctrl = Mods {
             ctrl: true,
             ..Mods::default()
@@ -574,10 +572,7 @@ impl Editor {
             Key::Named(Left, _) => self.left(),
             Key::Named(Right, _) => self.right(),
             Key::Ctrl('A') | Key::Named(Home, Mods { ctrl: false, .. }) => self.home(),
-            Key::Ctrl('E') | Key::Named(End, Mods { ctrl: false, .. }) => {
-                self.buf.x = self.buf.line_len(self.buf.line);
-                self.buf.keep_column(tab);
-            }
+            Key::Ctrl('E') | Key::Named(End, Mods { ctrl: false, .. }) => self.end(),
             Key::Ctrl('Y') | Key::Named(PageUp, _) => self.page_up(),
             Key::Ctrl('V') | Key::Named(PageDown, _) => self.page_down(),
             Key::Meta('\\') | Key::Named(Home, _) => self.first_line(),
@@ -617,7 +612,7 @@ impl Editor {
                 self.insert_text(&text, Kind::Paste);
                 // As nano: a paste taller than the screen puts the cursor's line in the middle.
                 if text.matches('\n').count() >= self.edit_rows() {
-                    self.buf.top = self.buf.line.saturating_sub(self.edit_rows() / 2);
+                    self.center_cursor();
                 }
             }
             Key::PasteEnd { flawed } => {
@@ -710,6 +705,9 @@ impl Editor {
     /// The start of the line; with `-A`, first the first character that is not a blank, as long
     /// as the cursor is not there already.
     fn home(&mut self) {
+        if self.opts.softwrap && self.wrap_home() {
+            return;
+        }
         let b = &mut self.buf;
         let indent = b
             .line_text(b.line)
@@ -724,6 +722,15 @@ impl Editor {
             0
         };
         b.keep_column(self.opts.tabsize);
+    }
+
+    /// The end of the line; with soft wrapping, first the end of the row.
+    fn end(&mut self) {
+        if self.opts.softwrap {
+            return self.wrap_end();
+        }
+        self.buf.x = self.buf.line_len(self.buf.line);
+        self.buf.keep_column(self.opts.tabsize);
     }
 
     fn undo(&mut self) {
@@ -847,13 +854,17 @@ impl Editor {
     }
 
     fn up(&mut self) {
-        if self.buf.line > 0 {
+        if self.opts.softwrap {
+            self.wrap_up();
+        } else if self.buf.line > 0 {
             self.buf.goto_line(self.buf.line - 1, self.opts.tabsize);
         }
     }
 
     fn down(&mut self) {
-        if self.buf.line + 1 < self.buf.lines() {
+        if self.opts.softwrap {
+            self.wrap_down();
+        } else if self.buf.line + 1 < self.buf.lines() {
             self.buf.goto_line(self.buf.line + 1, self.opts.tabsize);
         }
     }
@@ -933,11 +944,14 @@ impl Editor {
     }
 
     /// A page is the text rows less two, as in nano: two lines stay on the screen.
-    fn page(&self) -> usize {
+    pub fn page(&self) -> usize {
         self.edit_rows().saturating_sub(2).max(1)
     }
 
     fn page_up(&mut self) {
+        if self.opts.softwrap {
+            return self.wrap_page(false);
+        }
         let page = self.page();
         self.buf.top = self.buf.top.saturating_sub(page);
         self.buf
@@ -946,6 +960,9 @@ impl Editor {
 
     /// Down a page, the text with the cursor; at the end, the cursor goes to the last line.
     fn page_down(&mut self) {
+        if self.opts.softwrap {
+            return self.wrap_page(true);
+        }
         let page = self.page();
         let last = self.buf.lines() - 1;
         if self.buf.line + page > last {
@@ -970,6 +987,9 @@ impl Editor {
 
     /// Scrolls just enough to show the cursor's line.
     fn scroll_to_cursor(&mut self) {
+        if self.opts.softwrap {
+            return self.wrap_scroll();
+        }
         let rows = self.edit_rows();
         let b = &mut self.buf;
         if b.line < b.top {
@@ -981,11 +1001,23 @@ impl Editor {
 
     /// Puts the cursor's line in the middle of the screen if it is not on it.
     fn center(&mut self) {
+        if self.opts.softwrap {
+            return self.wrap_center(false);
+        }
         let rows = self.edit_rows();
         let b = &mut self.buf;
         if b.line < b.top || b.line >= b.top + rows {
             b.top = b.line.saturating_sub(rows / 2);
         }
+    }
+
+    /// Puts the cursor's line (with soft wrapping, its row) in the middle of the screen.
+    fn center_cursor(&mut self) {
+        if self.opts.softwrap {
+            return self.wrap_center(true);
+        }
+        let rows = self.edit_rows();
+        self.buf.top = self.buf.line.saturating_sub(rows / 2);
     }
 
     /// ^K: the selection, or else the line; cutting lines in a row adds them to the cut buffer.

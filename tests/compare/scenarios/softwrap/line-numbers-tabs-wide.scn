@@ -1,0 +1,13 @@
+# Line numbers with softwrap, tabs and wide characters at the edge.
+args: -S -l x.txt
+size: 20x12
+file x.txt:
+| \tab\tcd\tef
+| 日本語日本語日本語日本語
+| x\t日本語\tyz
+keys: {End}
+keys: {Down}
+keys: {End}
+keys: {Down}
+keys: {End}
+keys: {^X}

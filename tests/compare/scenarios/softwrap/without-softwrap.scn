@@ -1,0 +1,9 @@
+# Without -S a long line scrolls sideways with > and <, and -a changes nothing.
+args: -a x.txt
+size: 20x12
+file x.txt:
+| the quick brown fox jumps over the lazy dog and the cat
+| second
+keys: {End}
+keys: {Up}
+keys: {^X}

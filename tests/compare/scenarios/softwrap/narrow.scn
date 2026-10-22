@@ -1,0 +1,13 @@
+# A very narrow screen, with wide characters that are wider than a row could be.
+args: -S x.txt
+size: 10x10
+file x.txt:
+| 0123456789abcdefghij
+| 日本語日本
+| ab cd ef gh
+keys: {End}
+keys: {Down}
+keys: {End}
+keys: {Down}
+keys: {End}
+keys: {^X}

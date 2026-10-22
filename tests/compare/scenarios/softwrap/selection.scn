@@ -1,0 +1,15 @@
+# A selection across wrapped rows is shown on each of them, and cut from the start to the end.
+args: -S x.txt
+size: 20x12
+file x.txt:
+| 0123456789abcdefghij0123456789ABCDEFGHIJ
+| second line that wraps over the edge
+keys: {Right*15}
+keys: {M-a}
+keys: {Down}
+keys: {Down}
+keys: {Down}
+keys: {End}
+keys: {^K}
+keys: {^X}
+keys: n

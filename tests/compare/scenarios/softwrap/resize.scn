@@ -1,0 +1,13 @@
+# A resize wraps the lines again, with the cursor on the same text.
+args: -S x.txt
+size: 30x12
+file x.txt:
+| 0123456789abcdefghij0123456789ABCDEFGHIJ0123456789
+| second line that wraps over the edge of the screen
+keys: {Down}
+keys: {End}
+resize: 20x12
+resize: 45x12
+resize: 12x12
+resize: 30x12
+keys: {^X}

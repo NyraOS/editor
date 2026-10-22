@@ -1,0 +1,15 @@
+# Typing, cutting and pasting on wrapped lines.
+args: -S x.txt
+size: 20x12
+file x.txt:
+| 0123456789abcdefghij0123456789ABCDEFGHIJ
+| second line that wraps over the edge
+keys: {Down}
+keys: {^K}
+keys: {Up}
+keys: {^U}
+keys: {^U}
+keys: {Down}
+keys: hello hello hello hello
+keys: {^X}
+keys: n

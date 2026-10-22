@@ -1,0 +1,14 @@
+# The column is kept over a short line and over the breaks between rows.
+args: -S x.txt
+size: 20x12
+file x.txt:
+| 0123456789abcdefghij0123456789ABCDEFGHIJ
+| abc
+| 0123456789abcdefghij0123456789ABCDEFGHIJ
+keys: {Right*37}
+keys: {Down}
+keys: {Down}
+keys: {Down}
+keys: {Down}
+keys: {Up*4}
+keys: {^X}

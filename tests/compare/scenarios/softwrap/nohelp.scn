@@ -1,0 +1,12 @@
+# Soft wrapping with the help lines off: more rows, and paging by them.
+args: -S -x x.txt
+size: 20x8
+file x.txt:
+| 0123456789abcdefghij0123456789ABCDEFGHIJ0123
+| second line that wraps over the edge
+| third
+| fourth line that wraps over the edge too
+keys: {PgDn}
+keys: {PgDn}
+keys: {PgUp}
+keys: {^X}

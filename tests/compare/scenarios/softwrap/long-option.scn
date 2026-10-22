@@ -1,0 +1,9 @@
+# --softwrap is the long form of -S.
+args: --softwrap x.txt
+size: 20x12
+file x.txt:
+| 0123456789abcdefghij0123456789ABCDEFGHIJ0123456789
+| second
+keys: {End}
+keys: {Down}
+keys: {^X}

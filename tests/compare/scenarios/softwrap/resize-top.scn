@@ -1,0 +1,12 @@
+# A resize when the screen starts in the middle of a long line.
+args: -S x.txt
+size: 20x8
+file x.txt:
+| aaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbccccccccccccccccccccddddddddddddddddddddeeeeeeeeeeeeeeeeeeeeffffffffffffffffffff
+| second
+keys: {End}
+keys: {Down}
+resize: 30x8
+resize: 15x8
+resize: 25x8
+keys: {^X}

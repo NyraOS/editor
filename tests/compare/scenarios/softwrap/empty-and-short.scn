@@ -1,0 +1,12 @@
+# Empty and short lines, and the end of the text.
+args: -S x.txt
+size: 20x12
+file x.txt:
+|
+| a
+|
+| 0123456789abcdefghij
+keys: {Down*5}
+keys: {Up*6}
+keys: {End}
+keys: {^X}

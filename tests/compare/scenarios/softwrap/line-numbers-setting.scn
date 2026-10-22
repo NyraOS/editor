@@ -1,0 +1,11 @@
+# The softwrap and linenumbers settings of a nanorc.
+nanorc: set softwrap
+nanorc: set linenumbers
+args: x.txt
+size: 20x12
+file x.txt:
+| 0123456789abcdefghij0123456789ABCDEFGHIJ0123
+| second
+keys: {End}
+keys: {Down}
+keys: {^X}

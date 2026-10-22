@@ -1,0 +1,12 @@
+# With -l, the rows a line wraps into have no number, and the text is as wide as what is left.
+args: -S -l x.txt
+size: 20x12
+file x.txt:
+| 0123456789abcdefghij0123456789ABCDEFGHIJ0123
+| second
+| third line that is long enough to wrap
+keys: {Down}
+keys: {End}
+keys: {Down}
+keys: {Down}
+keys: {^X}

@@ -1,0 +1,18 @@
+# Down past the last row on the screen scrolls by one row; Up inside the screen does not scroll.
+args: -S x.txt
+size: 20x10
+file x.txt:
+| L01aaaaaaaaaaaaaaaaa
+| L02aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbb
+| L03aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+| L04aaaaaaaaaaaaaaaaa
+| L05aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbb
+| L06aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+| L07aaaaaaaaaaaaaaaaa
+keys: {Down*3}
+keys: {Down}
+keys: {Down}
+keys: {Down*5}
+keys: {Up}
+keys: {Up*6}
+keys: {^X}

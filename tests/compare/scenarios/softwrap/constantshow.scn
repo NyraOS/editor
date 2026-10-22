@@ -1,0 +1,10 @@
+# With -c the position is shown as the cursor moves from row to row.
+args: -S -c x.txt
+size: 30x12
+file x.txt:
+| 0123456789abcdefghij0123456789ABCDEFGHIJ0123
+| second line
+keys: {Right*25}
+keys: {Down}
+keys: {End}
+keys: {^X}

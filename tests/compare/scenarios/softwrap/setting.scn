@@ -1,0 +1,10 @@
+# The softwrap setting of a nanorc wraps the same as -S.
+nanorc: set softwrap
+args: x.txt
+size: 20x12
+file x.txt:
+| 0123456789abcdefghij0123456789ABCDEFGHIJ0123456789
+| second
+keys: {Down*2}
+keys: {End}
+keys: {^X}

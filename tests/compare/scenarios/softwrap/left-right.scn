@@ -1,0 +1,14 @@
+# Left and Right move across the break between two rows.
+args: -S x.txt
+size: 20x12
+file x.txt:
+| 0123456789abcdefghij0123456789
+| end
+keys: {Right*19}
+keys: {Right}
+keys: {Right}
+keys: {Left}
+keys: {Left}
+keys: {Left}
+keys: {Right*12}
+keys: {^X}

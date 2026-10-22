@@ -53,6 +53,7 @@ const MAX_MATCHES: usize = 256;
 fn flag<'a>(o: &'a mut Options, name: &str) -> Option<&'a mut bool> {
     Some(match name {
         "afterends" => &mut o.afterends,
+        "atblanks" => &mut o.atblanks,
         "autoindent" => &mut o.autoindent,
         "backup" => &mut o.backup,
         "casesensitive" => &mut o.casesensitive,
@@ -65,6 +66,7 @@ fn flag<'a>(o: &'a mut Options, name: &str) -> Option<&'a mut bool> {
         "regexp" => &mut o.regexp,
         "saveonexit" => &mut o.saveonexit,
         "smarthome" => &mut o.smarthome,
+        "softwrap" => &mut o.softwrap,
         "tabstospaces" => &mut o.tabstospaces,
         "unix" => &mut o.unix,
         "wordbounds" => &mut o.wordbounds,
@@ -74,7 +76,7 @@ fn flag<'a>(o: &'a mut Options, name: &str) -> Option<&'a mut bool> {
 }
 
 /// Options nano has, that change nothing here (or nothing nano would show): accepted.
-const IGNORED_FLAGS: &[&str] = &["atblanks", "bookstyle", "locking", "nowrap", "trimblanks"];
+const IGNORED_FLAGS: &[&str] = &["bookstyle", "locking", "nowrap", "trimblanks"];
 
 /// Options nano has, that the editor does not have yet: reported once, when set.
 const LATER_FLAGS: &[&str] = &[
@@ -95,7 +97,6 @@ const LATER_FLAGS: &[&str] = &[
     "rawsequences",
     "rebinddelete",
     "showcursor",
-    "softwrap",
     "stateflags",
     "zero",
 ];
@@ -799,10 +800,10 @@ mod tests {
     #[test]
     fn options_not_available_yet_are_said_once() {
         let m = mistakes(
-            "set softwrap\nset softwrap\nunset minibar\nset stateflags\nset titlecolor red\n\
+            "set showcursor\nset showcursor\nunset minibar\nset stateflags\nset titlecolor red\n\
              set quotestr \"> \"\nset linenumbers\n",
         );
-        let said: Vec<String> = ["softwrap", "stateflags", "titlecolor", "quotestr"]
+        let said: Vec<String> = ["showcursor", "stateflags", "titlecolor", "quotestr"]
             .iter()
             .zip([1, 4, 5, 6])
             .map(|(name, n)| {

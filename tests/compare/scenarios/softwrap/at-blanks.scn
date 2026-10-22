@@ -1,0 +1,14 @@
+# With -a the rows break after a blank, or at the edge when there is none.
+args: -S -a x.txt
+size: 20x14
+file x.txt:
+| the quick brown fox jumps over the lazy dog and cat
+| thequickbrownfoxjumpsoverthe lazy
+| aaaa bbbb cccc ddddd
+| aaaa bbbb cccc dddddd eeee
+|     xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+keys: {End}
+keys: {Down}
+keys: {End}
+keys: {End}
+keys: {^X}
