@@ -1,0 +1,20 @@
+# Up and Down move by rows, keeping the column.
+args: -S x.txt
+size: 20x12
+file x.txt:
+| 0123456789abcdefghij0123456789ABCDEFGHIJ0123456789abcdefghij0123456789ABCDEFGHIJ
+| second
+| third line that is long enough to wrap
+keys: {Right*65}
+keys: {Down}
+keys: {Down}
+keys: {Down}
+keys: {Down}
+keys: {Down}
+keys: {Up}
+keys: {Up}
+keys: {Up}
+keys: {Up}
+keys: {Up}
+keys: {Up}
+keys: {^X}

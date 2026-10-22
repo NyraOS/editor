@@ -1,0 +1,16 @@
+# A search finds text on a continuation row and highlights it there.
+args: -S x.txt
+size: 20x10
+file x.txt:
+| L01aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbneedle1
+| L02aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbcccccccccccccccccccc
+| L03aaaaaaaaaaaaaaaaa
+| L04aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbccccneedle4
+| L05aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbcccccccccccccccccccc
+| L06aaaaaaaaaaaaaaaaaneedle6
+keys: {^W}
+keys: needle{Enter}
+keys: {^W}
+keys: {Enter}
+keys: {Down}
+keys: {^X}

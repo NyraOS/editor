@@ -170,6 +170,9 @@ pub struct Buffer {
     pub want: usize,
     /// The first line on the screen.
     pub top: usize,
+    /// With soft wrapping: the screen column in that line where its first row on the screen
+    /// starts.
+    pub top_col: usize,
     pub modified: bool,
     pub format: Format,
     pub mark: Option<Mark>,
@@ -190,6 +193,7 @@ impl Buffer {
             x: 0,
             want: 0,
             top: 0,
+            top_col: 0,
             modified: false,
             format,
             mark: None,

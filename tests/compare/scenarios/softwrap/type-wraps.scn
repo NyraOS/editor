@@ -1,0 +1,13 @@
+# Typing past the edge starts a new row; deleting takes it back.
+args: -S x.txt
+size: 20x12
+file x.txt:
+| 0123456789abcdefghi
+keys: {End}
+keys: xyz
+keys: {Bsp}
+keys: {Bsp}
+keys: {Bsp}
+keys: {Bsp}
+keys: {^X}
+keys: n

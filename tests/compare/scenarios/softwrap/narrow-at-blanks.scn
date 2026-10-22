@@ -1,0 +1,10 @@
+# A very narrow screen with -a.
+args: -S -a x.txt
+size: 10x10
+file x.txt:
+| ab cd ef gh ij
+| abcdefghij kl
+keys: {End}
+keys: {Down}
+keys: {End}
+keys: {^X}

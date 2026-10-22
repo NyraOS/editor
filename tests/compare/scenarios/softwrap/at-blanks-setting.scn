@@ -1,0 +1,11 @@
+# The atblanks setting of a nanorc is the same as -a.
+nanorc: set softwrap
+nanorc: set atblanks
+args: x.txt
+size: 20x14
+file x.txt:
+| the quick brown fox jumps over the lazy dog and cat
+| aaaa bbbb cccc ddd   eeee ffff
+keys: {End}
+keys: {Down}
+keys: {^X}

@@ -1,0 +1,12 @@
+# A tab at the edge is split between two rows.
+args: -S x.txt
+size: 20x12
+file x.txt:
+| 0123456789abcdefg\tZZZ yy
+| 0123456789abcde\tZZZ yy
+| \tTabbed\ttext that wraps around
+keys: {Right*18}
+keys: {Right}
+keys: {Down}
+keys: {End}
+keys: {^X}

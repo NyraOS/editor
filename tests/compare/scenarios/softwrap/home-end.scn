@@ -1,0 +1,18 @@
+# Home goes to the start of the row, then of the line; End to the end of the row, then of the line.
+args: -S x.txt
+size: 20x12
+file x.txt:
+| 0123456789abcdefghij0123456789ABCDEFGHIJ0123456789abcdefghij0123456789ABCDEFGHIJ
+| second
+keys: {Right*65}
+keys: {Home}
+keys: {Home}
+keys: {Home}
+keys: {End}
+keys: {End}
+keys: {End}
+keys: {Home}
+keys: {^A}
+keys: {^A}
+keys: {^E}
+keys: {^X}

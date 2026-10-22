@@ -1,0 +1,20 @@
+# Go to line puts the cursor's row in the middle of the screen, also on a continuation row.
+args: -S x.txt
+size: 20x10
+file x.txt:
+| L01aaaaaaaaaaaaaaaaa
+| L02aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbb
+| L03aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+| L04aaaaaaaaaaaaaaaaa
+| L05aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbb
+| L06aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+| L07aaaaaaaaaaaaaaaaa
+| L08aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbb
+| L09aaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+| L10aaaaaaaaaaaaaaaaa
+keys: {^_}
+keys: 7{Enter}
+keys: {Down*3}
+keys: {^_}
+keys: 9,45{Enter}
+keys: {^X}

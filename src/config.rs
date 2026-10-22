@@ -39,6 +39,10 @@ pub struct Options {
     pub ignorercfiles: bool,
     /// `-l`: numbers in front of the lines.
     pub linenumbers: bool,
+    /// `-S`: long lines wrap at the edge of the screen.
+    pub softwrap: bool,
+    /// `-a`: with `-S`, wrap after a blank rather than in the middle of a word.
+    pub atblanks: bool,
     /// `-c`: the cursor position always in the status bar.
     pub constantshow: bool,
     /// `-x`: no help lines at the bottom.
@@ -92,6 +96,8 @@ impl Default for Options {
             start_alert: None,
             ignorercfiles: false,
             linenumbers: false,
+            softwrap: false,
+            atblanks: false,
             constantshow: false,
             nohelp: false,
             nonewlines: false,
@@ -148,7 +154,7 @@ const fn opt(short: char, long: &'static str, arg: bool, support: Support) -> Op
 /// The options of nano 8.4, in nano's order: the order of the possibilities in the message for
 /// an abbreviation that is ambiguous.
 const OPTIONS: &[Opt] = &[
-    opt('a', "atblanks", false, Ignored),
+    opt('a', "atblanks", false, Works),
     opt('i', "autoindent", false, Works),
     opt('y', "afterends", false, Works),
     opt('D', "boldtext", false, Later),
@@ -193,7 +199,7 @@ const OPTIONS: &[Opt] = &[
     opt('s', "speller", true, Ignored),
     opt('t', "saveonexit", false, Works),
     opt('A', "smarthome", false, Works),
-    opt('S', "softwrap", false, Later),
+    opt('S', "softwrap", false, Works),
     opt('%', "stateflags", false, Later),
     opt('M', "trimblanks", false, Ignored),
     opt('E', "tabstospaces", false, Works),
@@ -397,6 +403,8 @@ fn apply(p: &mut Parsing, opt: &Opt, value: &str) -> Result<Option<Command>, Str
         "constantshow" => o.constantshow = true,
         "modernbindings" => o.modernbindings = true,
         "linenumbers" => o.linenumbers = true,
+        "softwrap" => o.softwrap = true,
+        "atblanks" => o.atblanks = true,
         "nohelp" => o.nohelp = true,
         "smarthome" => o.smarthome = true,
         "backup" => o.backup = true,
@@ -703,7 +711,7 @@ mod tests {
     #[test]
     fn fill_takes_any_number_and_is_ignored() {
         assert_eq!(
-            edit(&["-r", "-5", "-r0", "-r72", "-a", "-M", "-O", "-w", "-s", "x"]),
+            edit(&["-r", "-5", "-r0", "-r72", "-M", "-O", "-w", "-s", "x"]),
             Options::default()
         );
     }
@@ -713,7 +721,6 @@ mod tests {
         for args in [
             &["-m"][..],
             &["--mouse"],
-            &["-S"],
             &["-Y", "sh"],
             &["-b"],
             &["-%"],
@@ -729,7 +736,7 @@ mod tests {
             "editor: option -m (--mouse) is not available yet"
         );
         // The first one is the one named; a mistake in an option's argument comes before.
-        assert!(err(&["-S", "-m"]).contains("--softwrap"));
+        assert!(err(&["-g", "-m"]).contains("--showcursor"));
         assert!(err(&["-m", "-T", "x"]).starts_with("Requested tab size"));
         assert!(err(&["a", "b"]).contains("several files"));
         assert!(edit(&["-/"]).modernbindings);

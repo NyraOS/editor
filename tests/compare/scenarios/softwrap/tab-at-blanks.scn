@@ -1,0 +1,9 @@
+# With -a a tab that crosses the edge is cut there; one that starts there makes the word wrap.
+args: -S -a x.txt
+size: 20x12
+file x.txt:
+| aaaa bbbb cccc ddd\teee fff ggg
+| aaaa bbbb cccc ddddd\teee
+keys: {Right*19}
+keys: {Down}
+keys: {^X}

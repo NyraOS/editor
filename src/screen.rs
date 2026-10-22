@@ -123,16 +123,23 @@ pub fn text_width(text: &str) -> usize {
     text.chars().map(|c| width_at(c, 0, 1)).sum()
 }
 
-/// The cells of a text line from screen column `start`, `width` of them. As in nano, a line
-/// scrolled to the right starts with `<`, a line that goes on past the edge ends with `>`, and
-/// a wide character cut in half by them shows its other half as `]` or `[`.
-pub fn line_cells(line: &str, start: usize, width: usize, tabsize: usize) -> Row {
+/// The cells of the screen columns `start..end` of a text line (`width` cells, the ones after
+/// `end - start` blank), with nothing to show that the line goes on; and the column where the
+/// reading stopped (past `end` when the line goes on). It reads from the character at byte
+/// `from.0`, which begins in column `from.1`, so that a row far into a long line is not found by
+/// reading all of it.
+pub fn cells_between(
+    line: &str,
+    from: (usize, usize),
+    (start, end): (usize, usize),
+    width: usize,
+    tabsize: usize,
+) -> (Row, usize) {
     let mut cells = vec![Cell::blank(); width];
-    let end = start + width;
-    let mut col = 0;
+    let mut col = from.1;
     // The cell where the last character started, for its combining marks.
     let mut last = None;
-    for c in line.chars() {
+    for c in line[from.0..].chars() {
         let w = width_at(c, col, tabsize);
         if w == 0 {
             if let Some(i) = last {
@@ -153,6 +160,15 @@ pub fn line_cells(line: &str, start: usize, width: usize, tabsize: usize) -> Row
         last = (start..end).contains(&col).then(|| col - start);
         col += w;
     }
+    (cells, col)
+}
+
+/// The cells of a text line from screen column `start`, `width` of them. As in nano, a line
+/// scrolled to the right starts with `<`, a line that goes on past the edge ends with `>`, and
+/// a wide character cut in half by them shows its other half as `]` or `[`.
+pub fn line_cells(line: &str, start: usize, width: usize, tabsize: usize) -> Row {
+    let end = start + width;
+    let (mut cells, col) = cells_between(line, (0, 0), (start, end), width, tabsize);
     if width > 1 && start > 0 {
         cells[0] = Cell::new('<', INVERSE);
         if cells[1].text.is_empty() {
@@ -347,6 +363,18 @@ fn yes_no_rows(cols: usize, all: bool, cancel: &str) -> [Row; 2] {
     rows
 }
 
+/// What one row of text shows.
+#[derive(Clone, Copy)]
+struct Shown {
+    line: usize,
+    start: usize,
+    end: usize,
+    /// Where the reading of the line can start: see `cells_between`.
+    from: (usize, usize),
+    /// Whether the line number goes in front (not before the rows a line wraps into).
+    numbered: bool,
+}
+
 /// Everything on the screen.
 pub fn compose(ed: &Editor) -> Frame {
     let (cols, rows) = (ed.cols, ed.rows);
@@ -382,24 +410,65 @@ pub fn compose(ed: &Editor) -> Frame {
         let margin = ed.margin();
         let width = cols.saturating_sub(margin);
         let digits = margin.saturating_sub(1);
-        for r in 0..edit_rows.min(rows.saturating_sub(1)) {
-            let line = ed.buf.top + r;
-            if line >= ed.buf.lines() {
-                break;
+        // What each row shows: a line, from the screen column `start` to `end`, where in the line
+        // that is, and whether a line number goes before it.
+        let shown: Vec<Shown> = if ed.opts.softwrap {
+            ed.visible_spans()
+                .iter()
+                .map(|s| Shown {
+                    line: s.line,
+                    start: s.start,
+                    end: s.end.min(s.start + width),
+                    from: (s.at, s.at_col),
+                    numbered: s.start == 0,
+                })
+                .collect()
+        } else {
+            (0..edit_rows)
+                .map_while(|r| {
+                    let line = ed.buf.top + r;
+                    (line < ed.buf.lines()).then(|| {
+                        let start = if line == ed.buf.line {
+                            page_start(ed.buf.column(ed.opts.tabsize), width)
+                        } else {
+                            0
+                        };
+                        Shown {
+                            line,
+                            start,
+                            end: start + width,
+                            from: (0, 0),
+                            numbered: true,
+                        }
+                    })
+                })
+                .collect()
+        };
+        let cursor_row = ed.opts.softwrap.then(|| ed.cursor_span());
+        let mut cached: Option<(usize, String)> = None;
+        for (r, row_shown) in shown.iter().enumerate().take(rows.saturating_sub(1)) {
+            let Shown {
+                line,
+                start,
+                end,
+                from,
+                numbered,
+            } = *row_shown;
+            if cached.as_ref().is_none_or(|c| c.0 != line) {
+                cached = Some((line, ed.buf.line_text(line)));
             }
-            let text = ed.buf.line_text(line);
-            let start = if line == ed.buf.line {
-                page_start(ed.buf.column(ed.opts.tabsize), width)
+            let text = &cached.as_ref().expect("just set").1;
+            let mut cells = if ed.opts.softwrap {
+                cells_between(text, from, (start, end), width, ed.opts.tabsize).0
             } else {
-                0
+                line_cells(text, start, width, ed.opts.tabsize)
             };
-            let mut cells = line_cells(&text, start, width, ed.opts.tabsize);
             if let Some((_, from, to)) = ed.spot.filter(|s| s.0 == line) {
-                let from = column_of(&text, from, ed.opts.tabsize);
-                let to = column_of(&text, to, ed.opts.tabsize);
+                let from = column_of(text, from, ed.opts.tabsize);
+                let to = column_of(text, to, ed.opts.tabsize);
                 // An empty match is a blank cell that hides the character there, as in nano.
                 let empty = from == to;
-                for col in from.max(start)..(to + usize::from(empty)).min(start + width) {
+                for col in from.max(start)..(to + usize::from(empty)).min(end) {
                     if empty {
                         cells[col - start].text = " ".into();
                     }
@@ -412,9 +481,9 @@ pub fn compose(ed: &Editor) -> Frame {
                 let first = ed.buf.text.line_to_char(line);
                 let len = text.chars().count();
                 if lo < first + len && hi > first {
-                    let from = column_of(&text, lo.saturating_sub(first), ed.opts.tabsize);
-                    let to = column_of(&text, (hi - first).min(len), ed.opts.tabsize);
-                    for col in from.max(start)..to.min(start + width) {
+                    let from = column_of(text, lo.saturating_sub(first), ed.opts.tabsize);
+                    let to = column_of(text, (hi - first).min(len), ed.opts.tabsize);
+                    for col in from.max(start)..to.min(end) {
                         if let Some(cell) = cells.get_mut(col - start) {
                             cell.style = INVERSE;
                         }
@@ -423,10 +492,15 @@ pub fn compose(ed: &Editor) -> Frame {
             }
             let row = &mut screen[1 + r];
             if margin > 0 {
-                put(row, 0, &format!("{:>digits$}", line + 1), INVERSE);
+                let number = if numbered {
+                    format!("{}", line + 1)
+                } else {
+                    String::new()
+                };
+                put(row, 0, &format!("{number:>digits$}"), INVERSE);
             }
             row.splice(margin.min(cols).., cells);
-            if line == ed.buf.line {
+            if line == ed.buf.line && cursor_row.is_none_or(|c| c.start == start) {
                 let col = ed.buf.column(ed.opts.tabsize);
                 cursor = Some((1 + r, margin + col - start));
             }

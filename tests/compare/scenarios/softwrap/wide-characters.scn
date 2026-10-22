@@ -1,0 +1,13 @@
+# A wide character that does not fit goes whole to the next row.
+args: -S x.txt
+size: 20x12
+file x.txt:
+| 0123456789abcdefghi日XY
+| 0123456789abcdefgh日XY
+| 日本語日本語日本語日本語日本語日本語
+keys: {End}
+keys: {Down}
+keys: {Home}
+keys: {Down}
+keys: {End}
+keys: {^X}

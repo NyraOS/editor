@@ -1,0 +1,11 @@
+# A line longer than the screen wraps at the edge; one that fills the rows exactly has an empty row after it.
+args: -S x.txt
+size: 20x12
+file x.txt:
+| 0123456789abcdefghij0123456789ABCDEFGHIJ
+| short
+| 0123456789abcdefghijklmnopqrstuvwxyz
+keys: {Down}
+keys: {End}
+keys: {Down}
+keys: {^X}

@@ -14,6 +14,7 @@ mod rcfile;
 mod replace;
 mod screen;
 mod search;
+mod wrap;
 
 use commands::Editor;
 use config::Command;

@@ -1,0 +1,10 @@
+# A control character, shown as two columns, is not split between two rows.
+args: -S x.txt
+size: 20x12
+file x.txt:
+| aaaaaaaaaaaaaaaaaaa\x01zz yy
+| aaaa bbbb cccc ddd\x01 yy
+keys: {End}
+keys: {Down}
+keys: {End}
+keys: {^X}
