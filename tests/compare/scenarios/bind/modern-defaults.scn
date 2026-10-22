@@ -1,0 +1,11 @@
+# --modernbindings: the keys and the help lines
+args: --modernbindings a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^X}
+keys: {^V}
+keys: {^Z}
+keys: {^N}
+keys: {^Q}

@@ -1,0 +1,8 @@
+# unbind ^P in the search menu: Older shows its arrow, ^P does nothing
+nanorc: unbind ^P search
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^F}one{Enter}{^F}{^P}

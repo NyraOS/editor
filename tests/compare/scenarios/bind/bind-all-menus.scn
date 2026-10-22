@@ -1,0 +1,11 @@
+# the menu all: help moves to ^X in every menu
+nanorc: bind ^X help all
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^F}
+keys: {^C}{^_}
+keys: {^C}{^O}
+keys: {^C}

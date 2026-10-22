@@ -1,0 +1,9 @@
+# an invalid key name: reported, the editor starts
+nanorc: bind ^1 cut main
+nanorc: bind Home cut main
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^K}

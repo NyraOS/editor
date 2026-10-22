@@ -1,0 +1,9 @@
+# Escape cannot be rebound; unbinding it is no mistake
+nanorc: bind ^[ cut main
+nanorc: unbind ^[ main
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^X}

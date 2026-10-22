@@ -1,0 +1,9 @@
+# unbind ^X: Exit falls back to F2 in the help lines, ^X says it is unbound
+nanorc: unbind ^X main
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^X}
+keys: {F2}

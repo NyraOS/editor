@@ -1,0 +1,8 @@
+# the menu gotodir: a function it has is bound there, and the main menu keeps its keys
+nanorc: bind ^X cut gotodir
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^X}

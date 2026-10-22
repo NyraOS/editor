@@ -1,0 +1,8 @@
+# ^Space as a key name (the NUL byte)
+nanorc: bind ^Space cut main
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^@}

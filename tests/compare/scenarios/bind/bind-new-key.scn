@@ -1,0 +1,9 @@
+# a function gets a second key: the newest is the one shown
+nanorc: bind M-k cut main
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {M-k}
+keys: {^K}

@@ -1,0 +1,10 @@
+# the write-out menu: Cancel on ^X
+nanorc: bind ^X cancel writeout
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: x
+keys: {^O}
+keys: {^X}

@@ -1,0 +1,12 @@
+# missing arguments
+nanorc: bind
+nanorc: bind ^X
+nanorc: bind ^X cut
+nanorc: unbind
+nanorc: unbind ^X
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^X}

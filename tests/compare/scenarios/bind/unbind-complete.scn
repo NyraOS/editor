@@ -1,0 +1,8 @@
+# unbind ^] main: word completion is off (and ^] is an unbound key)
+nanorc: unbind ^] main
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^_}2{Enter}{^E}{^]}

@@ -1,0 +1,8 @@
+# a string bind is not available here: the key stays as it was
+nanorc: bind ^X "ab" main
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^X}

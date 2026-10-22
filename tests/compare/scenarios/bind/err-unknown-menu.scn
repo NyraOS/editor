@@ -1,0 +1,9 @@
+# an unknown menu (whereis is not a menu in 8.4)
+nanorc: bind ^X cut whereis
+nanorc: unbind ^X foo
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^X}

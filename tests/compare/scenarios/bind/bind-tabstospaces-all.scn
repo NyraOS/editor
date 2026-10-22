@@ -1,0 +1,8 @@
+# tabstospaces as a function of the menu all: the same as mouse, see bind-mouse-all
+nanorc: bind F12 tabstospaces all
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^X}

@@ -1,0 +1,9 @@
+# bind ^X cut main: ^X cuts, Exit is shown as F2
+nanorc: bind ^X cut main
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^X}
+keys: {^U}{^U}

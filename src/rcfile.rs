@@ -17,8 +17,8 @@
 //!
 //! A line is `set OPTION [ARGUMENT]`, `unset OPTION` or `include "GLOB"` (only in those files, not
 //! in an included one: as in nano, those are for syntax files), or one of the syntax commands
-//! (`syntax`, `color`, ...) and `bind` / `unbind`, which are read and ignored until the colours
-//! and the key bindings are done. A line the editor cannot use is reported on the standard error
+//! (`syntax`, `color`, ...), which are read and ignored until the colours are done, or `bind` /
+//! `unbind` (see `bindings`). A line the editor cannot use is reported on the standard error
 //! in nano's words, and the rest is read: the editor starts anyway, with a message in the status
 //! bar. An option nano has and the editor does not yet is reported once, in the same way, and the
 //! rest is read. An invalid value resets the option to its default, as in nano.
@@ -29,6 +29,7 @@
 //! shows at most `MAX_SHOWN` bytes of what is wrong. Only the first two drop settings; after the
 //! message limit, every line is still applied.
 
+use crate::bindings;
 use crate::config::{Options, parse_num};
 use std::borrow::Cow;
 use std::fs;
@@ -43,6 +44,8 @@ const MAX_FILE: u64 = 1 << 20;
 const MAX_MESSAGES: usize = 50;
 const MAX_FILES: usize = 1000;
 const MAX_SHOWN: usize = 100;
+/// The most changes of key bindings kept: many more than there are keys and menus.
+const MAX_BINDS: usize = 10_000;
 /// The most files one glob gives.
 const MAX_MATCHES: usize = 256;
 
@@ -309,13 +312,52 @@ impl Reader {
                     ))
                 }
                 "color" | "icolor" | "header" | "comment" | "linter" | "formatter" | "tabgives"
-                | "magic" | "extendsyntax" | "bind" | "unbind" => Ok(()),
+                | "magic" | "extendsyntax" => Ok(()),
+                "bind" | "unbind" => self.bind(keyword == "bind", rest),
                 _ => Err(format!("Command \"{}\" not understood", shown(keyword))),
             };
             if let Err(what) = done {
                 self.error(spot, &what);
             }
         }
+    }
+
+    /// `bind KEY FUNCTION MENU` and `unbind KEY MENU`.
+    fn bind(&mut self, bind: bool, rest: &str) -> Result<(), String> {
+        if rest.is_empty() {
+            return Err("Missing key name".into());
+        }
+        let (key, rest) = word(rest);
+        let (target, rest) = match rest.strip_prefix('"') {
+            _ if !bind => (None, rest),
+            Some(body) => match body.find('"') {
+                Some(end) => (
+                    Some(bindings::Target::Text(&body[..end])),
+                    body[end + 1..].trim_start_matches(is_blank),
+                ),
+                None => {
+                    return Err(format!("Argument '{}' has an unterminated \"", shown(rest)));
+                }
+            },
+            None => {
+                let (function, after) = word(rest);
+                let target =
+                    (!function.is_empty()).then_some(bindings::Target::Function(shown(function)));
+                (target, after)
+            }
+        };
+        let menu = word(rest).0;
+        let menu = (!menu.is_empty()).then_some(shown(menu));
+        let ops = if bind {
+            bindings::bind(shown(key), target, menu)?
+        } else {
+            bindings::unbind(shown(key), menu)?
+        };
+        if self.options.binds.len() + ops.len() > MAX_BINDS {
+            return Err("Too many key bindings".into());
+        }
+        self.options.binds.extend(ops);
+        Ok(())
     }
 
     fn set_option(&mut self, spot: Spot, set: bool, rest: &str, valid: bool) -> Result<(), String> {
@@ -672,6 +714,42 @@ mod tests {
         );
         assert!(m.is_empty(), "{m:?}");
         assert!(o.autoindent);
+    }
+
+    #[test]
+    fn bind_lines_are_read_in_nanos_words() {
+        let (o, m) = read(
+            "bind ^X cut main\nbind ^1 cut main\nbind ^X nosuch main\nunbind ^X\n\
+             bind ^X \"ab main\nbind ^X \"ab\" main\nunbind F5 all\nbind ^X zap main\n",
+        );
+        assert_eq!(o.binds.len(), 1 + 1 + 8);
+        let want = [
+            "Key name ^1 is invalid",
+            "Unknown function: nosuch",
+            "Must specify a menu (or \"all\") in which to bind/unbind the key",
+            "Argument '\"ab main' has an unterminated \"",
+            "Function 'zap' is not available in this version yet",
+        ];
+        let want: Vec<String> = [2, 3, 4, 5, 8]
+            .iter()
+            .zip(want)
+            .map(|(n, what)| format!("Error in rc on line {n}: {what}"))
+            .collect();
+        assert_eq!(m, want);
+    }
+
+    #[test]
+    fn thousands_of_bind_lines_are_bounded() {
+        let mut rc = Reader::new(Options::default(), None);
+        let long = "x".repeat(10_000);
+        let text =
+            format!("bind {long} cut main\nbind ^X {long} main\nunbind ^X {long}\n").repeat(3000);
+        rc.parse("rc", text.as_bytes(), false);
+        assert_eq!(rc.messages.len(), 50);
+        assert!(rc.messages.iter().all(|m| m.len() < 300));
+        let ok = "unbind M-a all\nbind F5 undo main\n".repeat(20_000);
+        rc.parse("rc", ok.as_bytes(), false);
+        assert!(rc.options.binds.len() <= MAX_BINDS);
     }
 
     #[test]

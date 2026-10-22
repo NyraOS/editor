@@ -1,0 +1,11 @@
+# no key left for Help: it leaves the help lines and the rest moves up
+nanorc: unbind ^G main
+nanorc: unbind F1 main
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^G}
+keys: {F1}
+keys: {^X}

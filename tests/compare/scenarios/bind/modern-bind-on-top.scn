@@ -1,0 +1,6 @@
+# the nanorc is applied over --modernbindings: ^K exits
+nanorc: bind ^K exit main
+args: --modernbindings a.txt
+file a.txt:
+| one two
+keys: {^K}

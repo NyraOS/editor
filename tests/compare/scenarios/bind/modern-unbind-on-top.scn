@@ -1,0 +1,6 @@
+# the nanorc is applied over --modernbindings: ^Q is unbound
+nanorc: unbind ^Q main
+args: --modernbindings a.txt
+file a.txt:
+| one two
+keys: {^Q}

@@ -1,0 +1,9 @@
+# a function that does not exist in that menu
+nanorc: bind ^X cut help
+nanorc: bind ^X exit search
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^X}

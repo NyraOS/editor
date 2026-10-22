@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! The editor's state and its commands: what each key does.
 
+use crate::bindings::{self, Bindings, Outcome};
 use crate::buffer::{self, Buffer, Format, Kind, Mark, next_index, prev_index};
 use crate::complete::{self, Completion};
 use crate::config::Options;
@@ -119,6 +120,7 @@ pub struct Editor {
     /// The file name, empty for a new buffer.
     pub name: String,
     pub opts: Options,
+    bindings: Bindings,
     /// What the title bar shows on the left.
     pub program: String,
     pub cols: usize,
@@ -153,142 +155,26 @@ pub struct Editor {
 
 pub const HELP_TITLE: &str = "Help";
 
-/// Keys and labels for the help lines at the bottom, as in nano.
-const MAIN_MENU: &[(&str, &str)] = &[
-    ("^G", "Help"),
-    ("^X", "Exit"),
-    ("^O", "Write Out"),
-    ("^R", "Read File"),
-    ("^F", "Where Is"),
-    ("^\\", "Replace"),
-    ("^K", "Cut"),
-    ("^U", "Paste"),
-    ("^T", "Execute"),
-    ("^J", "Justify"),
-    ("^C", "Location"),
-    ("^/", "Go To Line"),
-    ("M-U", "Undo"),
-    ("M-E", "Redo"),
-    ("M-A", "Set Mark"),
-    ("M-6", "Copy"),
-    ("M-]", "To Bracket"),
-    ("^B", "Where Was"),
-    ("M-B", "Previous"),
-    ("M-F", "Next"),
-    ("◂", "Back"),
-    ("▸", "Forward"),
-    ("^◂", "Prev Word"),
-    ("^▸", "Next Word"),
-    ("^A", "Home"),
-    ("^E", "End"),
-    ("^P", "Prev Line"),
-    ("^N", "Next Line"),
-    ("M-▴", "Scroll Up"),
-    ("M-▾", "Scroll Down"),
-    ("^▴", "Prev Block"),
-    ("^▾", "Next Block"),
-    ("M-(", "Begin of Paragraph"),
-    ("M-)", "End of Paragraph"),
-    ("M-Home", "Top Row"),
-    ("M-End", "Bottom Row"),
-    ("^Y", "Prev Page"),
-    ("^V", "Next Page"),
-    ("M-\\", "First Line"),
-    ("M-/", "Last Line"),
-    ("M-◂", "Prev File"),
-    ("M-▸", "Next File"),
-    ("^I", "Tab"),
-    ("^M", "Enter"),
-    ("^H", "Backspace"),
-    ("^D", "Delete"),
-    ("M-Bsp", "Chop Left"),
-    ("^Del", "Chop Right"),
-    ("M-T", "Cut Till End"),
-    ("M-J", "Full Justify"),
-    ("M-D", "Word Count"),
-    ("M-V", "Verbatim"),
-    ("M-}", "Indent"),
-    ("M-{", "Unindent"),
-];
+impl Editor {
+    /// The help lines for the mode, from the key bindings.
+    pub fn help_lines_of(&self) -> Vec<(String, &'static str)> {
+        self.bindings.help_lines(self.slot())
+    }
 
-const HELP_MENU: &[(&str, &str)] = &[
-    ("^L", "Refresh"),
-    ("^X", "Close"),
-    ("^F", "Where Is"),
-    ("^B", "Where Was"),
-    ("M-B", "Previous"),
-    ("M-F", "Next"),
-    ("^P", "Prev Line"),
-    ("^N", "Next Line"),
-    ("^Y", "Prev Page"),
-    ("^V", "Next Page"),
-    ("M-\\", "First Line"),
-    ("M-/", "Last Line"),
-];
-
-const WRITE_MENU: &[(&str, &str)] = &[
-    ("^G", "Help"),
-    ("^C", "Cancel"),
-    ("M-D", "DOS Format"),
-    ("M-M", "Mac Format"),
-    ("M-A", "Append"),
-    ("M-P", "Prepend"),
-    ("M-B", "Backup File"),
-    ("^T", "Browse"),
-];
-
-const SEARCH_MENU: &[(&str, &str)] = &[
-    ("^G", "Help"),
-    ("^C", "Cancel"),
-    ("M-C", "Case Sens"),
-    ("M-R", "Reg.exp."),
-    ("M-B", "Backwards"),
-    ("^R", "Replace"),
-    ("^P", "Older"),
-    ("^N", "Newer"),
-    ("^T", "Go To Line"),
-];
-
-const REPLACE_MENU: &[(&str, &str)] = &[
-    ("^G", "Help"),
-    ("^C", "Cancel"),
-    ("M-C", "Case Sens"),
-    ("M-R", "Reg.exp."),
-    ("M-B", "Backwards"),
-    ("^R", "No Replace"),
-    ("^P", "Older"),
-    ("^N", "Newer"),
-];
-
-const REPLACEMENT_MENU: &[(&str, &str)] = &[
-    ("^G", "Help"),
-    ("^C", "Cancel"),
-    ("^P", "Older"),
-    ("^N", "Newer"),
-];
-
-const GOTO_MENU: &[(&str, &str)] = &[
-    ("^G", "Help"),
-    ("^C", "Cancel"),
-    ("^W", "Begin of Paragr."),
-    ("^O", "End of Paragraph"),
-    ("^Y", "First Line"),
-    ("^V", "Last Line"),
-    ("^T", "Go To Text"),
-];
-
-/// The help lines for a mode.
-pub fn menu(mode: &Mode) -> &'static [(&'static str, &'static str)] {
-    match mode {
-        Mode::Edit | Mode::Ask(_) => MAIN_MENU,
-        Mode::Help(_) => HELP_MENU,
-        Mode::Prompt(p) => match p.kind {
-            PromptKind::Write { .. } => WRITE_MENU,
-            PromptKind::Search { replace: false, .. } => SEARCH_MENU,
-            PromptKind::Search { replace: true, .. } => REPLACE_MENU,
-            PromptKind::Replacement { .. } => REPLACEMENT_MENU,
-            PromptKind::Goto => GOTO_MENU,
-        },
+    /// The menu of the key bindings that a key pressed in this mode belongs to.
+    fn slot(&self) -> usize {
+        match &self.mode {
+            Mode::Edit => bindings::MAIN,
+            Mode::Help(_) => bindings::HELP,
+            Mode::Ask(_) => bindings::YES_NO,
+            Mode::Prompt(p) => match p.kind {
+                PromptKind::Search { replace: false, .. } => bindings::SEARCH,
+                PromptKind::Search { replace: true, .. } => bindings::REPLACE,
+                PromptKind::Replacement { .. } => bindings::REPLACE_WITH,
+                PromptKind::Goto => bindings::GOTO,
+                PromptKind::Write { .. } => bindings::WRITE_OUT,
+            },
+        }
     }
 }
 
@@ -408,6 +294,7 @@ impl Editor {
         let mut ed = Self {
             buf: Buffer::new("", Format::Unix),
             name: opts.file.clone().unwrap_or_default(),
+            bindings: Bindings::new(opts.modernbindings, &opts.binds),
             opts,
             program: format!("Editor {}", env!("CARGO_PKG_VERSION")),
             cols,
@@ -595,6 +482,19 @@ impl Editor {
 
     /// One key.
     pub fn key(&mut self, key: Key) {
+        let key = match self.bindings.translate(self.slot(), key) {
+            Outcome::Key(key) => key,
+            Outcome::Text(text) => {
+                text.chars().for_each(|c| self.key(Key::Char(c)));
+                return;
+            }
+            Outcome::Unbound(name) => {
+                if matches!(self.mode, Mode::Edit) {
+                    self.error(&format!("Unbound key: {name}"));
+                }
+                return;
+            }
+        };
         // Text pasted into a question or a prompt goes in as if it were typed.
         if let (Key::Paste(text), false) = (&key, matches!(self.mode, Mode::Edit)) {
             for c in text.chars() {
