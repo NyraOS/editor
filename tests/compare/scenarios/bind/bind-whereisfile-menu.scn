@@ -1,0 +1,8 @@
+# the menu whereisfile: a function it has is bound there, and the main menu keeps its keys
+nanorc: bind ^X cut whereisfile
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^X}

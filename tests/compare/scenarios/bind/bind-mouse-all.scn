@@ -1,0 +1,9 @@
+# mouse as a function of the menu all: nano binds it in the main menu, the editor has no mouse
+# toggle yet and leaves the bind out without a message; ^X still exits
+nanorc: bind F12 mouse all
+args: a.txt
+file a.txt:
+| one two
+| three four
+| five
+keys: {^X}
