@@ -1,0 +1,12 @@
+# a file saved under a name that another syntax matches changes colour
+size: 40x8
+nanorc: syntax t "\\.t$"
+nanorc: color red "x"
+nanorc: syntax u "\\.u$"
+nanorc: color green "x"
+args: a.t
+file a.t:
+| x
+keys: {^O}
+keys: {Bsp*3}b.u{Enter}
+keys: {^X}

@@ -16,9 +16,10 @@
 //! not choose the administrator's settings of a privileged editor.
 //!
 //! A line is `set OPTION [ARGUMENT]`, `unset OPTION` or `include "GLOB"` (only in those files, not
-//! in an included one: as in nano, those are for syntax files), or one of the syntax commands
-//! (`syntax`, `color`, ...), which are read and ignored until the colours are done, or `bind` /
-//! `unbind` (see `bindings`). A line the editor cannot use is reported on the standard error
+//! in an included one: as in nano, those are for syntax files), one of the syntax commands
+//! (`syntax`, `header`, `color`, `icolor`, `extendsyntax`, see `syntax`; `comment` is read and
+//! does nothing yet, `magic` only works with nano's `--magic`, which is not available yet), or
+//! `bind` / `unbind` (see `bindings`). A line the editor cannot use is reported on the standard error
 //! in nano's words, and the rest is read: the editor starts anyway, with a message in the status
 //! bar. An option nano has and the editor does not yet is reported once, in the same way, and the
 //! rest is read. An invalid value resets the option to its default, as in nano.
@@ -27,10 +28,17 @@
 //! is read up to `MAX_FILE` bytes (the rest is not read, and a message says so), at most
 //! `MAX_FILES` included files are read, at most `MAX_MESSAGES` messages are shown, and each
 //! shows at most `MAX_SHOWN` bytes of what is wrong. Only the first two drop settings; after the
-//! message limit, every line is still applied.
+//! message limit, every line is still applied. The syntaxes are bounded too: see `MAX_SYNTAXES`,
+//! `MAX_MATCHERS` and `MAX_RULE_COST`.
+//!
+//! A deliberate difference from nano, which reads a syntax only when a file needs it and reports
+//! the mistakes in its `color` lines then: the editor reads them all at the start, checks the
+//! regular expressions without compiling them (compiling is left for the syntax picked), and
+//! reports every mistake at once.
 
 use crate::bindings;
 use crate::config::{Options, parse_num};
+use crate::syntax::{self, SyntaxDef};
 use std::borrow::Cow;
 use std::fs;
 use std::io::{self, Read, Write};
@@ -48,6 +56,15 @@ const MAX_SHOWN: usize = 100;
 const MAX_BINDS: usize = 10_000;
 /// The most files one glob gives.
 const MAX_MATCHES: usize = 256;
+/// The most syntaxes kept: far more than there are file types.
+const MAX_SYNTAXES: usize = 1000;
+/// The most regexes kept for choosing a syntax by the name or the first line of a file. Each is
+/// compiled at the start (half a millisecond), and takes up to `syntax::SIZE_LIMIT` of memory.
+const MAX_MATCHERS: usize = 1000;
+/// The most the rules of all syntaxes may add up to: each rule counts 64 bytes and the length of
+/// its expressions. The rules are kept as text until a syntax is picked, so this bounds the memory
+/// that a nanorc (or 1000 included files) can take with them.
+const MAX_RULE_COST: usize = 8 << 20;
 
 /// The options that work, as they are in the table of the command line.
 fn flag<'a>(o: &'a mut Options, name: &str) -> Option<&'a mut bool> {
@@ -218,8 +235,18 @@ struct Reader {
     files_left: usize,
     /// The included files are over `MAX_FILES`, and it has been said.
     too_many_files: bool,
-    /// The options already reported as not available yet.
+    /// The options and commands already reported as not available yet.
     later: Vec<String>,
+    /// How many regexes for choosing a syntax are kept, and the cost of the rules so far.
+    matchers: usize,
+    rule_cost: usize,
+}
+
+/// The syntax whose lines are being read, the last one `syntax` began: nano's "open syntax".
+struct Open {
+    /// The line of its `syntax` command, for the mistake of having no colour commands.
+    line: usize,
+    seen_color: bool,
 }
 
 impl Reader {
@@ -232,6 +259,8 @@ impl Reader {
             files_left: MAX_FILES,
             too_many_files: false,
             later: Vec::new(),
+            matchers: 0,
+            rule_cost: 0,
         }
     }
 
@@ -275,7 +304,7 @@ impl Reader {
 
     /// One file; `included`: it was named by an `include`.
     fn parse(&mut self, file: &str, bytes: &[u8], included: bool) {
-        let mut in_syntax = false;
+        let mut open: Option<Open> = None;
         for (i, raw) in bytes.split(|&b| b == b'\n').enumerate() {
             let spot = Spot { file, line: i + 1 };
             // As in nano, a NUL ends the line, and a CR before the newline is not part of it.
@@ -288,8 +317,15 @@ impl Reader {
                 continue;
             }
             let (keyword, rest) = word(line);
+            // As in nano, these end the syntax being defined (in an included file they are refused
+            // and end nothing).
+            if matches!(keyword, "syntax" | "extendsyntax" | "include")
+                || (matches!(keyword, "set" | "unset") && !included)
+            {
+                self.close(spot.file, &mut open);
+            }
             let done = match keyword {
-                "set" | "unset" | "include" if included => Err(format!(
+                "set" | "unset" | "include" | "extendsyntax" if included => Err(format!(
                     "Command \"{keyword}\" not allowed in included file"
                 )),
                 "set" | "unset" => self.set_option(spot, keyword == "set", rest, valid),
@@ -297,23 +333,22 @@ impl Reader {
                     self.include(spot, rest);
                     Ok(())
                 }
-                "syntax" => {
-                    in_syntax = !rest.is_empty();
-                    if in_syntax {
-                        Ok(())
-                    } else {
-                        Err("Missing syntax name".into())
+                "syntax" => self.begin_syntax(spot, rest, &mut open),
+                "extendsyntax" => self.extend_syntax(spot, rest),
+                "color" | "icolor" | "header" | "comment" | "linter" | "formatter" | "tabgives" => {
+                    match &mut open {
+                        Some(o) => {
+                            o.seen_color |= matches!(keyword, "color" | "icolor");
+                            let index = self.options.syntaxes.len() - 1;
+                            self.for_syntax(spot, index, keyword, rest)
+                        }
+                        None => Err(format!(
+                            "A '{keyword}' command requires a preceding 'syntax' command"
+                        )),
                     }
                 }
-                "color" | "icolor" | "header" | "comment" | "linter" | "formatter" | "tabgives"
-                    if !in_syntax =>
-                {
-                    Err(format!(
-                        "A '{keyword}' command requires a preceding 'syntax' command"
-                    ))
-                }
-                "color" | "icolor" | "header" | "comment" | "linter" | "formatter" | "tabgives"
-                | "magic" | "extendsyntax" => Ok(()),
+                // Only used with nano's --magic, which is not available yet.
+                "magic" => Ok(()),
                 "bind" | "unbind" => self.bind(keyword == "bind", rest),
                 _ => Err(format!("Command \"{}\" not understood", shown(keyword))),
             };
@@ -321,6 +356,141 @@ impl Reader {
                 self.error(spot, &what);
             }
         }
+        self.close(file, &mut open);
+    }
+
+    /// Ends the syntax being defined, if any: it must have a colour command, as nano wants (the
+    /// mistake is said at the line of its `syntax` command).
+    fn close(&mut self, file: &str, open: &mut Option<Open>) {
+        if let Some(o) = open.take().filter(|o| !o.seen_color) {
+            let name = self.options.syntaxes.last().map_or("", |s| s.name.as_str());
+            let what = format!("Syntax \"{}\" has no color commands", shown(name));
+            self.error(Spot { file, line: o.line }, &what);
+        }
+    }
+
+    /// `syntax NAME "REGEX"...`: begins a syntax whose file names match the regexes.
+    fn begin_syntax(
+        &mut self,
+        spot: Spot,
+        rest: &str,
+        open: &mut Option<Open>,
+    ) -> Result<(), String> {
+        let (token, after) = word(rest);
+        if rest.is_empty() || rest == "\"" || rest.starts_with("\"\"") {
+            return Err("Missing syntax name".into());
+        }
+        let quoted = token.starts_with('"');
+        if quoted != token.ends_with('"') {
+            return Err("Unpaired quote in syntax name".into());
+        }
+        let name = if quoted {
+            &token[1..token.len() - 1]
+        } else {
+            token
+        };
+        if name == "none" {
+            return Err("The \"none\" syntax is reserved".into());
+        }
+        if self.options.syntaxes.len() >= MAX_SYNTAXES {
+            return Err("Too many syntaxes".into());
+        }
+        self.options.syntaxes.push(SyntaxDef {
+            name: name.to_string(),
+            files: Vec::new(),
+            headers: Vec::new(),
+            rules: Vec::new(),
+        });
+        *open = Some(Open {
+            line: spot.line,
+            seen_color: false,
+        });
+        if after.is_empty() {
+            return Ok(());
+        }
+        if name == "default" {
+            return Err("The \"default\" syntax does not accept extensions".into());
+        }
+        self.matching(spot, self.options.syntaxes.len() - 1, false, after);
+        Ok(())
+    }
+
+    /// `extendsyntax NAME COMMAND...`: a command for a syntax defined earlier.
+    fn extend_syntax(&mut self, spot: Spot, rest: &str) -> Result<(), String> {
+        let (name, rest) = word(rest);
+        let Some(index) = self.options.syntaxes.iter().rposition(|s| s.name == name) else {
+            return Err(format!(
+                "Could not find syntax \"{}\" to extend",
+                shown(name)
+            ));
+        };
+        let (keyword, rest) = word(rest);
+        self.for_syntax(spot, index, keyword, rest)
+    }
+
+    /// A command that belongs to the syntax at `index`.
+    fn for_syntax(
+        &mut self,
+        spot: Spot,
+        index: usize,
+        keyword: &str,
+        rest: &str,
+    ) -> Result<(), String> {
+        match keyword {
+            "header" => {
+                if self.options.syntaxes[index].name == "default" {
+                    return Err("The \"default\" syntax does not accept 'header' regexes".into());
+                }
+                if rest.is_empty() {
+                    return Err("Missing regex string after 'header' command".into());
+                }
+                self.matching(spot, index, true, rest);
+                Ok(())
+            }
+            "color" | "icolor" => {
+                let (rules, error) = syntax::parse_rules(rest, keyword == "icolor");
+                for rule in rules {
+                    self.rule_cost +=
+                        64 + rule.start.len() + rule.end.as_ref().map_or(0, String::len);
+                    if self.rule_cost > MAX_RULE_COST {
+                        return Err("Too many color rules".into());
+                    }
+                    self.options.syntaxes[index].rules.push(rule);
+                }
+                error.map_or(Ok(()), Err)
+            }
+            "comment" => argument_of(keyword, rest),
+            // Another command that needs more of the editor than there is.
+            "tabgives" | "linter" | "formatter" => {
+                argument_of(keyword, rest)?;
+                self.command_not_yet(keyword)
+            }
+            "magic" => Ok(()),
+            _ => Err(format!("Command \"{}\" not understood", shown(keyword))),
+        }
+    }
+
+    /// The file name regexes (or, with `header`, the first line ones) of the syntax at `index`,
+    /// from the text of the command after it. Each mistake is a message of its own.
+    fn matching(&mut self, spot: Spot, index: usize, header: bool, rest: &str) {
+        let (found, mut errors) =
+            syntax::regex_list(rest, MAX_MATCHERS.saturating_sub(self.matchers));
+        self.matchers += found.len();
+        let s = &mut self.options.syntaxes[index];
+        let list = if header { &mut s.headers } else { &mut s.files };
+        list.extend(found);
+        for e in errors.drain(..) {
+            self.error(spot, &e);
+        }
+    }
+
+    /// A command nano has and the editor does not yet: said once.
+    fn command_not_yet(&mut self, name: &str) -> Result<(), String> {
+        if self.later.iter().any(|n| n == name) {
+            return Ok(());
+        }
+        self.later.push(name.to_string());
+        Err(format!("Command \"{name}\" is not available yet"))
     }
 
     /// `bind KEY FUNCTION MENU` and `unbind KEY MENU`.
@@ -491,8 +661,20 @@ fn argument(s: &str) -> (&str, bool) {
     }
 }
 
+/// The argument of `comment`, `tabgives`, `linter` or `formatter`: the rest of the line, or what
+/// is between the first double quote and the last one. Only the mistakes of nano are looked for.
+fn argument_of(keyword: &str, rest: &str) -> Result<(), String> {
+    if rest.is_empty() {
+        return Err(format!("Missing argument after '{keyword}'"));
+    }
+    if rest.starts_with('"') && !rest[1..].contains('"') {
+        return Err(format!("Argument of '{keyword}' lacks closing \""));
+    }
+    Ok(())
+}
+
 /// `s`, cut short for a message when it is very long (it comes from an untrusted file).
-fn shown(s: &str) -> &str {
+pub fn shown(s: &str) -> &str {
     let mut end = s.len().min(MAX_SHOWN);
     while !s.is_char_boundary(end) {
         end -= 1;
@@ -896,6 +1078,105 @@ mod tests {
         assert_eq!(user_file(Some(home), xdg), Some(dir.join(".nanorc")));
         assert_eq!(user_file(None, None), None);
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn syntaxes_are_kept_in_order() {
+        let (o, m) = read(
+            "syntax sh \"\\.sh$\" \"\\.bash$\"\nheader \"^#!\"\ncolor red \"a\" \"b\"\n\
+             icolor blue start=\"x\" end=\"y\"\ncomment \"#\"\n\
+             syntax other\ncolor green \"c\"\nextendsyntax sh color brightred \"d\"\n",
+        );
+        assert!(m.is_empty(), "{m:?}");
+        assert_eq!(o.syntaxes.len(), 2);
+        let sh = &o.syntaxes[0];
+        assert_eq!(
+            (sh.name.as_str(), sh.files.len(), sh.headers.len()),
+            ("sh", 2, 1)
+        );
+        let starts: Vec<&str> = sh.rules.iter().map(|r| r.start.as_str()).collect();
+        assert_eq!(starts, ["a", "b", "x", "d"]);
+        assert!(sh.rules[2].icase && sh.rules[2].end.as_deref() == Some("y"));
+        assert_eq!(o.syntaxes[1].name, "other");
+    }
+
+    #[test]
+    fn syntax_mistakes_are_nanos() {
+        let m = mistakes(
+            "syntax\nsyntax none\nsyntax \"x\nsyntax default \"x\"\nsyntax empty\nset linenumbers\n\
+             extendsyntax nothere color red \"x\"\nheader x\nsyntax ok \"x\"\ncolor red \"(\"\n\
+             color nocolour \"x\"\ncolor red\ncolor red start=\"x\"\n",
+        );
+        let first = [
+            "Missing syntax name",
+            "The \"none\" syntax is reserved",
+            "Unpaired quote in syntax name",
+            "The \"default\" syntax does not accept extensions",
+            "Syntax \"default\" has no color commands",
+            "Syntax \"empty\" has no color commands",
+            "Could not find syntax \"nothere\" to extend",
+            "A 'header' command requires a preceding 'syntax' command",
+        ];
+        assert_eq!(m.len(), 12, "{m:?}");
+        for (got, what) in m.iter().zip(first) {
+            assert!(got.ends_with(what), "{got}");
+        }
+        let last = [
+            "Bad regex \"(\": Unmatched ( or \\(",
+            "Color \"nocolour\" not understood",
+            "Missing regex string after 'color' command",
+            "\"start=\" requires a corresponding \"end=\"",
+        ];
+        for (got, what) in m[8..].iter().zip(last) {
+            assert!(got.ends_with(what), "{got}");
+        }
+    }
+
+    #[test]
+    fn tabgives_linter_and_formatter_are_said_once() {
+        let m = mistakes(
+            "syntax x \"x\"\ncolor red \"x\"\ntabgives \"  \"\nlinter a\nlinter b\nformatter c\n",
+        );
+        assert_eq!(m.len(), 3, "{m:?}");
+        assert!(m[0].ends_with("Command \"tabgives\" is not available yet"));
+    }
+
+    #[test]
+    fn syntaxes_are_bounded() {
+        let many = "syntax s \"x\"\ncolor red \"x\"\n".repeat(MAX_SYNTAXES + 5);
+        let (o, m) = read(&many);
+        assert_eq!(o.syntaxes.len(), MAX_SYNTAXES);
+        assert!(m.iter().any(|e| e.ends_with("Too many syntaxes")), "{m:?}");
+        let rules = "syntax s \"x\"\n".to_string() + &"color red \"x\"\n".repeat(200_000);
+        let (o, m) = read(&rules);
+        assert!(o.syntaxes[0].rules.len() < 200_000);
+        assert!(
+            m.iter().any(|e| e.ends_with("Too many color rules")),
+            "{m:?}"
+        );
+    }
+
+    #[test]
+    fn the_example_syntax_works() {
+        use crate::buffer::{Buffer, Format};
+        let (o, m) = read(include_str!("../docs/sh.nanorc"));
+        assert!(m.is_empty(), "{m:?}");
+        let script = "#!/bin/sh\nif [ \"$x\" ]; then echo 'a'; fi\n";
+        let def = syntax::find(&o.syntaxes, "run.sh", "").expect("by name");
+        assert_eq!(def.name, "sh");
+        assert!(syntax::find(&o.syntaxes, "run", "#!/usr/bin/env bash").is_some());
+        assert!(syntax::find(&o.syntaxes, "run", "text").is_none());
+        let (rules, errors) = syntax::compile(def);
+        assert!(errors.is_empty(), "{errors:?}");
+        let buf = Buffer::new(script, Format::Unix);
+        let hues = syntax::paint(&rules, &buf, 0, 1);
+        let coloured = |line: usize, at: usize| hues[line][at].fg;
+        assert!(coloured(0, 0).is_some(), "the comment line");
+        assert!(coloured(1, 0).is_some(), "the keyword `if`");
+        assert!(
+            coloured(1, 5).is_some() || coloured(1, 6).is_some(),
+            "the quoted variable"
+        );
     }
 
     #[test]

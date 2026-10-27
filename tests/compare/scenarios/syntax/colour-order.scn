@@ -1,0 +1,11 @@
+# the rules are painted in the order they are given: the later one wins where they overlap
+size: 60x12
+nanorc: syntax t "\\.t$"
+nanorc: color red "[a-z]+"
+nanorc: color green "b+"
+nanorc: color blue "bc"
+nanorc: color normal "d"
+args: a.t
+file a.t:
+| abbbc abc d
+keys: {^X}

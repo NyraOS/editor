@@ -1,0 +1,14 @@
+# colours with soft wrapping: a match goes over the rows of a line, and over the lines
+size: 20x14
+nanorc: syntax t "\\.t$"
+nanorc: color red "abc[a-z ]+"
+nanorc: color green start="<<" end=">>"
+nanorc: color blue "\t"
+args: -S a.t
+file a.t:
+| xx abcdefghij klmnopqrst uvwxyz ab
+| yy << aaaa\tbbbbbbbb
+| cccccccccccc >> zz
+keys: {Down}
+keys: {End}
+keys: {^X}

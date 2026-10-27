@@ -53,6 +53,24 @@ fn raw_range() -> String {
     format!(r"\x{{{:x}}}-\x{{{:x}}}", RAW_BASE, RAW_BASE + 0xff)
 }
 
+/// The most memory, in bytes, a compiled search expression may take: the default of the `regex`
+/// crate, written down so that it is plain what the syntax colours (see `syntax`) narrow.
+const SIZE_LIMIT: usize = 10 << 20;
+
+/// An extended POSIX regular expression as a `regex`, whose compiled size is at most `size_limit`
+/// bytes. The error is what nano shows after `Bad regex "..."`.
+pub fn compile(ere: &str, case_sensitive: bool, size_limit: usize) -> Result<Regex, String> {
+    let ere = translate(ere)?;
+    RegexBuilder::new(&ere)
+        .case_insensitive(!case_sensitive)
+        .size_limit(size_limit)
+        .build()
+        .map_err(|e| match e {
+            regex::Error::CompiledTooBig(_) => "Regular expression too big".to_string(),
+            _ => "Invalid regular expression".to_string(),
+        })
+}
+
 /// A match in a line: where it starts and how long it is, in characters.
 type Span = (usize, usize);
 
@@ -60,14 +78,7 @@ impl Pattern {
     /// The error is what nano shows after `Bad regex "..."`.
     pub fn new(text: &str, case_sensitive: bool, regexp: bool) -> Result<Self, String> {
         let regex = if regexp {
-            let ere = translate(text)?;
-            let built = RegexBuilder::new(&ere)
-                .case_insensitive(!case_sensitive)
-                .build();
-            Some(built.map_err(|e| match e {
-                regex::Error::CompiledTooBig(_) => "Regular expression too big".to_string(),
-                _ => "Invalid regular expression".to_string(),
-            })?)
+            Some(compile(text, case_sensitive, SIZE_LIMIT)?)
         } else {
             None
         };
@@ -433,7 +444,7 @@ fn interval(chars: &[char], at: usize) -> Result<(String, usize), String> {
 /// An extended POSIX regular expression, as GNU nano reads it, written for the `regex` crate;
 /// the error is the text nano shows for the same mistake. What cannot be translated is listed in
 /// docs/REGEX.md.
-fn translate(ere: &str) -> Result<String, String> {
+pub fn translate(ere: &str) -> Result<String, String> {
     let chars: Vec<char> = ere.chars().collect();
     let mut out = String::new();
     // Where in `out` the last thing a repetition can follow starts, and whether it is repeated

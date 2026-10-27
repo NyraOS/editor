@@ -1,0 +1,8 @@
+# a file that no syntax matches has no colours
+size: 40x8
+nanorc: syntax sh "\\.sh$"
+nanorc: color red "if"
+args: b.txt
+file b.txt:
+| if $HOME
+keys: {^X}

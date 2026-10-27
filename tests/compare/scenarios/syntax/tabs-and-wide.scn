@@ -1,0 +1,12 @@
+# tabs and wide characters take the colour of the match, whole
+size: 40x10
+nanorc: syntax t "\\.t$"
+nanorc: color red "a\tb"
+nanorc: color green "日本"
+nanorc: color blue "é"
+nanorc: color yellow,magenta "\t\tz"
+args: a.t
+file a.t:
+| a\tb 日本語 e\xCC\x81x
+| \t\tz日
+keys: {^X}

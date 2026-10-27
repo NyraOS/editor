@@ -1,0 +1,12 @@
+# a long line scrolled sideways keeps its colours
+size: 20x8
+nanorc: syntax t "\\.t$"
+nanorc: color red "[0-9]+"
+nanorc: color green "[a-z]+"
+args: a.t
+file a.t:
+| abcdefghij0123456789klmnopqrst9876543210uvwxyz
+keys: {End}
+keys: {Home}
+keys: {Right*25}
+keys: {^X}

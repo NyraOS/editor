@@ -1,0 +1,26 @@
+# the colour names: basic, light and bright (older word, bold), backgrounds, bold and italic,
+# normal, the extra names, and #rgb
+size: 60x20
+nanorc: syntax t "\\.t$"
+nanorc: color red "r1"
+nanorc: color lightred "r2"
+nanorc: color brightred "r3"
+nanorc: color white,blue "r4"
+nanorc: color red,lightblue "r5"
+nanorc: color brightgreen,brightmagenta "r6"
+nanorc: color bold,yellow "r7"
+nanorc: color italic,cyan "r8"
+nanorc: color bold,italic,black,white "r9"
+nanorc: color ,green "ra"
+nanorc: color normal,red "rb"
+nanorc: color pink "rc"
+nanorc: color mauve,lime "rd"
+nanorc: color grey "re"
+nanorc: color #f00 "rf"
+nanorc: color #888,#0f0 "rg"
+nanorc: color lightgrey "rh"
+args: a.t
+file a.t:
+| r1 r2 r3 r4 r5 r6 r7 r8 r9
+| ra rb rc rd re rf rg rh
+keys: {^X}

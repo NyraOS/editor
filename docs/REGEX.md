@@ -55,3 +55,8 @@ valid UTF-8 is one unit for the matching, and is matched by no class and by no n
   crate finds is `Invalid regular expression`, or `Regular expression too big`.
 - **Lazy repetition.** In POSIX `a*?` is `(a*)?`; the editor translates it that way, so it is
   never lazy.
+- **Syntax colouring** uses the same translation for the `color`, `icolor` and `header`
+  expressions of a nanorc, with two more limits (see `src/syntax.rs`): an expression whose
+  compiled program is over 64 KiB is refused with `Regular expression too big` (search allows
+  10 MiB, because the person typed it), and only the first 2000 bytes of a line are matched, so
+  `$` matches at that cut. Matching also stops for the rest of a screen after 50 ms.

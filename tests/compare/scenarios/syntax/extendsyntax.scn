@@ -1,0 +1,12 @@
+# extendsyntax adds colours (after the ones the syntax has) and header regexes
+size: 40x8
+nanorc: syntax sh "\\.sh$"
+nanorc: color red "x"
+nanorc: syntax other "\\.o$"
+nanorc: color blue "y"
+nanorc: extendsyntax sh color green "x|z"
+nanorc: extendsyntax sh header "^#!/bin/sh"
+args: a.sh
+file a.sh:
+| x y z
+keys: {^X}

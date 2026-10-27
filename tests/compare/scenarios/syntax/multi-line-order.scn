@@ -1,0 +1,11 @@
+# a rule with start= and end= is painted in its place among the others
+size: 60x10
+nanorc: syntax t "\\.t$"
+nanorc: color green "b"
+nanorc: color red start="\\(" end="\\)"
+nanorc: color blue "c"
+args: a.t
+file a.t:
+| abc (abc
+| abc) abc (b)
+keys: {^X}

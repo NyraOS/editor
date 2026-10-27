@@ -1,0 +1,11 @@
+# the match a search found is drawn over the colours
+size: 40x10
+nanorc: syntax t "\\.t$"
+nanorc: color red "[a-z]+"
+args: a.t
+file a.t:
+| abc def ghi
+keys: {^W}
+keys: def{Enter}
+keys: {Right}
+keys: {^X}

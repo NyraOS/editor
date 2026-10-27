@@ -1,0 +1,12 @@
+# a name that matches comes before the header
+size: 40x8
+nanorc: syntax sh "\\.sh$"
+nanorc: color red "echo"
+nanorc: syntax py
+nanorc: header "^#!.*python"
+nanorc: color green "print"
+args: a.sh
+file a.sh:
+| #!/usr/bin/python
+| echo print
+keys: {^X}

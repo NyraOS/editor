@@ -1,0 +1,11 @@
+# tabgives, linter and formatter are accepted by nano and refused by the editor.
+pending: tabgives, linter and formatter are not available yet
+nanorc: syntax "sh" "\\.sh$"
+nanorc: tabgives "  "
+nanorc: linter true
+nanorc: formatter true
+nanorc: color red "x"
+args: a.txt
+file a.txt:
+| if x
+keys: {^X}

@@ -1,0 +1,9 @@
+# icolor ignores the case, color does not
+size: 60x12
+nanorc: syntax t "\\.t$"
+nanorc: color red "abc"
+nanorc: icolor green "def"
+args: a.t
+file a.t:
+| abc ABC def DEF dEf
+keys: {^X}
