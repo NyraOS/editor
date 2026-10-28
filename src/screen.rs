@@ -730,10 +730,11 @@ fn sgr(style: u8, hue: Hue) -> String {
 
 fn draw_row(out: &mut String, r: usize, row: &[Cell]) {
     out.push_str(&format!("\x1b[{};1H", r + 1));
-    // Blank plain cells at the end are cleared in one go.
+    // Blank plain cells at the end are cleared in one go, unless a syntax gave them a colour
+    // (a background shows on blanks): clearing would leave them uncoloured.
     let end = row
         .iter()
-        .rposition(|c| c.text != " " || c.style != PLAIN)
+        .rposition(|c| c.text != " " || c.style != PLAIN || c.hue != Hue::default())
         .map_or(0, |i| i + 1);
     let mut look = None;
     for cell in &row[..end] {

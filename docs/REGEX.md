@@ -59,4 +59,5 @@ valid UTF-8 is one unit for the matching, and is matched by no class and by no n
   expressions of a nanorc, with two more limits (see `src/syntax.rs`): an expression whose
   compiled program is over 64 KiB is refused with `Regular expression too big` (search allows
   10 MiB, because the person typed it), and only the first 2000 bytes of a line are matched, so
-  `$` matches at that cut. Matching also stops for the rest of a screen after 50 ms.
+  a match is cut there (nano lets one that starts before it run on) and `$` matches at the cut.
+  Matching also stops for the rest of a screen after 50 ms.

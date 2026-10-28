@@ -1,8 +1,7 @@
-# syntax, header, magic, comment, color, icolor and extendsyntax are read; magic is ignored.
+# syntax, header, magic, color, icolor and extendsyntax are read; magic is ignored.
 nanorc: syntax "sh" "\\.sh$"
 nanorc: header "^#!.*/sh"
 nanorc: magic "shell script"
-nanorc: comment "#"
 nanorc: color red "\\<if\\>"
 nanorc: icolor brightblue "TODO"
 nanorc: color green start="a" end="b"

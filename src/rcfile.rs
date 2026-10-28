@@ -17,8 +17,9 @@
 //!
 //! A line is `set OPTION [ARGUMENT]`, `unset OPTION` or `include "GLOB"` (only in those files, not
 //! in an included one: as in nano, those are for syntax files), one of the syntax commands
-//! (`syntax`, `header`, `color`, `icolor`, `extendsyntax`, see `syntax`; `comment` is read and
-//! does nothing yet, `magic` only works with nano's `--magic`, which is not available yet), or
+//! (`syntax`, `header`, `color`, `icolor`, `extendsyntax`, see `syntax`; `comment`, `tabgives`,
+//! `linter` and `formatter` are not available yet; `magic` only works with nano's `--magic`, which is
+//! not available yet), or
 //! `bind` / `unbind` (see `bindings`). A line the editor cannot use is reported on the standard error
 //! in nano's words, and the rest is read: the editor starts anyway, with a message in the status
 //! bar. An option nano has and the editor does not yet is reported once, in the same way, and the
@@ -29,7 +30,7 @@
 //! `MAX_FILES` included files are read, at most `MAX_MESSAGES` messages are shown, and each
 //! shows at most `MAX_SHOWN` bytes of what is wrong. Only the first two drop settings; after the
 //! message limit, every line is still applied. The syntaxes are bounded too: see `MAX_SYNTAXES`,
-//! `MAX_MATCHERS` and `MAX_RULE_COST`.
+//! `MAX_MATCHERS`, `MAX_RULES` and `MAX_RULE_COST`.
 //!
 //! A deliberate difference from nano, which reads a syntax only when a file needs it and reports
 //! the mistakes in its `color` lines then: the editor reads them all at the start, checks the
@@ -61,6 +62,10 @@ const MAX_SYNTAXES: usize = 1000;
 /// The most regexes kept for choosing a syntax by the name or the first line of a file. Each is
 /// compiled at the start (half a millisecond), and takes up to `syntax::SIZE_LIMIT` of memory.
 const MAX_MATCHERS: usize = 1000;
+/// The most rules one syntax keeps. The rules of the syntax picked are compiled when a file is
+/// opened and each is used on every redraw: with 125,000 one-letter rules that cost 0.9 s at the
+/// start and 0.25 s for each key. The longest syntax files of nano have about 150 rules.
+const MAX_RULES: usize = 2000;
 /// The most the rules of all syntaxes may add up to: each rule counts 64 bytes and the length of
 /// its expressions. The rules are kept as text until a syntax is picked, so this bounds the memory
 /// that a nanorc (or 1000 included files) can take with them.
@@ -452,16 +457,18 @@ impl Reader {
                 for rule in rules {
                     self.rule_cost +=
                         64 + rule.start.len() + rule.end.as_ref().map_or(0, String::len);
-                    if self.rule_cost > MAX_RULE_COST {
+                    if self.rule_cost > MAX_RULE_COST
+                        || self.options.syntaxes[index].rules.len() >= MAX_RULES
+                    {
                         return Err("Too many color rules".into());
                     }
                     self.options.syntaxes[index].rules.push(rule);
                 }
                 error.map_or(Ok(()), Err)
             }
-            "comment" => argument_of(keyword, rest),
-            // Another command that needs more of the editor than there is.
-            "tabgives" | "linter" | "formatter" => {
+            // Commands that need more of the editor than there is (the key that comments lines,
+            // the linter, the formatter, the tab key's replacement text).
+            "comment" | "tabgives" | "linter" | "formatter" => {
                 argument_of(keyword, rest)?;
                 self.command_not_yet(keyword)
             }
@@ -490,7 +497,7 @@ impl Reader {
             return Ok(());
         }
         self.later.push(name.to_string());
-        Err(format!("Command \"{name}\" is not available yet"))
+        Err(format!("Option \"{name}\" is not available yet"))
     }
 
     /// `bind KEY FUNCTION MENU` and `unbind KEY MENU`.
@@ -889,10 +896,10 @@ mod tests {
     }
 
     #[test]
-    fn syntax_commands_are_read_and_ignored() {
+    fn syntax_commands_are_read() {
         let (o, m) = read(
             "syntax \"x\" \"\\.x$\"\nheader \"^#!\"\ncolor red \"a\"\nicolor blue \"b\"\n\
-             comment \"#\"\nmagic \"text\"\nextendsyntax x color red \"c\"\nbind ^X exit main\n\
+             magic \"text\"\nextendsyntax x color red \"c\"\nbind ^X exit main\n\
              unbind M-x main\nset autoindent\n",
         );
         assert!(m.is_empty(), "{m:?}");
@@ -1084,7 +1091,7 @@ mod tests {
     fn syntaxes_are_kept_in_order() {
         let (o, m) = read(
             "syntax sh \"\\.sh$\" \"\\.bash$\"\nheader \"^#!\"\ncolor red \"a\" \"b\"\n\
-             icolor blue start=\"x\" end=\"y\"\ncomment \"#\"\n\
+             icolor blue start=\"x\" end=\"y\"\n\
              syntax other\ncolor green \"c\"\nextendsyntax sh color brightred \"d\"\n",
         );
         assert!(m.is_empty(), "{m:?}");
@@ -1133,12 +1140,14 @@ mod tests {
     }
 
     #[test]
-    fn tabgives_linter_and_formatter_are_said_once() {
+    fn comment_tabgives_linter_and_formatter_are_said_once() {
         let m = mistakes(
-            "syntax x \"x\"\ncolor red \"x\"\ntabgives \"  \"\nlinter a\nlinter b\nformatter c\n",
+            "syntax x \"x\"\ncolor red \"x\"\ncomment \"#\"\ntabgives \"  \"\nlinter a\nlinter b\n\
+             formatter c\ncomment \"//\"\n",
         );
-        assert_eq!(m.len(), 3, "{m:?}");
-        assert!(m[0].ends_with("Command \"tabgives\" is not available yet"));
+        assert_eq!(m.len(), 4, "{m:?}");
+        assert!(m[0].ends_with("Option \"comment\" is not available yet"));
+        assert!(m[1].ends_with("Option \"tabgives\" is not available yet"));
     }
 
     #[test]
@@ -1149,7 +1158,7 @@ mod tests {
         assert!(m.iter().any(|e| e.ends_with("Too many syntaxes")), "{m:?}");
         let rules = "syntax s \"x\"\n".to_string() + &"color red \"x\"\n".repeat(200_000);
         let (o, m) = read(&rules);
-        assert!(o.syntaxes[0].rules.len() < 200_000);
+        assert_eq!(o.syntaxes[0].rules.len(), MAX_RULES);
         assert!(
             m.iter().any(|e| e.ends_with("Too many color rules")),
             "{m:?}"

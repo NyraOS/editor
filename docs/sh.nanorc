@@ -7,7 +7,6 @@
 
 syntax sh "\.sh$"
 header "^#!.*/(env +)?(ba|da|a)?sh( |$)"
-comment "#"
 
 color green "\<(if|then|elif|else|fi|for|while|until|do|done|case|esac|in|function)\>"
 color brightgreen "[][(){}|&;<>=]"

@@ -65,11 +65,12 @@ pub struct Rule {
     end: Option<Regex>,
 }
 
-/// The longest part of a line that is looked at, in bytes. nano looks for no match that starts
-/// past 2000 bytes either. Here the expression is also given only that much of the line: a line
-/// of a megabyte (minified code, a data file) costs no more to colour than one of 2000 bytes, and
-/// scrolling sideways along it cannot make the screen slow. Beyond it a line has no colour, and
-/// `$` matches at the cut.
+/// The longest part of a line that is looked at, in bytes. The expressions are given only that
+/// much of the line: a line of a megabyte (minified code, a data file) costs no more to colour
+/// than one of 2000 bytes, and scrolling sideways along it cannot make the screen slow. nano
+/// looks for no match that starts past 2000 bytes either, but lets one that starts before it run
+/// on to its end; here a match is cut at the limit (`x+` on a line of 3000 `x` colours 2000 of
+/// them, where nano colours all), `$` matches at the cut, and past it the line has no colour.
 const LINE_LIMIT: usize = 2000;
 
 /// How many lines above the screen are read to find out whether the first line shown is inside a
@@ -84,8 +85,8 @@ const LOOKBACK: usize = 1000;
 /// classes (`[[:alpha:]]` takes 20 KiB), which the real syntax files do not go over.
 const SIZE_LIMIT: usize = 64 << 10;
 
-/// The longest the colouring of a screen may take. Most is checked between two uses of an
-/// expression, so a screen takes at most this and the time of one more use (30 ms at most for
+/// The longest the colouring of a screen may take. It is checked between two rules and between
+/// two uses of an expression, so a screen takes at most this and the time of one more use (30 ms at most for
 /// an expression of `SIZE_LIMIT`, on a line of `LINE_LIMIT`). What is not reached by then is shown
 /// without colour; the next redraw tries again. Needed besides the limits above because their
 /// product is not small: 50 rows, many rules, and expressions made to be slow.
@@ -403,6 +404,11 @@ fn paint_within(
         .collect();
     let deadline = Instant::now() + time;
     for rule in rules {
+        // Each rule is checked again in the loops below, but a rule that has nothing to match
+        // costs a call each: the check here is what stops thousands of rules.
+        if Instant::now() >= deadline {
+            break;
+        }
         match &rule.end {
             None => {
                 for (h, text) in hues.iter_mut().zip(&heads[skipped..]) {
@@ -684,6 +690,30 @@ mod tests {
             began.elapsed()
         );
         assert_eq!(hues.len(), 41);
+    }
+
+    #[test]
+    fn thousands_of_rules_cannot_hold_the_screen() {
+        // As many rules as a syntax may have (see `rcfile`): each costs a use even when it matches
+        // nothing, and the time limit is checked between them.
+        let rules = rules_of(&"color red \"q\"\n".repeat(2000));
+        let buf = Buffer::new(&"abc\n".repeat(50), Format::Unix);
+        let began = Instant::now();
+        let hues = paint_within(&rules, &buf, 0, 49, Duration::from_millis(1));
+        assert!(
+            began.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            began.elapsed()
+        );
+        assert_eq!(hues.len(), 50);
+    }
+
+    #[test]
+    fn a_match_is_cut_at_the_line_limit() {
+        let text = "x".repeat(LINE_LIMIT + 1000);
+        let colours = paint_text("color red \"x+\"", &text);
+        // The hues of a line stop at the limit, so the bytes past it have none.
+        assert_eq!(colours[0], "r".repeat(LINE_LIMIT));
     }
 
     #[test]

@@ -1,0 +1,14 @@
+# A background colour over several lines: blanks inside it, a line of blanks and an empty line
+size: 40x12
+nanorc: syntax t "\\.t$"
+nanorc: color white,blue start="<<" end=">>"
+args: a.t
+file a.t:
+| a << b   
+|   c   d
+| 
+|    
+| 	e	
+| f >> g   
+| h   
+keys: {^X}

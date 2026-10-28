@@ -37,8 +37,8 @@ Early development. What works, the same way as in GNU nano 8.4:
 - writing the file (`^O` `^S`) and exiting (`^X`);
 - syntax colouring from the `syntax`, `header`, `color`, `icolor` and `extendsyntax` lines of a
   nanorc (see below). The colours of the interface (`titlecolor`, `statuscolor`, ...), `tabgives`,
-  `linter` and `formatter` are refused with "not available yet", and `comment` and `magic` are
-  read and do nothing yet;
+  `linter` and `formatter` are refused with "not available yet", and `comment` too (it is for a key
+  that comments lines); `magic` is read and does nothing, as it only works with `--magic`;
 - key bindings: `bind KEY FUNCTION MENU` and `unbind KEY MENU` in a nanorc (key names, menus and
   messages as in `man nanorc`; a function the editor does not have yet is refused with a message,
   a string as the function types it in the main menu), and `--modernbindings`, applied first. The
@@ -67,12 +67,15 @@ example.
 The text of a file never reaches the terminal as bytes, only as the printable characters and the
 `^X` forms that the editor draws without colours too; the colours come from the nanorc only. A
 file cannot make the screen hang either: the expressions are the same as in search (see
-[docs/REGEX.md](docs/REGEX.md)) and are also limited in size, only the first 2000 bytes of a line
-are coloured, a multi-line rule is looked for in the 1000 lines above the screen at most, and a
-screen takes 50 ms of matching at most (the rest of it is drawn without colour).
+[docs/REGEX.md](docs/REGEX.md)) and are also limited in size, a syntax has at most 2000 rules,
+only the first 2000 bytes of a line are coloured, a multi-line rule is looked for in the 1000
+lines above the screen at most, and a screen takes 50 ms of matching at most (the rest of it is
+drawn without colour).
 
 Differences from nano: all syntaxes of the nanorc files are read at the start, and a mistake in
-one is reported then, not when a file needs it, and the limits above.
+one is reported then, not when a file needs it; and the limits above. nano also colours nothing
+that starts past 2000 bytes of a line, but lets a match that starts before it run on: here a
+match is cut there (`x+` on a line of 3000 `x` colours 2000), and `$` matches at the cut.
 
 ## Build and test
 

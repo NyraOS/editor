@@ -1,6 +1,9 @@
-# tabgives, linter and formatter are accepted by nano and refused by the editor.
-pending: tabgives, linter and formatter are not available yet
+# comment, tabgives, linter and formatter are accepted by nano and refused by the editor.
+# The refusal itself is checked by a unit test in rcfile.rs: nano says nothing, so the editor's
+# list of mistakes cannot be compared screen by screen.
+pending: comment, tabgives, linter and formatter are not available yet
 nanorc: syntax "sh" "\\.sh$"
+nanorc: comment "#"
 nanorc: tabgives "  "
 nanorc: linter true
 nanorc: formatter true
