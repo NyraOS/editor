@@ -573,7 +573,10 @@ pub fn compose(ed: &Editor) -> Frame {
                     let from = column_of(text, lo.saturating_sub(first), ed.opts.tabsize);
                     let to = column_of(text, (hi - first).min(len), ed.opts.tabsize);
                     for col in from.max(start)..to.min(end) {
-                        if let Some(cell) = cells.get_mut(col - start) {
+                        // The marks of a long line stay inverse, whatever the selection's colour.
+                        if let Some(cell) =
+                            cells.get_mut(col - start).filter(|c| c.style != INVERSE)
+                        {
                             cell.style = SELECTED;
                             cell.hue = Hue::default();
                         }
@@ -728,11 +731,21 @@ impl Terminal {
     /// Leaves the alternate screen and restores the terminal's settings. Called on every way out:
     /// the exit, a hang-up, SIGTERM and a failed terminal.
     pub fn stop(&mut self) {
-        let mut out = io::stdout().lock();
-        let _ = out.write_all(RESTORE);
-        let _ = out.flush();
-        let _ = termios::tcsetattr(io::stdin(), OptionalActions::Flush, &self.saved);
+        restore(&self.saved);
     }
+
+    /// The attributes of the terminal from before the editor, for the panic hook.
+    pub fn saved(&self) -> Termios {
+        self.saved.clone()
+    }
+}
+
+/// Puts the terminal back as it was: the modes (`RESTORE`) and the attributes `saved`.
+pub fn restore(saved: &Termios) {
+    let mut out = io::stdout().lock();
+    let _ = out.write_all(RESTORE);
+    let _ = out.flush();
+    let _ = termios::tcsetattr(io::stdin(), OptionalActions::Flush, saved);
 }
 
 /// Asks the terminal to report the press and the release of the buttons, and the wheel, with

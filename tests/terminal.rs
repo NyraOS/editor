@@ -4,11 +4,13 @@
 //! The editor runs in a pseudo-terminal; the tests wait for output they expect, never for time.
 
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
+use rustix::io::ioctl_fionread;
 use rustix::process::{Pid, Signal, kill_process};
 use rustix::pty::{OpenptFlags, grantpt, ioctl_tiocgptpeer, openpt, unlockpt};
-use rustix::termios::{Winsize, tcsetwinsize};
+use rustix::termios::{LocalModes, Winsize, tcgetattr, tcsetwinsize};
 use std::fs::{self, File};
 use std::io::{Read, Write};
+use std::num::NonZeroU16;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -33,6 +35,11 @@ struct Session {
 impl Session {
     /// Starts the editor on `t.txt` (with the text `text`) in a directory of its own.
     fn start(name: &str, args: &[&str], text: &str) -> Self {
+        Self::start_with(name, args, text, &[])
+    }
+
+    /// The same, with environment variables set.
+    fn start_with(name: &str, args: &[&str], text: &str, env: &[(&str, &str)]) -> Self {
         let dir = std::env::temp_dir().join(format!(
             "nyra-editor-terminal-{}-{name}",
             std::process::id()
@@ -67,6 +74,7 @@ impl Session {
             .env("HOME", &dir)
             .env("TERM", "xterm-256color")
             .env("LC_ALL", "C.UTF-8")
+            .envs(env.iter().copied())
             .stdin(Stdio::from(slave.try_clone().unwrap()))
             .stdout(Stdio::from(slave.try_clone().unwrap()))
             .stderr(Stdio::from(slave))
@@ -84,6 +92,44 @@ impl Session {
 
     fn send(&mut self, bytes: &[u8]) {
         self.master.write_all(bytes).unwrap();
+    }
+
+    /// Sends `first`, waits until the editor has read it, and only then sends `second`: the editor
+    /// gets them in two reads, however fast the machine is.
+    fn send_split(&mut self, first: &[u8], second: &[u8]) {
+        self.send(first);
+        // The slave is opened for this check only: the master must see the end of the terminal
+        // when the editor closes it, and an open slave here would hide it.
+        let flags = OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC;
+        let slave = ioctl_tiocgptpeer(&self.master, flags).unwrap();
+        let start = Instant::now();
+        while ioctl_fionread(&slave).unwrap() > 0 {
+            assert!(start.elapsed() < STUCK, "the editor does not read");
+            std::thread::yield_now();
+        }
+        drop(slave);
+        self.send(second);
+    }
+
+    /// Waits until the screen satisfies `ready`, and gives it.
+    fn wait_screen(&mut self, ready: impl Fn(&vt100::Screen) -> bool) -> vt100::Screen {
+        let start = Instant::now();
+        loop {
+            let mut parser = vt100::Parser::new(
+                NonZeroU16::new(24).unwrap(),
+                NonZeroU16::new(80).unwrap(),
+                0,
+            );
+            parser.process(&self.out);
+            if ready(parser.screen()) {
+                return parser.screen().clone();
+            }
+            assert!(
+                self.read_more(),
+                "the editor ended before the screen was right"
+            );
+            assert!(start.elapsed() < STUCK, "the screen is never right");
+        }
     }
 
     /// Reads what the editor writes; false once it has closed the terminal.
@@ -115,13 +161,18 @@ impl Session {
         }
     }
 
-    /// Reads until the editor has gone, and gives all it wrote.
-    fn finish(mut self) -> (Vec<u8>, PathBuf) {
+    /// Reads until the editor has gone.
+    fn run_to_end(&mut self) {
         let start = Instant::now();
         while self.read_more() {
             assert!(start.elapsed() < STUCK, "the editor does not end");
         }
         self.child.wait().unwrap();
+    }
+
+    /// Reads until the editor has gone, and gives all it wrote.
+    fn finish(mut self) -> (Vec<u8>, PathBuf) {
+        self.run_to_end();
         (std::mem::take(&mut self.out), self.dir.clone())
     }
 
@@ -224,4 +275,89 @@ fn a_hostile_report_is_not_typed() {
         "a report was typed"
     );
     assert_restored(&out);
+}
+
+/// The editor ends at once with `^X` when nothing was typed; typed text would ask to save it.
+fn assert_nothing_typed(out: &[u8]) {
+    assert!(
+        !contains(out, b"Save modified buffer"),
+        "a report was typed"
+    );
+}
+
+#[test]
+fn a_report_split_from_what_comes_before_is_not_typed() {
+    let report: &[u8] = b"\x1b[<0;5;1M";
+    // The first read ends in the middle of a key, and the report follows in the next one; also
+    // the report itself cut at its start.
+    let splits: [(&[u8], &[u8]); 10] = [
+        (b"\x1b", b"[<0;5;1M"),
+        (b"\x1b\x1b", b"[<0;5;1M"),
+        (b"\x1b\x1b[", b"<0;5;1M"),
+        (b"\x1b[", b"<0;5;1M"),
+        (b"\x1b[<0;5", b";1M"),
+        (b"\x1b[", report),
+        (b"\x1b[1", report),
+        (b"\x1b[1;5", report),
+        (b"\x1b[3", report),
+        (b"\x1bO", report),
+    ];
+    for (n, (first, second)) in splits.into_iter().enumerate() {
+        let mut session = Session::start(&format!("split{n}"), &["--mouse"], "text\n");
+        session.wait_for(MOUSE_ON);
+        session.send_split(first, second);
+        session.send(b"\x18");
+        let (out, _) = session.finish();
+        assert_nothing_typed(&out);
+        assert_restored(&out);
+    }
+}
+
+#[test]
+fn a_report_after_the_old_form_is_not_typed() {
+    let mut session = Session::start("old", &["--mouse"], "text\n");
+    session.wait_for(MOUSE_ON);
+    session.send_split(b"\x1b[M a", b"\x1b[<0;5;1M");
+    session.send_split(b"\x1b[M", b"\x1b[<0;5;1M");
+    session.send(b"\x18");
+    let (out, _) = session.finish();
+    assert_nothing_typed(&out);
+}
+
+#[test]
+fn a_report_changes_nothing_when_the_mouse_is_off() {
+    let text: String = (1..=60).map(|n| format!("line {n}\n")).collect();
+    let mut session = Session::start("deaf", &[], &text);
+    // The mark is set, so that a click would also extend a selection.
+    session.send(b"\x1bA");
+    session.wait_screen(|s| s.contents().contains("Mark Set"));
+    let before = session.wait_screen(|_| true);
+    let first_row = before.rows(0, 80).nth(1).unwrap();
+    let cursor = before.cursor_position();
+    // A click, its release and a turn of the wheel, as a program could write them; then ^N, which
+    // moves the cursor by one line if the reports changed nothing before it.
+    session.send(b"\x1b[<0;5;3M\x1b[<0;5;3m\x1b[<65;5;5M\x0e");
+    let after = session.wait_screen(|s| s.cursor_position() != cursor);
+    assert_eq!(after.cursor_position(), (cursor.0 + 1, cursor.1));
+    assert_eq!(after.rows(0, 80).nth(1).unwrap(), first_row, "it scrolled");
+    assert!(!after.contents().contains("Modified"), "it was typed");
+    assert!(after.contents().contains("Mark Set"), "the mark changed");
+}
+
+#[test]
+fn the_terminal_is_restored_when_the_editor_panics() {
+    let env = [("NYRA_EDITOR_TEST_PANIC", "1")];
+    let mut session = Session::start_with("panic", &["--mouse"], "text\n", &env);
+    session.run_to_end();
+    assert_restored(&session.out);
+    // The message comes after the restore, so that it is readable on the main screen.
+    let message = last(&session.out, b"panic asked for").expect("no panic message");
+    let screen = last(&session.out, SCREEN_OFF).unwrap();
+    assert!(
+        screen < message,
+        "the message is lost on the alternate screen"
+    );
+    // Not raw any more: the terminal reads lines and echoes again.
+    let modes = tcgetattr(&session.master).unwrap().local_modes;
+    assert!(modes.contains(LocalModes::ICANON | LocalModes::ECHO));
 }

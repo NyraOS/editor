@@ -118,8 +118,17 @@ fn report([code, col, row]: [usize; 3], press: bool) -> Report {
 }
 
 /// The old report, `ESC [ M` and three bytes, which a terminal that does not know mode 1006 sends.
-/// It is not read (the bytes are not text, but they look like it): all of it is dropped.
-pub const OLD_LEN: usize = 6;
+/// It is not read (the bytes are not text, but they look like it): all of it is dropped. How many
+/// bytes that is, or 0 when they are not all there yet. The three bytes are never below a space,
+/// so an Escape among them is the start of the next sequence, and is left.
+pub fn old_report(b: &[u8]) -> usize {
+    debug_assert!(b.starts_with(b"\x1b[M"));
+    match b[3..].iter().take(3).position(|&c| c < 0x20) {
+        Some(n) => 3 + n,
+        None if b.len() < 6 => 0,
+        None => 6,
+    }
+}
 
 #[cfg(test)]
 mod tests {

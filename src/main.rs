@@ -74,12 +74,20 @@ fn run(opts: config::Options) -> io::Result<()> {
     let (cols, rows) = Terminal::size();
     let mut ed = Editor::open(opts, cols, rows);
     let mut term = Terminal::start(ed.opts.colours, ed.opts.mouse)?;
-    // Restore the terminal if the editor panics, so the shell stays usable.
+    // If the editor panics, the terminal is put back before the message is written, so the
+    // message is readable (the main screen, no raw mode) and the shell stays usable. This runs
+    // before the unwinding, which no `Drop` of the terminal could do in this order.
+    let saved = term.saved();
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = io::Write::write_all(&mut io::stdout(), screen::RESTORE);
+        screen::restore(&saved);
         hook(info);
     }));
+    // For the tests only (never in a release build): a panic on request, to check the hook above.
+    #[cfg(debug_assertions)]
+    if std::env::var_os("NYRA_EDITOR_TEST_PANIC").is_some() {
+        panic!("panic asked for by NYRA_EDITOR_TEST_PANIC");
+    }
     let result = edit(&mut ed, &mut term, &winch, &stop);
     term.stop();
     // The terminal went away, or SIGHUP or SIGTERM came: the changes go to an emergency copy.
