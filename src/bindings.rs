@@ -771,7 +771,8 @@ impl Bindings {
                 function: Some(function),
                 ..
             }) => Outcome::Key(
-                canonical(slot, function).unwrap_or(Key::Named(Named::Unknown, Mods::default())),
+                canonical(slot, function)
+                    .unwrap_or(Key::Named(Named::NotAvailable, Mods::default())),
             ),
             Some(Entry {
                 text: Some(text), ..

@@ -90,7 +90,7 @@ const SIZE_LIMIT: usize = 64 << 10;
 /// an expression of `SIZE_LIMIT`, on a line of `LINE_LIMIT`). What is not reached by then is shown
 /// without colour; the next redraw tries again. Needed besides the limits above because their
 /// product is not small: 50 rows, many rules, and expressions made to be slow.
-const TIME_LIMIT: Duration = Duration::from_millis(50);
+pub const TIME_LIMIT: Duration = Duration::from_millis(50);
 
 // ---------------------------------------------------------------------------------------------
 // Reading the arguments of the syntax commands (the lines themselves are read in `rcfile`).
@@ -379,11 +379,10 @@ pub fn head(buf: &Buffer, line: usize) -> String {
 /// several paint the same byte, the last one wins. A rule with `end` is painted from a match of
 /// `start` to the next match of `end`, which may be in a later line; with no `end` it goes on to
 /// the end of the text, as in nano.
-pub fn paint(rules: &[Rule], buf: &Buffer, first: usize, last: usize) -> Vec<Vec<Hue>> {
-    paint_within(rules, buf, first, last, TIME_LIMIT)
-}
-
-fn paint_within(
+///
+/// The time it may take is given: the editor passes `TIME_LIMIT`, and a test that is not about
+/// the limit passes plenty, so that a slow or busy machine cannot change its result.
+pub fn paint_within(
     rules: &[Rule],
     buf: &Buffer,
     first: usize,
@@ -528,10 +527,13 @@ mod tests {
         rules
     }
 
+    /// Time enough for any test that is not about the time limit.
+    const PLENTY: Duration = Duration::from_secs(3600);
+
     fn paint_text(rules: &str, text: &str) -> Vec<String> {
         let buf = Buffer::new(text, Format::Unix);
         let last = buf.lines() - 1;
-        let hues = paint(&rules_of(rules), &buf, 0, last);
+        let hues = paint_within(&rules_of(rules), &buf, 0, last, PLENTY);
         hues.iter().map(|line| letters(line)).collect()
     }
 
@@ -664,10 +666,10 @@ mod tests {
         let rules = rules_of("color red start=\"<<\" end=\">>\"");
         let near = buf.lines() - 5;
         // Inside the reach: line 0 is read, and the lines are coloured.
-        let hues = paint(&rules, &buf, 5, 6);
+        let hues = paint_within(&rules, &buf, 5, 6, PLENTY);
         assert_eq!(letters(&hues[0]), "r");
         // Out of the reach.
-        let hues = paint(&rules, &buf, near, near + 1);
+        let hues = paint_within(&rules, &buf, near, near + 1, PLENTY);
         assert_eq!(letters(&hues[0]), ".");
     }
 
@@ -681,7 +683,7 @@ mod tests {
         let text = "a".repeat(LINE_LIMIT) + "\n";
         let buf = Buffer::new(&text.repeat(5000), Format::Unix);
         let began = Instant::now();
-        let hues = paint(&rules, &buf, 2500, 2540);
+        let hues = paint_within(&rules, &buf, 2500, 2540, TIME_LIMIT);
         // The limit is 50 ms, and the slowest use of an expression a few ms; a very slow machine
         // still has a long way to go before this fails.
         assert!(

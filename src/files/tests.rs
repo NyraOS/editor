@@ -103,7 +103,22 @@ fn child() {
                 Err(e) => format!("error: {e}"),
             }
         }
-        "emergency" => describe(emergency_save(path.as_deref(), &input.unwrap())),
+        "emergency" => describe(emergency_one(path.as_deref(), &input.unwrap())),
+        // Several buffers (their paths separated by `:`) in one call; one line for all.
+        "emergency-all" => {
+            let paths = path.unwrap().to_string_lossy().into_owned();
+            let input = input.unwrap();
+            let buffers: Vec<(Option<&Path>, &[u8])> = paths
+                .split(':')
+                .map(|p| (Some(Path::new(p)), &input[..]))
+                .collect();
+            let results = emergency_save_all(&buffers);
+            results
+                .into_iter()
+                .map(describe)
+                .collect::<Vec<_>>()
+                .join(" | ")
+        }
         "lock" => match lock(path.as_deref().unwrap(), false) {
             Ok(Locking::Locked(lock)) => format!("locked {}", lock.path().display()),
             Ok(other) => format!("{other:?}"),
@@ -131,7 +146,7 @@ fn child() {
                     .iter()
                     .map(|p| format!("{}\n", p.display()))
                     .collect(),
-                None => describe(emergency_save(path.as_deref(), &input.unwrap())),
+                None => describe(emergency_one(path.as_deref(), &input.unwrap())),
             };
             // The terminal is gone: the result goes to a file.
             let out = env("FILES_TEST_RESULT").unwrap();
@@ -170,6 +185,10 @@ fn open_editor(paths: &Path) -> crate::commands::Editor {
         ed.key(key);
     }
     ed
+}
+
+fn emergency_one(path: Option<&Path>, bytes: &[u8]) -> std::io::Result<PathBuf> {
+    emergency_save_all(&[(path, bytes)]).remove(0)
 }
 
 fn describe(r: std::io::Result<PathBuf>) -> String {
@@ -1221,6 +1240,51 @@ fn sighup_writes_the_emergency_copy_of_every_modified_buffer() {
         assert!(!s.path("c.save").exists());
         assert_eq!(read(&a), b"saved a\n");
         assert_eq!(read(&b), b"saved b\n");
+    }
+}
+
+#[test]
+fn a_buffer_that_cannot_be_saved_does_not_stop_the_others() {
+    for who in everyone() {
+        if is_root() && who == Who::Me {
+            continue; // Root writes anywhere, so nothing fails.
+        }
+        let s = Scratch::new(who);
+        // The second buffer's directory and the home directory cannot be written to.
+        set_mode(&s.home, 0o500);
+        let locked = s.base.join("locked");
+        s.mkdir(&locked, 0o500, who.uid());
+        let (a, b, c) = (s.path("a"), locked.join("b"), s.path("c"));
+        s.file(&a, b"saved a", 0o640, who.uid());
+        s.file(&c, b"saved c", 0o600, who.uid());
+        let paths = format!("{}:{}:{}", a.display(), b.display(), c.display());
+        let out = s.run("emergency-all", Some(Path::new(&paths)), b"unsaved", "");
+        let results: Vec<&str> = out.split(" | ").collect();
+        assert_eq!(results.len(), 3, "{out}");
+        assert_eq!(results[0], format!("{}.save", a.display()), "{who:?}");
+        assert!(results[1].starts_with("error: "), "{out}");
+        assert_eq!(results[2], format!("{}.save", c.display()), "{who:?}");
+        // Both copies that were made are whole, with the mode of their files.
+        assert_eq!(read(&s.path("a.save")), b"unsaved");
+        assert_eq!(read(&s.path("c.save")), b"unsaved");
+        assert_eq!(meta(&s.path("a.save")).mode() & 0o7777, 0o640);
+        assert_eq!(meta(&s.path("c.save")).mode() & 0o7777, 0o600);
+    }
+}
+
+#[test]
+fn many_buffers_in_one_directory_get_numbered_copies() {
+    for who in everyone() {
+        let s = Scratch::new(who);
+        // The same name 70 times, more than a batch: each copy gets the next number.
+        let a = s.path("a");
+        s.file(&a, b"saved", 0o644, who.uid());
+        let paths = vec![a.display().to_string(); 70].join(":");
+        let out = s.run("emergency-all", Some(Path::new(&paths)), b"unsaved", "");
+        let mut expected = vec![format!("{}.save", a.display())];
+        expected.extend((1..70).map(|n| format!("{}.save.{n}", a.display())));
+        assert_eq!(out, expected.join(" | "), "{who:?}");
+        assert_eq!(names(&s.dir).len(), 71);
     }
 }
 

@@ -26,7 +26,7 @@ use signal_hook::consts::{SIGHUP, SIGTERM};
 use super::sys::{self, Result};
 
 /// Makes `SIGHUP` and `SIGTERM` set the returned flag instead of ending the editor, which then
-/// writes the emergency copies of its modified buffers ([`emergency_save`]) and exits. Waits for
+/// writes the emergency copies of its modified buffers ([`emergency_save_all`]) and exits. Waits for
 /// keys must end at least every second or so to look at the flag (a closed terminal also ends them
 /// with an error).
 pub fn watch_signals() -> io::Result<Arc<AtomicBool>> {
@@ -37,8 +37,68 @@ pub fn watch_signals() -> io::Result<Arc<AtomicBool>> {
     Ok(flag)
 }
 
-/// Writes the emergency copy of a buffer (`path` is its file name, if it has one); returns where.
-pub fn emergency_save(path: Option<&Path>, bytes: &[u8]) -> io::Result<PathBuf> {
+/// How many copies are written before they are synced, as each holds two descriptors until then.
+const BATCH: usize = 64;
+
+/// A copy that is written but not synced yet.
+struct Copy {
+    path: PathBuf,
+    name: OsString,
+    dir: OwnedFd,
+    file: OwnedFd,
+    /// It is in the home directory, where there is no other place to try.
+    home: bool,
+}
+
+/// Writes the emergency copy of each buffer (`path` is its file name, if it has one); returns
+/// where each went, or why it did not. A buffer that cannot be written does not stop the others.
+///
+/// The copies are written first and synced after, a batch at a time: a sync waits for the disk
+/// (70 to 300 ms on a busy one), the first one of a batch takes the data of all the others with
+/// it, and with 256 buffers one sync each would take minutes, which a terminal that is going
+/// away, or a `SIGKILL` after `SIGTERM`, does not wait for. A copy that cannot be synced is
+/// removed and written again in the home directory, as one that cannot be written is.
+pub fn emergency_save_all(buffers: &[(Option<&Path>, &[u8])]) -> Vec<io::Result<PathBuf>> {
+    let mut results = Vec::with_capacity(buffers.len());
+    for batch in buffers.chunks(BATCH) {
+        let written: Vec<io::Result<Copy>> = batch
+            .iter()
+            .map(|&(path, bytes)| write_copy(path, bytes, false))
+            .collect();
+        for (copy, &(path, bytes)) in written.into_iter().zip(batch) {
+            results.push(copy.and_then(|copy| synced(copy, path, bytes)));
+        }
+    }
+    results
+}
+
+/// Syncs a copy; if that fails, removes it and tries the home directory, unless it is there.
+fn synced(copy: Copy, path: Option<&Path>, bytes: &[u8]) -> io::Result<PathBuf> {
+    let Err(error) = sync(&copy) else {
+        return Ok(copy.path);
+    };
+    let _ = fs::unlinkat(&copy.dir, &copy.name, AtFlags::empty());
+    if copy.home {
+        return Err(error.into());
+    }
+    let again = write_copy(path, bytes, true)?;
+    match sync(&again) {
+        Ok(()) => Ok(again.path),
+        Err(error) => {
+            let _ = fs::unlinkat(&again.dir, &again.name, AtFlags::empty());
+            Err(error.into())
+        }
+    }
+}
+
+fn sync(copy: &Copy) -> Result<()> {
+    fs::fsync(&copy.file)?;
+    sys::sync_dir(&copy.dir)
+}
+
+/// Writes the copy of one buffer, next to the file if that is allowed and works, else in the home
+/// directory (only there when `home_only`), without syncing it.
+fn write_copy(path: Option<&Path>, bytes: &[u8], home_only: bool) -> io::Result<Copy> {
     let (dir_path, base, name) = match path.and_then(|p| Some((p, p.file_name()?))) {
         Some((path, name)) => {
             let mut base = name.to_os_string();
@@ -50,16 +110,29 @@ pub fn emergency_save(path: Option<&Path>, bytes: &[u8]) -> io::Result<PathBuf> 
             (Path::new(""), OsString::from(base), None)
         }
     };
-    if let Ok(dir) = sys::open_dir(dir_path) {
+    if let (false, Ok(dir)) = (home_only, sys::open_dir(dir_path)) {
         if let Some(perms) = beside(&dir, name) {
-            if let Ok(written) = write_numbered(&dir, &base, perms, bytes) {
-                return Ok(dir_path.join(written));
+            if let Ok((file, written)) = write_numbered(&dir, &base, perms, bytes) {
+                let path = dir_path.join(&written);
+                return Ok(Copy {
+                    path,
+                    name: written,
+                    dir,
+                    file,
+                    home: false,
+                });
             }
         }
     }
-    let (home, home_path) = sys::home_dir()?;
-    let name = write_numbered(&home, &base, None, bytes)?;
-    Ok(home_path.join(name))
+    let (dir, home_path) = sys::home_dir()?;
+    let (file, name) = write_numbered(&dir, &base, None, bytes)?;
+    Ok(Copy {
+        path: home_path.join(&name),
+        name,
+        dir,
+        file,
+        home: true,
+    })
 }
 
 /// Whether the copy may go next to the file: the directory opened belongs to the user running
@@ -95,13 +168,13 @@ fn beside(dir: &OwnedFd, name: Option<&OsStr>) -> Option<Option<(u32, u32)>> {
 }
 
 /// Writes `BASE`, or `BASE.1`, `BASE.2`, ... (the first that does not exist) in `dir`, with the
-/// given mode and group, or `0600`.
+/// given mode and group, or `0600`; returns the open file and its name. It is not synced.
 fn write_numbered(
     dir: &OwnedFd,
     base: &OsStr,
     perms: Option<(u32, u32)>,
     bytes: &[u8],
-) -> Result<OsString> {
+) -> Result<(OwnedFd, OsString)> {
     for n in 0..100_000u32 {
         let mut name = base.to_os_string();
         if n > 0 {
@@ -112,7 +185,7 @@ fn write_numbered(
             Err(Errno::EXIST) => continue,
             Err(e) => return Err(e),
         };
-        let result = (|| {
+        let result: Result<()> = (|| {
             sys::write_all(&fd, bytes)?;
             // The original's mode only with its group, so no other group can read the copy.
             if let Some((mode, gid)) = perms {
@@ -120,11 +193,10 @@ fn write_numbered(
                     fs::fchmod(&fd, Mode::from_raw_mode(mode))?;
                 }
             }
-            fs::fsync(&fd)?;
-            sys::sync_dir(dir)
+            Ok(())
         })();
         return match result {
-            Ok(()) => Ok(name),
+            Ok(()) => Ok((fd, name)),
             Err(e) => {
                 let _ = fs::unlinkat(dir, &name, fs::AtFlags::empty());
                 Err(e)
