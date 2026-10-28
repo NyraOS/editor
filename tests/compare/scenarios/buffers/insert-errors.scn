@@ -1,0 +1,13 @@
+# Files that cannot be read: missing, a directory; the text stays as it was.
+args: a.txt
+file a.txt:
+| alpha
+keys: {^R}
+keys: nothere.txt
+keys: {Enter}
+keys: {^R}
+keys: .
+keys: {Enter}
+keys: {^R}
+keys: {^C}
+keys: {^X}

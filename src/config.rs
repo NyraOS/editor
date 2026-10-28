@@ -18,7 +18,7 @@ pub enum Command {
 }
 
 /// `+/text`: a search to make when the file is open.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StartSearch {
     pub text: String,
     pub backwards: bool,
@@ -26,16 +26,37 @@ pub struct StartSearch {
     pub regexp: bool,
 }
 
+/// A file named on the command line, with the `+` argument before it.
 #[derive(Debug, PartialEq)]
-pub struct Options {
-    /// The file to open; None for a new, unnamed buffer.
-    pub file: Option<String>,
+pub struct Place {
+    pub file: String,
     /// `+LINE,COLUMN`: where the cursor starts (1-based; negative counts from the end).
     pub start: Option<(i64, i64)>,
     /// `+/text` or `+?text`, with modifiers: a search to make instead of going to a place.
     pub search: Option<StartSearch>,
     /// What is wrong with the `+` argument: shown in the status bar, as nano does.
-    pub start_alert: Option<String>,
+    pub alert: Option<String>,
+}
+
+impl Place {
+    pub fn new(file: String) -> Self {
+        Self {
+            file,
+            start: None,
+            search: None,
+            alert: None,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Options {
+    /// The files to open, one buffer each, in order; none: a new, unnamed buffer.
+    pub files: Vec<Place>,
+    /// What is wrong with the nanorc files: shown in the status bar once the files are open.
+    pub problem: Option<String>,
+    /// `-F`: reading a file with ^R makes a new buffer.
+    pub multibuffer: bool,
     /// `-I`: the nanorc files are not read.
     pub ignorercfiles: bool,
     /// `-l`: numbers in front of the lines.
@@ -93,10 +114,9 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
-            file: None,
-            start: None,
-            search: None,
-            start_alert: None,
+            files: Vec::new(),
+            problem: None,
+            multibuffer: false,
             ignorercfiles: false,
             linenumbers: false,
             softwrap: false,
@@ -180,7 +200,7 @@ const OPTIONS: &[Opt] = &[
     opt('l', "linenumbers", false, Works),
     opt('z', "listsyntaxes", false, Later),
     opt('G', "locking", false, Works),
-    opt('F', "multibuffer", false, Later),
+    opt('F', "multibuffer", false, Works),
     opt('m', "mouse", false, Later),
     opt('/', "modernbindings", false, Works),
     opt('_', "minibar", false, Later),
@@ -220,7 +240,10 @@ const OPTIONS: &[Opt] = &[
 /// What the arguments gave so far.
 struct Parsing {
     options: Options,
+    /// The operands: file names, and the `+` arguments in front of them.
     files: Vec<String>,
+    /// The files to open, with their `+` arguments.
+    places: Vec<Place>,
     /// The first option or argument that is not available yet.
     later: Option<String>,
 }
@@ -248,7 +271,7 @@ fn parse_with(
     let (base, mistakes) = read_rcfiles();
     match parse_over(args, base)? {
         Command::Edit(mut o) => {
-            o.start_alert = o.start_alert.or(mistakes);
+            o.problem = mistakes;
             Ok(Command::Edit(o))
         }
         other => Ok(other),
@@ -259,6 +282,7 @@ fn parse_over(args: &[String], base: Options) -> Result<Command, String> {
     let mut p = Parsing {
         options: base,
         files: Vec::new(),
+        places: Vec::new(),
         later: None,
     };
     let mut args = args.iter();
@@ -322,16 +346,25 @@ fn parse_over(args: &[String], base: Options) -> Result<Command, String> {
 
 /// As in nano, a `+` argument is a place to start only when an argument follows it, and then
 /// that argument is a file name, even if it starts with a plus; in last place it is a file name.
+/// Each file has the place before it.
 fn place_arguments(p: &mut Parsing) {
     let operands = std::mem::take(&mut p.files);
     let mut operands = operands.into_iter().peekable();
+    // As in nano, the modifiers (and `?`) of a search stay on for the files after it.
+    let mut flags = SearchFlags {
+        case_sensitive: p.options.casesensitive,
+        regexp: p.options.regexp,
+        backwards: false,
+    };
     while let Some(arg) = operands.next() {
         match arg.strip_prefix('+') {
             Some(spec) if operands.peek().is_some() => {
-                start_spec(&mut p.options, spec);
-                p.files.extend(operands.next());
+                let file = operands.next().unwrap_or_default();
+                let mut place = Place::new(file);
+                start_spec(&mut place, spec, &mut flags);
+                p.places.push(place);
             }
-            _ => p.files.push(arg),
+            _ => p.places.push(Place::new(arg)),
         }
     }
 }
@@ -342,6 +375,12 @@ fn usage_error(what: String) -> String {
 }
 
 const PROGRAM: &str = "editor";
+
+/// The most buffers open at once. Each one holds its text and its undo history, and a lock file
+/// with two file descriptors (the usual limit is 1024 per process), and a hang-up writes every
+/// modified one to disk; a few hundred keep the memory, the descriptors and that time bounded
+/// whatever is typed or put on the command line (`editor *` in a big directory).
+pub const MAX_BUFFERS: usize = 256;
 
 /// The option `--name` stands for: an exact name, or the only one that starts with it. `arg` is
 /// the whole argument, for the message.
@@ -409,6 +448,7 @@ fn apply(p: &mut Parsing, opt: &Opt, value: &str) -> Result<Option<Command>, Str
         "linenumbers" => o.linenumbers = true,
         "softwrap" => o.softwrap = true,
         "atblanks" => o.atblanks = true,
+        "multibuffer" => o.multibuffer = true,
         "nohelp" => o.nohelp = true,
         "smarthome" => o.smarthome = true,
         "backup" => o.backup = true,
@@ -455,58 +495,61 @@ fn finish(p: Parsing) -> Result<Command, String> {
     if let Some(what) = p.later {
         return Err(format!("{PROGRAM}: {what}"));
     }
-    if p.files.len() > 1 {
-        return Err(format!(
-            "{PROGRAM}: editing several files is not available yet"
-        ));
-    }
-    o.file = p.files.into_iter().next();
-    if o.file.as_deref() == Some("-") {
+    if p.places.iter().any(|place| place.file == "-") {
         return Err(format!(
             "{PROGRAM}: reading the text from the standard input is not available yet"
         ));
     }
+    if p.places.len() > MAX_BUFFERS {
+        return Err(format!(
+            "{PROGRAM}: at most {MAX_BUFFERS} files can be opened at once"
+        ));
+    }
+    o.files = p.places;
     Ok(Command::Edit(o))
+}
+
+/// How a search starts, which the `+` arguments change and leave changed, as nano does.
+struct SearchFlags {
+    case_sensitive: bool,
+    regexp: bool,
+    backwards: bool,
 }
 
 /// The argument `+SPEC`: `LINE`, `LINE,COLUMN`, `,COLUMN`, or a search: `/text` forwards, `?text`
 /// backwards, after modifiers: `c` and `C` for case sensitive or not, `r` and `R` for a regular
 /// expression or not.
-fn start_spec(o: &mut Options, spec: &str) {
-    o.start = None;
-    o.search = None;
-    o.start_alert = None;
+fn start_spec(place: &mut Place, spec: &str, flags: &mut SearchFlags) {
     if spec.starts_with(|c: char| c.is_ascii_digit() || matches!(c, ',' | '-')) || spec.is_empty() {
         match position(spec) {
-            Some(at) => o.start = Some(at),
-            None => o.start_alert = Some("Invalid line or column number".into()),
+            Some(at) => place.start = Some(at),
+            None => place.alert = Some("Invalid line or column number".into()),
         }
         return;
     }
-    let mut search = StartSearch {
-        text: String::new(),
-        backwards: false,
-        case_sensitive: o.casesensitive,
-        regexp: o.regexp,
-    };
     for (i, c) in spec.char_indices() {
         match c {
-            'c' => search.case_sensitive = true,
-            'C' => search.case_sensitive = false,
-            'r' => search.regexp = true,
-            'R' => search.regexp = false,
+            'c' => flags.case_sensitive = true,
+            'C' => flags.case_sensitive = false,
+            'r' => flags.regexp = true,
+            'R' => flags.regexp = false,
             '/' | '?' => {
-                search.backwards |= c == '?';
-                search.text = spec[i + 1..].to_string();
-                if search.text.is_empty() {
-                    o.start_alert = Some("Empty search string".into());
+                flags.backwards |= c == '?';
+                let text = spec[i + 1..].to_string();
+                if text.is_empty() {
+                    place.alert = Some("Empty search string".into());
                 } else {
-                    o.search = Some(search);
+                    place.search = Some(StartSearch {
+                        text,
+                        backwards: flags.backwards,
+                        case_sensitive: flags.case_sensitive,
+                        regexp: flags.regexp,
+                    });
                 }
                 return;
             }
             _ => {
-                o.start_alert = Some(format!("Invalid search modifier '{c}'"));
+                place.alert = Some(format!("Invalid search modifier '{c}'"));
                 return;
             }
         }
@@ -527,13 +570,15 @@ fn position(s: &str) -> Option<(i64, i64)> {
 }
 
 pub const USAGE: &str = "\
-Usage: editor [OPTIONS] [+LINE[,COLUMN] | +/TEXT | +?TEXT] [FILE]
+Usage: editor [OPTIONS] [[+LINE[,COLUMN] | +/TEXT | +?TEXT] FILE]...
 
 A text editor that works like GNU nano; it is not GNU nano.
 Type ^G inside the editor for the keys. Short options can be joined (-lc, -T4), long ones
 shortened while they stay unambiguous; -- ends the options.
 
-Where to start:
+Each file is opened in a buffer of its own; M-< and M-> switch between them.
+
+Where to start in the file that follows:
  +LINE[,COLUMN]          Put the cursor there (a negative number counts from the end)
  +/TEXT, +?TEXT          Search forwards, or backwards, for TEXT; before the slash, the
                          modifiers c/C (case sensitive or not), r/R (regular expression or
@@ -544,6 +589,7 @@ Options:
  -B, --backup            Keep a backup (FILE~) of the old file at every save
  -C, --backupdir=DIR     Put the backups, numbered, in DIR
  -E, --tabstospaces      Make a typed Tab write spaces
+ -F, --multibuffer       Read a file with ^R into a new buffer
  -G, --locking           Lock the file while editing it (always on)
  -I, --ignorercfiles     Do not read nanorc files
  -L, --nonewlines        Do not add a newline at the end of the file
@@ -564,8 +610,8 @@ Options:
  -x, --nohelp            Do not show the two help lines
 
 Accepted, with no effect yet: -M, -O, -a, -r, -s, -w.
-Not available yet (refused): -D, -F, -H, -J, -K, -P, -Q, -R, -S, -U, -Y, -b, -d, -e, -f, -g,
--j, -m, -n, -o, -p, -q, -v, -y, -z, -@, -%, -_, -0, several files, and - (standard input).
+Not available yet (refused): -D, -H, -J, -K, -P, -Q, -R, -U, -Y, -b, -d, -e, -f, -g, -j, -m,
+-n, -o, -p, -q, -v, -z, -@, -%, -_, -0, and - (standard input).
 ";
 
 #[cfg(test)]
@@ -588,6 +634,11 @@ mod tests {
         run(args).expect_err("an error")
     }
 
+    /// The names of the files to open.
+    fn names(o: &Options) -> Vec<&str> {
+        o.files.iter().map(|p| p.file.as_str()).collect()
+    }
+
     #[test]
     fn arguments_win_over_the_nanorc_files() {
         let rc = || {
@@ -603,12 +654,13 @@ mod tests {
             panic!("not an edit")
         };
         assert_eq!((o.tabsize, o.linenumbers), (5, true));
-        assert_eq!(o.start_alert.as_deref(), Some("Mistakes in 'rc'"));
+        assert_eq!(o.problem.as_deref(), Some("Mistakes in 'rc'"));
         let Ok(Command::Edit(o)) = parse_with(&args(&["+/", "f"]), rc) else {
             panic!("not an edit")
         };
         assert_eq!(o.tabsize, 3);
-        assert_eq!(o.start_alert.as_deref(), Some("Empty search string"));
+        assert_eq!(o.files[0].alert.as_deref(), Some("Empty search string"));
+        assert_eq!(o.problem.as_deref(), Some("Mistakes in 'rc'"));
         let Ok(Command::Edit(o)) = parse_with(&args(&["-I", "f"]), rc) else {
             panic!("not an edit")
         };
@@ -628,10 +680,10 @@ mod tests {
     fn flags_and_file() {
         let o = edit(&["--ignorercfiles", "-lc", "+3,5", "notes.txt"]);
         assert!(o.linenumbers && o.constantshow && !o.nohelp);
-        assert_eq!(o.start, Some((3, 5)));
-        assert_eq!(o.file.as_deref(), Some("notes.txt"));
-        assert_eq!(edit(&["+,7", "f"]).start, Some((1, 7)));
-        assert_eq!(edit(&["-x", "f", "-L"]).file.as_deref(), Some("f"));
+        assert_eq!(o.files[0].start, Some((3, 5)));
+        assert_eq!(o.files[0].file, "notes.txt");
+        assert_eq!(edit(&["+,7", "f"]).files[0].start, Some((1, 7)));
+        assert_eq!(names(&edit(&["-x", "f", "-L"])), ["f"]);
         assert!(edit(&["f", "-L"]).nonewlines);
     }
 
@@ -663,9 +715,9 @@ mod tests {
 
     #[test]
     fn double_dash_ends_the_options() {
-        assert_eq!(edit(&["--", "-l"]).file.as_deref(), Some("-l"));
+        assert_eq!(names(&edit(&["--", "-l"])), ["-l"]);
         assert!(!edit(&["--", "-l"]).linenumbers);
-        assert_eq!(edit(&["--", "+4", "f"]).start, Some((4, 1)));
+        assert_eq!(edit(&["--", "+4", "f"]).files[0].start, Some((4, 1)));
     }
 
     #[test]
@@ -742,7 +794,6 @@ mod tests {
         // The first one is the one named; a mistake in an option's argument comes before.
         assert!(err(&["-g", "-m"]).contains("--showcursor"));
         assert!(err(&["-m", "-T", "x"]).starts_with("Requested tab size"));
-        assert!(err(&["a", "b"]).contains("several files"));
         assert!(edit(&["-/"]).modernbindings);
         assert!(err(&["-"]).contains("standard input"));
     }
@@ -754,6 +805,7 @@ mod tests {
             let mut p = Parsing {
                 options: Options::default(),
                 files: Vec::new(),
+                places: Vec::new(),
                 later: None,
             };
             // `apply` panics on an option that is in the table but not handled.
@@ -767,44 +819,78 @@ mod tests {
 
     #[test]
     fn plus_arguments() {
+        let alert = |args: &[&str]| edit(args).files[0].alert.clone();
         assert_eq!(
-            edit(&["+3x", "f"]).start_alert.as_deref(),
+            alert(&["+3x", "f"]).as_deref(),
             Some("Invalid line or column number")
         );
-        assert_eq!(edit(&["+3x", "f"]).start, None);
+        assert_eq!(edit(&["+3x", "f"]).files[0].start, None);
         assert_eq!(
-            edit(&["+,x", "f"]).start_alert.as_deref(),
+            alert(&["+,x", "f"]).as_deref(),
             Some("Invalid line or column number")
         );
-        assert_eq!(edit(&["+-2,-3", "f"]).start, Some((-2, -3)));
-        let o = edit(&["+cr?a.c", "f"]);
-        let found = o.search.expect("a search");
+        assert_eq!(edit(&["+-2,-3", "f"]).files[0].start, Some((-2, -3)));
+        let found = edit(&["+cr?a.c", "f"]).files.remove(0).search;
+        let found = found.expect("a search");
         assert_eq!(found.text, "a.c");
         assert!(found.backwards && found.case_sensitive && found.regexp);
-        let found = edit(&["+/x/y", "f"]).search.expect("a search");
+        let found = edit(&["+/x/y", "f"]).files.remove(0).search;
+        let found = found.expect("a search");
         assert_eq!(found.text, "x/y");
         assert!(!found.backwards && !found.case_sensitive && !found.regexp);
-        assert!(
-            !edit(&["+crCR/x", "f"])
-                .search
-                .expect("a search")
-                .case_sensitive
-        );
+        let found = edit(&["+crCR/x", "f"]).files.remove(0).search;
+        assert!(!found.expect("a search").case_sensitive);
         assert_eq!(
-            edit(&["+x/y", "f"]).start_alert.as_deref(),
+            alert(&["+x/y", "f"]).as_deref(),
             Some("Invalid search modifier 'x'")
         );
-        assert_eq!(
-            edit(&["+/", "f"]).start_alert.as_deref(),
-            Some("Empty search string")
-        );
+        assert_eq!(alert(&["+/", "f"]).as_deref(), Some("Empty search string"));
         // A place applies to the next argument, which is a file name.
-        assert_eq!(edit(&["+/a", "f"]).search.expect("a search").text, "a");
-        assert_eq!(edit(&["+3"]).file.as_deref(), Some("+3"));
-        assert_eq!(edit(&["+3"]).start, None);
-        assert!(err(&["f", "+3"]).contains("several files"));
-        assert!(err(&["+2", "+4,2", "f"]).contains("several files"));
-        assert_eq!(edit(&["+2", "+4"]).file.as_deref(), Some("+4"));
-        assert_eq!(edit(&["+2", "+4"]).start, Some((2, 1)));
+        let found = edit(&["+/a", "f"]).files.remove(0).search;
+        assert_eq!(found.expect("a search").text, "a");
+        assert_eq!(names(&edit(&["+3"])), ["+3"]);
+        assert_eq!(edit(&["+3"]).files[0].start, None);
+        assert_eq!(names(&edit(&["+2", "+4"])), ["+4"]);
+        assert_eq!(edit(&["+2", "+4"]).files[0].start, Some((2, 1)));
+    }
+
+    #[test]
+    fn each_file_has_the_place_before_it() {
+        let o = edit(&["a", "+3,4", "b", "c", "+/x", "d", "+5", "e", "+6"]);
+        assert_eq!(names(&o), ["a", "b", "c", "d", "e", "+6"]);
+        let starts: Vec<_> = o.files.iter().map(|p| p.start).collect();
+        assert_eq!(starts, [None, Some((3, 4)), None, None, Some((5, 1)), None]);
+        assert_eq!(
+            o.files[3].search.as_ref().map(|s| s.text.as_str()),
+            Some("x")
+        );
+        assert!(o.files[2].search.is_none());
+    }
+
+    #[test]
+    fn the_modifiers_of_a_search_stay_for_the_files_after_it() {
+        // As in nano: `c` and `?` are set once and stay set.
+        let o = edit(&["+c?x", "a", "+/y", "b"]);
+        let (a, b) = (o.files[0].search.as_ref(), o.files[1].search.as_ref());
+        let (a, b) = (a.expect("a search"), b.expect("a search"));
+        assert!(a.case_sensitive && a.backwards);
+        assert!(b.case_sensitive && b.backwards);
+    }
+
+    #[test]
+    fn several_files_and_multibuffer() {
+        assert_eq!(names(&edit(&["a", "b", "c"])), ["a", "b", "c"]);
+        assert!(!edit(&["a"]).multibuffer);
+        assert!(edit(&["-F", "a"]).multibuffer);
+        assert!(edit(&["--multibuffer"]).multibuffer);
+        assert!(err(&["a", "-"]).contains("standard input"));
+    }
+
+    #[test]
+    fn too_many_files_are_refused() {
+        let many: Vec<String> = (0..=MAX_BUFFERS).map(|n| format!("f{n}")).collect();
+        let args: Vec<&str> = many.iter().map(String::as_str).collect();
+        assert!(err(&args).contains("at most 256 files"));
+        assert_eq!(edit(&args[..MAX_BUFFERS]).files.len(), MAX_BUFFERS);
     }
 }

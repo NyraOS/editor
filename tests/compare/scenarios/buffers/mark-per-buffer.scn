@@ -1,0 +1,15 @@
+# The mark is kept in its buffer.
+args: a.txt b.txt
+file a.txt:
+| alpha beta
+file b.txt:
+| bravo
+keys: {M-a}{Right*3}
+keys: {M->}
+keys: {Right*2}
+keys: {M->}
+keys: {^K}
+keys: {^X}
+keys: n
+keys: {^X}
+keys: n

@@ -35,7 +35,7 @@ const MENUS: [(&str, char); 15] = [
 /// The longest string a key can type.
 const MAX_TEXT: usize = 256;
 
-const SLOTS: &str = "msrwygoh";
+const SLOTS: &str = "msrwygohi";
 pub const MAIN: usize = 0;
 pub const SEARCH: usize = 1;
 pub const REPLACE: usize = 2;
@@ -44,6 +44,7 @@ pub const YES_NO: usize = 4;
 pub const GOTO: usize = 5;
 pub const WRITE_OUT: usize = 6;
 pub const HELP: usize = 7;
+pub const INSERT: usize = 8;
 
 /// Every function nano 8.4 lets a key be bound to, and the menus (letters) where it exists.
 const FUNCTIONS: &[(&str, &str)] = &[
@@ -163,7 +164,7 @@ const MAIN_KEYS: Defaults = &[
     ("help", "Help", &["^G", "F1"]),
     ("exit", "Exit", &["^X", "F2"]),
     ("writeout", "Write Out", &["^O", "F3"]),
-    ("insert", "Read File", &["^R"]),
+    ("insert", "Read File", &["^R", "F5", "Ins"]),
     ("whereis", "Where Is", &["^F", "^W", "F6"]),
     ("replace", "Replace", &["^\\", "M-R"]),
     ("cut", "Cut", &["^K", "F9"]),
@@ -200,8 +201,8 @@ const MAIN_KEYS: Defaults = &[
     ("pagedown", "Next Page", &["^V", "PgDn"]),
     ("firstline", "First Line", &["M-\\"]),
     ("lastline", "Last Line", &["M-/"]),
-    ("prevbuf", "Prev File", &["M-◂"]),
-    ("nextbuf", "Next File", &["M-▸"]),
+    ("prevbuf", "Prev File", &["M-◂", "M-<", "M-,"]),
+    ("nextbuf", "Next File", &["M-▸", "M->", "M-."]),
     ("tab", "Tab", &["^I"]),
     ("enter", "Enter", &["^M"]),
     ("backspace", "Backspace", &["^H", "Bsp"]),
@@ -294,10 +295,21 @@ const WRITE_KEYS: Defaults = &[
     ("browser", "Browse", &["^T"]),
 ];
 
+/// The keys nano lists in this order. The browser, the conversion and the command are not in the
+/// editor yet: their keys are refused when pressed.
+const INSERT_KEYS: Defaults = &[
+    ("help", "Help", &["^G"]),
+    ("cancel", "Cancel", &["^C"]),
+    ("flipnewbuffer", "New Buffer", &["M-F"]),
+    ("flipconvert", "No Conversion", &["M-N"]),
+    ("flipexecute", "Execute Command", &["^X"]),
+    ("browser", "Browse", &["^T"]),
+];
+
 const YES_NO_KEYS: Defaults = &[("cancel", "Cancel", &["^C"])];
 
 /// The default lists of the slots, and whether the prompt editing keys come with them.
-const DEFAULTS: [(Defaults, bool); 8] = [
+const DEFAULTS: [(Defaults, bool); 9] = [
     (MAIN_KEYS, false),
     (SEARCH_KEYS, true),
     (REPLACE_KEYS, true),
@@ -306,6 +318,7 @@ const DEFAULTS: [(Defaults, bool); 8] = [
     (GOTO_KEYS, true),
     (WRITE_KEYS, true),
     (HELP_KEYS, false),
+    (INSERT_KEYS, true),
 ];
 
 /// A key as a nanorc names it.
@@ -591,6 +604,10 @@ fn canonical(slot: usize, function: &str) -> Option<Key> {
         (_, "cancel") => Key::Ctrl('C'),
         (_, "exit") => Key::Ctrl('X'),
         (_, "writeout") => Key::Ctrl('O'),
+        (_, "insert") => Key::Ctrl('R'),
+        (_, "prevbuf") => Key::Meta('<'),
+        (_, "nextbuf") => Key::Meta('>'),
+        (_, "flipnewbuffer") => Key::Meta('f'),
         (_, "savefile") => Key::Ctrl('S'),
         (_, "whereis") => Key::Ctrl('F'),
         (_, "wherewas") => Key::Ctrl('B'),
@@ -656,7 +673,7 @@ pub enum Outcome {
 
 pub struct Bindings {
     /// By slot, the newest binding first.
-    menus: [Vec<Entry>; 8],
+    menus: [Vec<Entry>; 9],
     /// Some key was bound as `Sh-M-x`: from then on Alt+Shift+x is not Alt+x.
     shift_meta: bool,
 }
@@ -907,9 +924,9 @@ mod tests {
     fn all_menus_and_the_ones_the_editor_has_not() {
         // Cut is in nine of the thirteen menus, the editor has the main and the prompts.
         assert_eq!(ops("^X", "cut", "all").len(), 1);
-        assert_eq!(ops("^X", "cancel", "all").len(), 6);
+        assert_eq!(ops("^X", "cancel", "all").len(), 7);
         assert!(ops("^X", "cut", "browser").is_empty());
-        assert!(unbind("^X", Some("all")).unwrap().len() == 8);
+        assert!(unbind("^X", Some("all")).unwrap().len() == 9);
     }
 
     #[test]

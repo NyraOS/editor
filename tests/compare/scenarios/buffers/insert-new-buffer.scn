@@ -1,0 +1,20 @@
+# With M-F in the prompt, the file is read into a new buffer after the current one.
+args: a.txt b.txt
+file a.txt:
+| alpha
+file b.txt:
+| bravo
+file extra.txt:
+| one
+| two
+keys: {^R}
+keys: {M-F}
+keys: extra.txt
+keys: {Enter}
+keys: {M->}
+keys: {M->}
+keys: {M->}
+keys: {^X}
+keys: {^X}
+keys: {^X}
+keys: {^X}

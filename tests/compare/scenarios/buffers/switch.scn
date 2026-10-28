@@ -1,0 +1,22 @@
+# M-< and M-> (also M-, and M-.) switch between the buffers, wrapping around; the title bar shows
+# [n/m] and the status bar the file and its lines.
+args: a.txt b.txt c.txt
+file a.txt:
+| alpha
+file b.txt:
+| bravo
+| bravo two
+file c.txt:
+| charlie
+keys: {M->}
+keys: {M->}
+keys: {M->}
+keys: {M-<}
+keys: {M-<}
+keys: {M-,}
+keys: {M-.}
+keys: {M-Right}
+keys: {M-Left}
+keys: {^X}
+keys: {^X}
+keys: {^X}

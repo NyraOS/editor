@@ -1,0 +1,11 @@
+# The switch message does not replace an error that is on the status bar.
+args: a.txt b.txt
+file a.txt:
+| alpha
+file b.txt:
+| bravo
+keys: {M-u}
+keys: {M->}
+keys: {M->}
+keys: {^X}
+keys: {^X}

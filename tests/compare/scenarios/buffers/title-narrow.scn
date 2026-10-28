@@ -1,0 +1,12 @@
+# The [n/m] of the title bar and a long name on a narrow screen.
+args: a-long-file-name.txt b.txt
+size: 30x10
+file a-long-file-name.txt:
+| alpha
+file b.txt:
+| bravo
+keys: x
+keys: {M->}
+keys: {^X}
+keys: {^X}
+keys: n

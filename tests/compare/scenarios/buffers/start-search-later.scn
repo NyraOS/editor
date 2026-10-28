@@ -1,0 +1,14 @@
+# A search in a later file moves only that buffer's cursor.
+args: a.txt +/mango b.txt
+file a.txt:
+| first line
+file b.txt:
+| apple
+| mango tree
+keys: x
+keys: {M->}
+keys: y
+keys: {^X}
+keys: n
+keys: {^X}
+keys: n

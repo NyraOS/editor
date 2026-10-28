@@ -1,0 +1,13 @@
+# With -F, an empty name opens an empty buffer; without it, an empty name cancels.
+args: -F a.txt
+file a.txt:
+| alpha
+keys: {^R}
+keys: {Enter}
+keys: hello
+keys: {^R}
+keys: {M-F}
+keys: {Enter}
+keys: {^X}
+keys: n
+keys: {^X}

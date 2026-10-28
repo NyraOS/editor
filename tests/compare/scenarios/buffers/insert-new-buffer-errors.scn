@@ -1,0 +1,14 @@
+# Into a new buffer: a missing file is a new file, a directory is not opened.
+args: a.txt
+file a.txt:
+| alpha
+keys: {^R}
+keys: {M-F}
+keys: nothere.txt
+keys: {Enter}
+keys: {^R}
+keys: {M-F}
+keys: .
+keys: {Enter}
+keys: {^X}
+keys: {^X}

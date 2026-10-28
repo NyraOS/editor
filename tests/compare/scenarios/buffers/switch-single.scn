@@ -1,0 +1,7 @@
+# With one buffer, switching says so, and the title bar still has the program name.
+args: a.txt
+file a.txt:
+| alpha
+keys: {M->}
+keys: {M-<}
+keys: {^X}

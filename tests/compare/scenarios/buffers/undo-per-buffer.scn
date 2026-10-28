@@ -1,0 +1,19 @@
+# Each buffer has its own undo history.
+args: a.txt b.txt
+file a.txt:
+| alpha
+file b.txt:
+| bravo
+keys: x
+keys: {M->}
+keys: {M-u}
+keys: y
+keys: {M->}
+keys: {M-u}
+keys: {M-e}
+keys: {M->}
+keys: {M-u}
+keys: {^X}
+keys: n
+keys: {^X}
+keys: n

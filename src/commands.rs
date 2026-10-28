@@ -4,13 +4,15 @@
 use crate::bindings::{self, Bindings, Outcome};
 use crate::buffer::{self, Buffer, Format, Kind, Mark, next_index, prev_index};
 use crate::complete::{self, Completion};
-use crate::config::Options;
+use crate::config::{MAX_BUFFERS, Options, Place};
 use crate::files::{self, Expected, Locking, Meta, SaveError, SaveOptions};
 use crate::keys::{Key, Mods, Named};
 use crate::replace::Replacing;
 use crate::search::{self, Pattern};
 use crate::syntax::{self, Rule};
+use std::collections::VecDeque;
 use std::io;
+use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 
 /// How many keys a message stays for, as in nano.
@@ -19,6 +21,10 @@ const MESSAGE_KEYS: u8 = 20;
 pub struct Message {
     pub text: String,
     pub error: bool,
+    /// One of nano's alerts (the worst kind): a later alert while starting only adds dots to it.
+    alert: bool,
+    /// Dots after the message: more alerts came while the files were opened.
+    pub dots: bool,
     /// The keys still to come before it goes.
     keys_left: u8,
 }
@@ -44,15 +50,15 @@ pub enum Question {
     /// The file changed on disk since it was read or written; Yes writes over it only as it was
     /// when asked.
     Changed(String, bool, Expected),
-    /// Another editor holds the lock file.
-    Locked(files::LockInfo),
+    /// Another editor holds the lock file of this file, which is being opened.
+    Locked(String, files::LockInfo),
     /// A replacing, at a match.
     Replace(Box<Replacing>),
 }
 
 impl Question {
     /// The question as nano words it, with the space after it where nano has one.
-    pub fn text(&self, name: &str) -> String {
+    pub fn text(&self) -> String {
         match self {
             Question::SaveOnExit => "Save modified buffer? ".into(),
             Question::OtherName(..) => "Save file under DIFFERENT NAME? ".into(),
@@ -61,8 +67,8 @@ impl Question {
                 "File was modified since you opened it; continue saving? ".into()
             }
             Question::Replace(_) => "Replace this instance? ".into(),
-            Question::Locked(info) => format!(
-                "File {name} is being edited by {} (with {}, PID {}); open anyway?",
+            Question::Locked(file, info) => format!(
+                "File {file} is being edited by {} (with {}, PID {}); open anyway?",
                 info.user, info.program, info.pid
             ),
         }
@@ -105,6 +111,8 @@ pub enum PromptKind {
     Replacement { backwards: bool },
     /// The line and column to go to.
     Goto,
+    /// The file to read into the text, or into a new buffer.
+    Insert { new_buffer: bool },
 }
 
 /// What the last key did to the cut buffer: the next cut, or copy, of a line adds to it when
@@ -114,6 +122,35 @@ enum Chain {
     None,
     Cut,
     Copy,
+}
+
+/// A buffer that is not being edited now, with what goes with it. While one is edited, its
+/// parts are the `Editor`'s own (`buf`, `name`, ...), and its place in `Editor::files` holds a
+/// blank `File`: `go` swaps them, so no other code needs to know which buffer is current.
+struct File {
+    buf: Buffer,
+    name: String,
+    meta: Option<Meta>,
+    lock: Option<files::Lock>,
+    lock_says_modified: bool,
+    syntax: Vec<Rule>,
+    /// What went wrong when the file was opened while the editor started: shown once, when the
+    /// buffer is switched to (as nano does).
+    read_error: Option<String>,
+}
+
+impl File {
+    fn blank() -> Self {
+        Self {
+            buf: Buffer::new("", Format::Unix),
+            name: String::new(),
+            meta: None,
+            lock: None,
+            lock_says_modified: false,
+            syntax: Vec::new(),
+            read_error: None,
+        }
+    }
 }
 
 pub struct Editor {
@@ -152,6 +189,18 @@ pub struct Editor {
     pub warning: Option<Question>,
     /// The rules of the syntax picked for the file, empty for none: see `syntax`.
     pub syntax: Vec<Rule>,
+    read_error: Option<String>,
+    /// All the buffers in order; the one being edited is at `current`, as a blank `File`.
+    files: Vec<File>,
+    current: usize,
+    /// Two buffers were open at some time: the title bar shows `[n/m]` from then on (as nano).
+    more_than_one: bool,
+    /// The files of the command line that are not opened yet, and the one whose lock question is
+    /// being asked.
+    pending: VecDeque<Place>,
+    placing: Option<Place>,
+    /// The start-up is over: the files of the command line are open.
+    pub started: bool,
     /// The editor is done: it exits.
     pub done: bool,
 }
@@ -161,7 +210,14 @@ pub const HELP_TITLE: &str = "Help";
 impl Editor {
     /// The help lines for the mode, from the key bindings.
     pub fn help_lines_of(&self) -> Vec<(String, &'static str)> {
-        self.bindings.help_lines(self.slot())
+        let mut lines = self.bindings.help_lines(self.slot());
+        // As in nano, ^X closes a buffer while there are several, and exits with the last.
+        if self.files.len() > 1 {
+            for line in lines.iter_mut().filter(|l| l.1 == "Exit") {
+                line.1 = "Close";
+            }
+        }
+        lines
     }
 
     /// The menu of the key bindings that a key pressed in this mode belongs to.
@@ -176,6 +232,7 @@ impl Editor {
                 PromptKind::Replacement { .. } => bindings::REPLACE_WITH,
                 PromptKind::Goto => bindings::GOTO,
                 PromptKind::Write { .. } => bindings::WRITE_OUT,
+                PromptKind::Insert { .. } => bindings::INSERT,
             },
         }
     }
@@ -193,6 +250,13 @@ work in the text:";
 const HELP_KEYS: &[(&str, &str, &str)] = &[
     ("^G", "F1", "Show this help"),
     ("^X", "F2", "Exit, asking whether to save the changes"),
+    (
+        "^R",
+        "F5",
+        "Read a file into the text (M-F: into a new buffer)",
+    ),
+    ("M-<", "M-,", "Switch to the previous file buffer"),
+    ("M->", "M-.", "Switch to the next file buffer"),
     ("^O", "F3", "Write the text to a file"),
     ("^S", "", "Save the file without asking for its name"),
     ("", "", ""),
@@ -290,13 +354,53 @@ fn error_text(e: &io::Error) -> String {
     }
 }
 
+/// Of the message shown so far and the one that came after it, while the files of the command
+/// line are opened: nano keeps the more important one (an alert stays and a later alert only
+/// adds dots to it; a warning stays against anything but a warning or an alert).
+fn more_important(old: Option<Message>, new: Option<Message>) -> Option<Message> {
+    match (old, new) {
+        (Some(mut old), Some(new)) if old.alert => {
+            old.dots |= new.alert;
+            Some(old)
+        }
+        (Some(old), Some(new)) if old.error && !new.error => Some(old),
+        (_, Some(new)) => Some(new),
+        (old, None) => old,
+    }
+}
+
+/// Why nano does not open the path in a buffer, if so: a directory or a device.
+fn not_opened(name: &str) -> Option<&'static str> {
+    let kind = std::fs::metadata(name).ok()?.file_type();
+    if kind.is_dir() {
+        Some("is a directory")
+    } else if kind.is_char_device() || kind.is_block_device() {
+        Some("is a device file")
+    } else {
+        None
+    }
+}
+
+/// What reading a file says, with the number of lines and the format it was converted from.
+fn read_message(lines: usize, format: Format) -> String {
+    let mut msg = format!("Read {}", plural(lines, "line"));
+    match format {
+        Format::Dos => msg.push_str(" (converted from DOS format)"),
+        Format::Mac => msg.push_str(" (converted from Mac format)"),
+        Format::Unix => {}
+    }
+    msg
+}
+
 impl Editor {
-    /// Opens the file in `opts`, or a new buffer.
-    pub fn open(opts: Options, cols: usize, rows: usize) -> Self {
+    /// Opens the files in `opts`, a buffer each, or a new buffer.
+    pub fn open(mut opts: Options, cols: usize, rows: usize) -> Self {
         let (case_sensitive, regexp) = (opts.casesensitive, opts.regexp);
+        let pending = std::mem::take(&mut opts.files).into();
+        let blank = File::blank();
         let mut ed = Self {
-            buf: Buffer::new("", Format::Unix),
-            name: opts.file.clone().unwrap_or_default(),
+            buf: blank.buf,
+            name: blank.name,
             bindings: Bindings::new(opts.modernbindings, &opts.binds),
             opts,
             program: format!("Editor {}", env!("CARGO_PKG_VERSION")),
@@ -312,40 +416,285 @@ impl Editor {
             regexp,
             replace_history: Vec::new(),
             spot: None,
-            meta: None,
-            lock: None,
-            lock_says_modified: false,
+            meta: blank.meta,
+            lock: blank.lock,
+            lock_says_modified: blank.lock_says_modified,
             warning: None,
-            syntax: Vec::new(),
+            syntax: blank.syntax,
+            read_error: blank.read_error,
+            files: Vec::new(),
+            current: 0,
+            more_than_one: false,
+            pending,
+            placing: None,
+            started: false,
             done: false,
         };
-        if ed.name.is_empty() {
-            ed.say("For basic help, type Ctrl+G.");
-        } else {
-            ed.read_file();
-            if !ed.name.is_empty() {
-                ed.take_lock(false);
-            }
-        }
-        ed.pick_syntax();
-        if let Some((line, col)) = ed.opts.start {
-            ed.goto(Some(line), Some(col));
-        }
-        if let Some(found) = ed.opts.search.take() {
-            ed.case_sensitive = found.case_sensitive;
-            ed.regexp = found.regexp;
-            ed.history.push(found.text);
-            ed.search(found.backwards);
-            // As in nano, the wrapping and the reading of the file are not said, only a failure.
-            if ed.message.as_ref().is_some_and(|m| !m.error) {
-                ed.message = None;
-            }
-        }
-        // After the messages of reading the file and searching, as in nano.
-        if let Some(alert) = ed.opts.start_alert.take() {
-            ed.error(&alert);
-        }
+        ed.open_pending();
         ed
+    }
+
+    /// Opens the files of the command line one after the other, each with the place its `+`
+    /// argument says. A lock question stops it: `lock_answered` goes on.
+    fn open_pending(&mut self) {
+        while let Some(place) = self.pending.pop_front() {
+            let mut shown = self.message.take();
+            // As in nano, what is wrong with the `+` argument is said before the file is opened.
+            if let Some(text) = &place.alert {
+                self.alert(text);
+                shown = more_important(shown, self.message.take());
+            }
+            let opened = self.open_buffer(&place.file);
+            shown = more_important(shown, self.message.take());
+            if matches!(self.mode, Mode::Ask(_)) {
+                self.message = shown;
+                self.placing = Some(place);
+                return;
+            }
+            if opened {
+                shown = self.position(&place, shown);
+            }
+            self.message = shown;
+        }
+        self.finish_start();
+    }
+
+    /// All the files are open: the first is shown, as nano does after the last one.
+    fn finish_start(&mut self) {
+        if self.files.is_empty() {
+            self.begin("", None);
+            if self.message.as_ref().is_none_or(|m| !m.error) {
+                self.say("For basic help, type Ctrl+G.");
+            }
+        } else {
+            // The match of a search made while starting is still marked, in the first buffer
+            // (on its cursor's line), as in nano.
+            let spot = self.spot;
+            self.go(0);
+            self.spot = spot.map(|(_, from, to)| (self.buf.line, from, to));
+            if self.more_than_one {
+                self.mention();
+            }
+        }
+        if let Some(problem) = self.opts.problem.take() {
+            let shown = self.message.take();
+            self.alert(&problem);
+            self.message = more_important(shown, self.message.take());
+        }
+        self.started = true;
+    }
+
+    /// Where the `+` argument of a file puts the cursor: a line and column, or the first match.
+    /// `shown` is the message so far; returns what is shown after.
+    fn position(&mut self, place: &Place, mut shown: Option<Message>) -> Option<Message> {
+        if let Some((line, col)) = place.start {
+            self.goto(Some(line), Some(col));
+        }
+        if let Some(found) = &place.search {
+            self.case_sensitive = found.case_sensitive;
+            self.regexp = found.regexp;
+            self.history.push(found.text.clone());
+            self.message = None;
+            self.search(found.backwards);
+            match self.message.take() {
+                Some(failure) if failure.error => shown = more_important(shown, Some(failure)),
+                // As in nano, a match wipes the status bar (the wrapping and the reading of the
+                // file are not said), unless an error is on it.
+                _ if shown.as_ref().is_some_and(|m| !m.error) => shown = None,
+                _ => {}
+            }
+        }
+        shown
+    }
+
+    /// Opens `name` in a new buffer after the current one (a blank buffer for no name). Nothing
+    /// is opened for a directory or a device, and another editor's lock file is asked about
+    /// first: the answer goes on in `lock_answered`. Returns whether a buffer was made.
+    ///
+    /// A file that is open already is not looked for among the buffers, as in nano: the lock file
+    /// of the buffer that has it brings up the same question as another editor's would, and Yes
+    /// opens it a second time. That keeps the rule simple and the user in charge; the check for
+    /// changes on disk then warns whichever of the two saves second.
+    fn open_buffer(&mut self, name: &str) -> bool {
+        if let Some(what) = not_opened(name) {
+            self.alert(&format!("\"{name}\" {what}"));
+            return false;
+        }
+        if name.is_empty() {
+            self.begin(name, None);
+            return true;
+        }
+        match files::lock(Path::new(name), false) {
+            Ok(Locking::Busy(info)) => {
+                self.mode = Mode::Ask(Question::Locked(name.to_string(), info));
+                false
+            }
+            Ok(Locking::Locked(lock)) => {
+                self.begin(name, Some(lock));
+                true
+            }
+            Ok(Locking::Bad(path)) => {
+                self.begin(name, None);
+                self.alert(&format!("Bad lock file is ignored: {}", path.display()));
+                true
+            }
+            // A directory without write permission: the file is edited without a lock.
+            Err(_) => {
+                self.begin(name, None);
+                true
+            }
+        }
+    }
+
+    /// The buffer for `name`, read from the file and holding its lock.
+    fn begin(&mut self, name: &str, lock: Option<files::Lock>) {
+        self.new_buffer();
+        self.name = name.to_string();
+        if !name.is_empty() {
+            self.read_file();
+        }
+        // The name goes when the file turns out not to be one to edit: no lock then.
+        if let Some(lock) = lock.filter(|_| !self.name.is_empty()) {
+            let _ = lock.set_modified(self.buf.modified);
+            self.lock_says_modified = self.buf.modified;
+            self.lock = Some(lock);
+        }
+        self.pick_syntax();
+    }
+
+    /// The answer to the question about another editor's lock file: Yes opens the file anyway
+    /// and takes the lock over, No leaves it out. Cancelling while starting ends the editor.
+    fn lock_answered(&mut self, name: &str, yes: bool) {
+        // As in nano, the buffer is made before the lock is looked at, so the title bar shows
+        // `[n/m]` from the answer on, even when the answer is No.
+        self.more_than_one |= !self.files.is_empty();
+        let shown = self.message.take();
+        if yes {
+            let lock = match files::lock(Path::new(name), true) {
+                Ok(Locking::Locked(lock)) => Some(lock),
+                _ => None,
+            };
+            self.begin(name, lock);
+        }
+        let Some(place) = self.placing.take() else {
+            return;
+        };
+        let opened = self.message.take();
+        let shown = more_important(shown, opened);
+        self.message = if yes {
+            self.position(&place, shown)
+        } else {
+            shown
+        };
+        self.open_pending();
+    }
+
+    /// Makes a blank buffer after the current one, and makes it the current one.
+    fn new_buffer(&mut self) {
+        let at = if self.files.is_empty() {
+            0
+        } else {
+            self.swap_live(self.current);
+            self.more_than_one = true;
+            self.current + 1
+        };
+        self.files.insert(at, File::blank());
+        self.current = at;
+    }
+
+    /// Swaps the buffer being edited with the one in place `i`.
+    fn swap_live(&mut self, i: usize) {
+        let f = &mut self.files[i];
+        std::mem::swap(&mut self.buf, &mut f.buf);
+        std::mem::swap(&mut self.name, &mut f.name);
+        std::mem::swap(&mut self.meta, &mut f.meta);
+        std::mem::swap(&mut self.lock, &mut f.lock);
+        std::mem::swap(&mut self.lock_says_modified, &mut f.lock_says_modified);
+        std::mem::swap(&mut self.syntax, &mut f.syntax);
+        std::mem::swap(&mut self.read_error, &mut f.read_error);
+    }
+
+    /// Edits the buffer in place `to`.
+    fn go(&mut self, to: usize) {
+        if to != self.current {
+            // The buffer being edited goes to its place, then the other one comes out of its.
+            self.swap_live(self.current);
+            self.swap_live(to);
+            self.current = to;
+        }
+        self.scroll_to_cursor();
+    }
+
+    /// Closes the buffer being edited and shows the one in place `to`. Dropping it removes its
+    /// lock file, but not another editor's (see `Lock`).
+    fn close_buffer(&mut self, to: usize) {
+        let old = self.current;
+        self.go(to);
+        self.files.remove(old);
+        if to > old {
+            self.current = to - 1;
+        }
+    }
+
+    /// Closes the buffer being edited and shows the next; the editor is done after the last.
+    fn close_current(&mut self) {
+        if self.files.len() <= 1 {
+            self.done = true;
+            return;
+        }
+        self.close_buffer((self.current + 1) % self.files.len());
+        self.announce_switch();
+    }
+
+    /// M-< and M-> (or M-, and M-.): the previous or the next buffer, the first after the last.
+    fn switch(&mut self, forward: bool) {
+        let n = self.files.len();
+        if n <= 1 {
+            return self.error("No more open file buffers");
+        }
+        self.go(if forward {
+            (self.current + 1) % n
+        } else {
+            (self.current + n - 1) % n
+        });
+        self.announce_switch();
+    }
+
+    /// After a switch: what went wrong when the buffer was opened, once, or its name.
+    fn announce_switch(&mut self) {
+        match self.read_error.take() {
+            Some(text) => self.alert(&text),
+            None => self.mention(),
+        }
+    }
+
+    /// The name of the buffer and its number of lines, as nano says them when switching. While
+    /// the editor starts, it is not shown over an error, which is more important.
+    fn mention(&mut self) {
+        if !self.started && self.message.as_ref().is_some_and(|m| m.error) {
+            return;
+        }
+        let name = match self.name.rsplit('/').next() {
+            Some(tail) if !tail.is_empty() => tail,
+            _ => "New Buffer",
+        };
+        let lines = plural(self.buf.file_lines(), "line");
+        let format = match self.buf.format {
+            Format::Unix => "",
+            Format::Dos => " (DOS)",
+            Format::Mac => " (Mac)",
+        };
+        let text = format!("{name} -- {lines}{format}");
+        self.say(&text);
+    }
+
+    /// The left of the title bar: the number of the buffer out of all, once there were several.
+    pub fn upper_left(&self) -> String {
+        if self.more_than_one {
+            format!("[{}/{}]", self.current + 1, self.files.len())
+        } else {
+            self.program.clone()
+        }
     }
 
     /// Picks the syntax for the file by its name or its first line, as nano does when the file is
@@ -374,17 +723,12 @@ impl Editor {
                 };
                 self.buf = Buffer::new(&text, if self.opts.unix { Format::Unix } else { format });
                 self.meta = Some(loaded.meta);
-                let mut msg = format!("Read {}", plural(self.buf.file_lines(), "line"));
+                let msg = read_message(self.buf.file_lines(), format);
                 self.magic_line();
-                match format {
-                    Format::Dos => msg.push_str(" (converted from DOS format)"),
-                    Format::Mac => msg.push_str(" (converted from Mac format)"),
-                    Format::Unix => {}
-                }
                 self.say(&msg);
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => self.say("New File"),
-            // A directory or a device: nano says so and edits a new buffer.
+            // Not a file to edit (a FIFO, say): nano says so and edits a new buffer.
             Err(e)
                 if matches!(
                     e.kind(),
@@ -392,37 +736,34 @@ impl Editor {
                 ) =>
             {
                 let name = std::mem::take(&mut self.name);
-                self.error(&format!("\"{name}\" {e}"));
+                self.alert(&format!("\"{name}\" {e}"));
             }
-            Err(e) => self.error(&format!("Error reading {}: {}", self.name, error_text(&e))),
+            Err(e) => {
+                let text = format!("Error reading {}: {}", self.name, error_text(&e));
+                self.alert(&text);
+            }
         }
     }
 
-    /// Locks the file, as nano does with `--locking` (here always). When the lock file cannot
-    /// be made (a directory without write permission), the file is edited without one.
-    fn take_lock(&mut self, force: bool) {
-        match files::lock(Path::new(&self.name), force) {
-            Ok(Locking::Locked(lock)) => {
-                let _ = lock.set_modified(self.buf.modified);
-                self.lock_says_modified = self.buf.modified;
-                self.lock = Some(lock);
-            }
-            Ok(Locking::Busy(info)) => self.mode = Mode::Ask(Question::Locked(info)),
-            Ok(Locking::Bad(path)) => {
-                self.error(&format!("Bad lock file is ignored: {}", path.display()));
-            }
-            Err(_) => {}
+    /// The text of every modified buffer goes to an emergency copy (the terminal went away, or
+    /// SIGHUP or SIGTERM came); returns where each went. Every buffer is written whatever
+    /// happens to the others, each as safely as a single one has always been.
+    pub fn emergency_save(&mut self) -> Vec<PathBuf> {
+        // The buffer being edited goes into its place first, so that all are alike.
+        if !self.files.is_empty() {
+            self.swap_live(self.current);
         }
-    }
-
-    /// Writes the emergency copy of a modified buffer (the terminal went away, or SIGHUP or
-    /// SIGTERM came); returns where.
-    pub fn emergency_save(&mut self) -> Option<PathBuf> {
-        if !self.buf.modified {
-            return None;
+        let mut written = Vec::new();
+        for file in &self.files {
+            if !file.buf.modified {
+                continue;
+            }
+            let name = (!file.name.is_empty()).then(|| Path::new(&file.name));
+            if let Ok(path) = files::emergency_save(name, &file.buf.to_bytes()) {
+                written.push(path);
+            }
         }
-        let name = (!self.name.is_empty()).then(|| Path::new(&self.name));
-        files::emergency_save(name, &self.buf.to_bytes()).ok()
+        written
     }
 
     /// Puts the cursor on a line and a screen column, 1-based; negative numbers count from the end
@@ -480,6 +821,8 @@ impl Editor {
         self.message = Some(Message {
             text: text.to_string(),
             error: false,
+            alert: false,
+            dots: false,
             keys_left: MESSAGE_KEYS,
         });
     }
@@ -488,8 +831,24 @@ impl Editor {
         self.message = Some(Message {
             text: text.to_string(),
             error: true,
+            alert: false,
+            dots: false,
             keys_left: MESSAGE_KEYS,
         });
+    }
+
+    /// An error of the worst kind in nano's words: a file that cannot be opened. While the
+    /// editor starts, nano keeps it for a file that was not read, to say it again when the
+    /// buffer is switched to.
+    fn alert(&mut self, text: &str) {
+        self.error(text);
+        if let Some(m) = &mut self.message {
+            m.alert = true;
+        }
+        let several = self.files.len() > 1;
+        if !self.started && several && self.meta.is_none() && self.read_error.is_none() {
+            self.read_error = Some(text.to_string());
+        }
     }
 
     pub fn resized(&mut self, cols: usize, rows: usize) {
@@ -570,6 +929,10 @@ impl Editor {
             ctrl: true,
             ..Mods::default()
         };
+        let alt = Mods {
+            alt: true,
+            ..Mods::default()
+        };
         let (key, shifted) = unshift(key);
         if shifted && self.buf.mark.is_none() {
             let at = self.buf.pos();
@@ -587,6 +950,8 @@ impl Editor {
             Key::Ctrl('D') | Key::Named(Delete, _) => self.delete(),
             Key::Ctrl('P') | Key::Named(Up, _) => self.up(),
             Key::Ctrl('N') | Key::Named(Down, _) => self.down(),
+            Key::Named(Left, m) if m == alt => self.switch(false),
+            Key::Named(Right, m) if m == alt => self.switch(true),
             Key::Named(Left, m) if m == ctrl => self.word_left(),
             Key::Named(Right, m) if m == ctrl => self.word_right(),
             Key::Named(Left, _) => self.left(),
@@ -608,6 +973,9 @@ impl Editor {
                 self.mode = Mode::Help(0);
             }
             Key::Ctrl('X') | Key::Named(F(2), _) => self.exit(),
+            Key::Ctrl('R') => self.ask_insert(String::new(), self.opts.multibuffer),
+            Key::Meta('<') => self.switch(false),
+            Key::Meta('>') => self.switch(true),
             Key::Ctrl('O') | Key::Named(F(3), _) => self.ask_name(false),
             Key::Ctrl('S') => self.save_now(),
             Key::Ctrl('C') | Key::Named(F(11), _) => {
@@ -1215,7 +1583,7 @@ impl Editor {
         } else if self.buf.modified {
             self.mode = Mode::Ask(Question::SaveOnExit);
         } else {
-            self.done = true;
+            self.close_current();
         }
     }
 
@@ -1229,12 +1597,16 @@ impl Editor {
         let yes = match key {
             Key::Char('y' | 'Y') => true,
             Key::Char('n' | 'N') => false,
-            // As nano: cancelling the question about a locked file leaves at once, and the one
-            // about a file changed on disk goes back to its name.
-            Key::Ctrl('C') if matches!(question, Question::Locked(_)) => {
+            // Cancelling the question about a lock file ends the editor while it starts, as in
+            // nano; later it is a No.
+            Key::Ctrl('C') if matches!(question, Question::Locked(..)) => {
+                if let (Question::Locked(name, _), true) = (&question, self.started) {
+                    return self.lock_answered(name, false);
+                }
                 self.done = true;
                 return;
             }
+            // As nano: cancelling the question about a file changed on disk goes back to its name.
             Key::Ctrl('C') => {
                 if let Question::Changed(name, exit, _) = question {
                     self.ask_name(exit);
@@ -1253,7 +1625,7 @@ impl Editor {
         };
         match (question, yes) {
             (Question::SaveOnExit, true) => self.ask_name(true),
-            (Question::SaveOnExit, false) => self.done = true,
+            (Question::SaveOnExit, false) => self.close_current(),
             (Question::OtherName(name, exit), true) => self.save_as(name, exit),
             (Question::OtherName(name, exit) | Question::Overwrite(name, exit, _), false) => {
                 self.ask_name(exit);
@@ -1268,15 +1640,7 @@ impl Editor {
             }
             (Question::Changed(name, exit, expected), true) => self.save(name, expected, exit),
             (Question::Changed(..), false) => {}
-            (Question::Locked(_), true) => self.take_lock(true),
-            // As nano: the file is not opened; a new buffer is.
-            (Question::Locked(_), false) => {
-                self.buf = Buffer::new("", Format::Unix);
-                self.name.clear();
-                self.meta = None;
-                self.pick_syntax();
-                self.say("For basic help, type Ctrl+G.");
-            }
+            (Question::Locked(name, _), yes) => self.lock_answered(&name, yes),
             (Question::Replace(_), _) => {}
         }
     }
@@ -1384,7 +1748,9 @@ impl Editor {
                 }
                 let lines = self.buf.file_lines();
                 self.say(&format!("Wrote {}", plural(lines, "line")));
-                self.done = exit;
+                if exit {
+                    self.close_current();
+                }
             }
             Err(SaveError::Changed) => {
                 let now = files::stat(Path::new(&name)).ok().flatten();
@@ -1458,6 +1824,70 @@ impl Editor {
         self.mode = Mode::Prompt(Prompt::new(PromptKind::Goto, label, answer, 0));
     }
 
+    /// The prompt for a file to read into the text, or into a new buffer.
+    fn ask_insert(&mut self, answer: String, new_buffer: bool) {
+        self.message = None;
+        let label = if new_buffer {
+            "File to read into new buffer [from ./]"
+        } else {
+            "File to insert [from ./]"
+        };
+        let kind = PromptKind::Insert { new_buffer };
+        self.mode = Mode::Prompt(Prompt::new(kind, label.into(), answer, 0));
+    }
+
+    /// Reads the file `name` into a new buffer, or into the text at the cursor.
+    fn insert_file(&mut self, name: &str, new_buffer: bool) {
+        match (new_buffer, name.is_empty()) {
+            // As nano: no name is a cancel, unless it asks for a new buffer.
+            (false, true) => self.cancel(),
+            // Every buffer holds a file, a lock and its undo steps, and the title bar and the
+            // `.save` copies of a hung-up terminal have to deal with all of them; a few hundred
+            // is far more than anyone edits at once.
+            (true, _) if self.files.len() >= MAX_BUFFERS => {
+                self.error(&format!("At most {MAX_BUFFERS} file buffers can be open"));
+            }
+            (true, _) => {
+                self.open_buffer(name);
+            }
+            (false, false) => self.insert_into_text(name),
+        }
+    }
+
+    /// Puts the text of the file `name` in at the cursor, as one step of undo.
+    fn insert_into_text(&mut self, name: &str) {
+        if let Some(what) = not_opened(name) {
+            return self.alert(&format!("\"{name}\" {what}"));
+        }
+        let loaded = match files::read(Path::new(name)) {
+            Ok(loaded) => loaded,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                return self.alert(&format!("File \"{name}\" not found"));
+            }
+            Err(e) if e.kind() == io::ErrorKind::InvalidInput => {
+                return self.alert(&format!("\"{name}\" {e}"));
+            }
+            Err(e) => {
+                return self.alert(&format!("Error reading {name}: {}", error_text(&e)));
+            }
+        };
+        let text = buffer::decode(loaded.bytes);
+        let (text, format) = if self.opts.noconvert {
+            (text, Format::Unix)
+        } else {
+            buffer::convert_line_ends(text)
+        };
+        let lines = Buffer::new(&text, format).file_lines();
+        // An empty file changes nothing: the buffer is not marked as modified.
+        if !text.is_empty() {
+            self.buf.end_group();
+            self.insert_text(&text, Kind::Insert);
+            self.buf.end_group();
+        }
+        self.say(&read_message(lines, format));
+        self.scroll_to_cursor();
+    }
+
     fn prompt_key(&mut self, key: Key) {
         let Mode::Prompt(p) = &mut self.mode else {
             return;
@@ -1511,6 +1941,16 @@ impl Editor {
             (Key::Ctrl('T'), PromptKind::Search { replace: false, .. }) => {
                 let answer = std::mem::take(&mut p.answer);
                 self.ask_goto(answer);
+            }
+            // The two that read a file (M-F: into a new buffer, or not) keep what was typed.
+            (Key::Meta('f'), PromptKind::Insert { new_buffer }) => {
+                let answer = std::mem::take(&mut p.answer);
+                self.ask_insert(answer, !new_buffer);
+            }
+            // The file browser, the conversion switch and the command are not available yet.
+            (Key::Named(Named::Unknown, _), PromptKind::Insert { .. }) => {
+                self.mode = Mode::Edit;
+                self.error("Not available in this version yet");
             }
             (Key::Ctrl('T'), PromptKind::Goto) => {
                 let answer = std::mem::take(&mut p.answer);
@@ -1609,6 +2049,7 @@ impl Editor {
                 }
                 self.start_replacing(backwards, answer);
             }
+            PromptKind::Insert { new_buffer } => self.insert_file(&answer, new_buffer),
             PromptKind::Goto => {
                 if answer.is_empty() {
                     return self.cancel();
@@ -1803,7 +2244,7 @@ mod tests {
 
     fn open(path: &Path) -> Editor {
         let opts = Options {
-            file: Some(path.display().to_string()),
+            files: vec![Place::new(path.display().to_string())],
             ..Options::default()
         };
         Editor::open(opts, 80, 24)
@@ -2002,5 +2443,202 @@ mod tests {
         assert_eq!(text(&ed), "a\n\tbx\n");
         typed(&mut ed, &[Key::Meta('u')]);
         assert_eq!(text(&ed), "x\n");
+    }
+
+    /// Opens the files of `names` in `dir` as the command line does.
+    fn open_all(dir: &Path, names: &[&str]) -> Editor {
+        let files = names
+            .iter()
+            .map(|n| Place::new(dir.join(n).display().to_string()))
+            .collect();
+        let opts = Options {
+            files,
+            ..Options::default()
+        };
+        Editor::open(opts, 80, 24)
+    }
+
+    fn named(ed: &Editor) -> String {
+        Path::new(&ed.name)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[test]
+    fn buffers_switch_in_order_and_close_one_by_one() {
+        let dir = dir("several");
+        for (n, t) in [("a.txt", "A\n"), ("b.txt", "B\n"), ("c.txt", "C\n")] {
+            fs::write(dir.join(n), t).unwrap();
+        }
+        let mut ed = open_all(&dir, &["a.txt", "b.txt", "c.txt"]);
+        assert_eq!(
+            (named(&ed), ed.upper_left()),
+            ("a.txt".into(), "[1/3]".into())
+        );
+        typed(&mut ed, &[Key::Meta('>'), Key::Meta('>')]);
+        assert_eq!(
+            (named(&ed), text(&ed)),
+            ("c.txt".into(), "A\n".replace('A', "C"))
+        );
+        // The last buffer goes round to the first.
+        typed(&mut ed, &[Key::Meta('>')]);
+        assert_eq!(named(&ed), "a.txt");
+        typed(&mut ed, &[Key::Meta('<')]);
+        assert_eq!(named(&ed), "c.txt");
+        // Closing a buffer goes on to the next one, and the editor ends after the last.
+        typed(&mut ed, &[Key::Ctrl('X')]);
+        assert_eq!(
+            (named(&ed), ed.upper_left()),
+            ("a.txt".into(), "[1/2]".into())
+        );
+        typed(&mut ed, &[Key::Ctrl('X'), Key::Ctrl('X')]);
+        assert!(ed.done);
+        drop(ed);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn closing_a_modified_buffer_asks_and_cancel_keeps_it() {
+        let dir = dir("close-ask");
+        fs::write(dir.join("a.txt"), "A\n").unwrap();
+        fs::write(dir.join("b.txt"), "B\n").unwrap();
+        let mut ed = open_all(&dir, &["a.txt", "b.txt"]);
+        typed(&mut ed, &[Key::Char('x'), Key::Ctrl('X')]);
+        assert!(asking(&ed));
+        typed(&mut ed, &[Key::Ctrl('C')]);
+        assert!(!asking(&ed) && !ed.done);
+        assert_eq!(named(&ed), "a.txt");
+        // No closes it without writing, and the other buffer is the one shown.
+        typed(&mut ed, &[Key::Ctrl('X'), Key::Char('n')]);
+        assert_eq!(named(&ed), "b.txt");
+        assert_eq!(fs::read_to_string(dir.join("a.txt")).unwrap(), "A\n");
+        drop(ed);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn each_buffer_has_its_own_undo_and_its_own_text() {
+        let dir = dir("undo");
+        fs::write(dir.join("a.txt"), "A\n").unwrap();
+        fs::write(dir.join("b.txt"), "B\n").unwrap();
+        let mut ed = open_all(&dir, &["a.txt", "b.txt"]);
+        typed(&mut ed, &[Key::Char('x'), Key::Meta('>')]);
+        // Nothing was done in the second buffer, so there is nothing to undo there.
+        typed(&mut ed, &[Key::Meta('u')]);
+        assert_eq!(text(&ed), "B\n");
+        typed(&mut ed, &[Key::Meta('<'), Key::Meta('u')]);
+        assert_eq!(text(&ed), "A\n");
+        drop(ed);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_same_file_twice_asks_about_its_own_lock() {
+        let dir = dir("twice");
+        fs::write(dir.join("a.txt"), "A\n").unwrap();
+        // nano does not look for a file it has open already: the second time the lock file of
+        // the first buffer is found and the user is asked, and Yes opens a second buffer.
+        let mut ed = open_all(&dir, &["a.txt", "a.txt"]);
+        assert!(matches!(ed.mode, Mode::Ask(Question::Locked(..))));
+        typed(&mut ed, &[Key::Char('n')]);
+        assert_eq!(ed.files.len(), 1);
+        assert!(!ed.done);
+        drop(ed);
+        let mut ed = open_all(&dir, &["a.txt", "a.txt"]);
+        typed(&mut ed, &[Key::Char('y')]);
+        assert_eq!(ed.files.len(), 2);
+        // Closing one of them must not take away the lock file of the other.
+        typed(&mut ed, &[Key::Ctrl('X')]);
+        assert!(dir.join(".a.txt.swp").exists());
+        drop(ed);
+        assert!(!dir.join(".a.txt.swp").exists());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_directory_or_a_device_is_not_opened() {
+        let dir = dir("not-opened");
+        fs::write(dir.join("a.txt"), "A\n").unwrap();
+        fs::create_dir(dir.join("sub")).unwrap();
+        let ed = open_all(&dir, &["a.txt", "sub"]);
+        assert_eq!(ed.files.len(), 1);
+        assert!(!ed.more_than_one);
+        drop(ed);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_insert_prompt_reads_into_a_new_buffer_with_the_toggle() {
+        let dir = dir("insert-new");
+        fs::write(dir.join("a.txt"), "A\n").unwrap();
+        fs::write(dir.join("b.txt"), "B\n").unwrap();
+        let mut ed = open_all(&dir, &["a.txt"]);
+        typed(&mut ed, &[Key::Ctrl('R'), Key::Meta('f')]);
+        for c in dir.join("b.txt").display().to_string().chars() {
+            ed.key(Key::Char(c));
+        }
+        ed.key(Key::Ctrl('M'));
+        assert_eq!(
+            (ed.files.len(), named(&ed), text(&ed)),
+            (2, "b.txt".into(), "B\n".into())
+        );
+        // Without the toggle the file goes in at the cursor of the current buffer.
+        typed(&mut ed, &[Key::Meta('<'), Key::Ctrl('R')]);
+        for c in dir.join("b.txt").display().to_string().chars() {
+            ed.key(Key::Char(c));
+        }
+        ed.key(Key::Ctrl('M'));
+        assert_eq!((ed.files.len(), text(&ed)), (2, "B\nA\n".into()));
+        drop(ed);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_key_with_no_function_in_the_insert_prompt_is_refused() {
+        let mut ed = editor("x\n");
+        typed(&mut ed, &[Key::Ctrl('R')]);
+        assert!(matches!(ed.mode, Mode::Prompt(..)));
+        // ^T would open the file browser, which is not available yet.
+        typed(&mut ed, &[Key::Ctrl('T')]);
+        assert!(!matches!(ed.mode, Mode::Prompt(..)));
+        assert_eq!(text(&ed), "x\n");
+    }
+
+    #[test]
+    fn a_new_buffer_is_refused_at_the_cap() {
+        let dir = dir("cap");
+        fs::write(dir.join("a.txt"), "A\n").unwrap();
+        let mut ed = open_all(&dir, &["a.txt"]);
+        // Blank buffers are enough to reach the cap.
+        for _ in 1..MAX_BUFFERS {
+            ed.insert_file("", true);
+        }
+        assert_eq!(ed.files.len(), MAX_BUFFERS);
+        ed.insert_file("", true);
+        assert_eq!(ed.files.len(), MAX_BUFFERS);
+        assert!(ed.message.as_ref().is_some_and(|m| m.error));
+        drop(ed);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_alert_stays_and_later_alerts_only_add_dots() {
+        let mut ed = editor("x\n");
+        let mut made = |kind: u8| {
+            match kind {
+                0 => ed.say("plain"),
+                1 => ed.error("error"),
+                _ => ed.alert("alert"),
+            }
+            ed.message.take()
+        };
+        let kept = more_important(made(1), made(0)).unwrap();
+        assert_eq!(kept.text, "error");
+        let kept = more_important(made(0), made(2)).unwrap();
+        assert_eq!(kept.text, "alert");
+        let kept = more_important(made(2), made(2)).unwrap();
+        assert_eq!((kept.text.as_str(), kept.dots), ("alert", true));
     }
 }

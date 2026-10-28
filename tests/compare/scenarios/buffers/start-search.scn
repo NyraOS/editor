@@ -1,0 +1,13 @@
+# A +/text search is made in the file that follows it; the match of the first file stays
+# marked when it is shown after the others are open.
+args: +/second a.txt b.txt
+file a.txt:
+| first line
+| the second line
+| third line, second mention
+file b.txt:
+| bravo
+keys: x
+keys: {^X}
+keys: n
+keys: {^X}

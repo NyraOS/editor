@@ -324,8 +324,10 @@ fn dotted(name: &str, keep: usize) -> String {
     format!("...{}", tail.into_iter().collect::<String>())
 }
 
-/// A message in the status bar: centered, in brackets; too long for that, from the left.
-fn message_row(cols: usize, text: &str, style: u8) -> Row {
+/// A message in the status bar: centered, in brackets; too long for that, from the left. With
+/// `dots`, three dots follow it, where nano puts them when more alerts came (only when the
+/// message is not wide).
+fn message_row(cols: usize, text: &str, style: u8, dots: bool) -> Row {
     let mut row = vec![Cell::blank(); cols];
     let bracketed = format!("[ {text} ]");
     if text_width(&bracketed) <= cols {
@@ -335,6 +337,10 @@ fn message_row(cols: usize, text: &str, style: u8) -> Row {
             &bracketed,
             style,
         );
+        let start = (cols - text_width(text)) / 2;
+        if dots && start > 4 {
+            put(&mut row, cols + 2 - start, "...", style);
+        }
     } else {
         put(&mut row, 0, text, style);
     }
@@ -446,10 +452,10 @@ pub fn compose(ed: &Editor) -> Frame {
         {
             screen[1 + r] = line_cells(line, 0, cols, 8);
         }
-    } else if matches!(ed.mode, Mode::Ask(Question::Locked(_))) {
+    } else if matches!(ed.mode, Mode::Ask(Question::Locked(..))) && !ed.started {
         // As nano: the question about a locked file comes before anything of the file.
     } else {
-        screen[0] = title_row(cols, &ed.program, ed.display_name(), ed.buf.modified);
+        screen[0] = title_row(cols, &ed.upper_left(), ed.display_name(), ed.buf.modified);
         let margin = ed.margin();
         let width = cols.saturating_sub(margin);
         let digits = margin.saturating_sub(1);
@@ -576,17 +582,17 @@ pub fn compose(ed: &Editor) -> Frame {
             Mode::Ask(question) => {
                 let mut row = vec![Cell::new(' ', INVERSE); cols];
                 let room = cols.saturating_sub(1);
-                let col = put(&mut row[..room], 0, &question.text(&ed.name), INVERSE);
+                let col = put(&mut row[..room], 0, &question.text(), INVERSE);
                 screen[status] = row;
                 cursor = (!matches!(question, Question::Replace(_)))
                     .then_some((status, col.min(cols.saturating_sub(1))));
             }
             _ => {
                 if let Some(m) = &ed.message {
-                    screen[status] =
-                        message_row(cols, &m.text, if m.error { ERROR } else { INVERSE });
+                    let style = if m.error { ERROR } else { INVERSE };
+                    screen[status] = message_row(cols, &m.text, style, m.dots);
                 } else if ed.opts.constantshow && matches!(ed.mode, Mode::Edit) {
-                    screen[status] = message_row(cols, &ed.location(), INVERSE);
+                    screen[status] = message_row(cols, &ed.location(), INVERSE, false);
                 }
             }
         }

@@ -109,7 +109,7 @@ fn child() {
             Ok(other) => format!("{other:?}"),
             Err(e) => format!("error: {e}"),
         },
-        "signal" => {
+        "signal" | "signal-editor" => {
             // On the terminal given as standard input: make it the controlling terminal of a new
             // session, as a login shell's, so closing it sends SIGHUP.
             if std::env::var_os("FILES_TEST_SETSID").is_some() {
@@ -117,22 +117,59 @@ fn child() {
                 rustix::process::ioctl_tiocsctty(std::io::stdin()).unwrap();
             }
             let flag = watch_signals().unwrap();
+            // The editor itself with several files: the first two are changed, as the keys would.
+            let mut ed = (op == "signal-editor").then(|| open_editor(path.as_deref().unwrap()));
             println!("READY");
             let _ = std::io::stdout().flush();
             let start = Instant::now();
             while !flag.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(20) {
                 std::thread::sleep(Duration::from_millis(10));
             }
-            let saved = emergency_save(path.as_deref(), &input.unwrap());
+            let saved = match &mut ed {
+                Some(ed) => ed
+                    .emergency_save()
+                    .iter()
+                    .map(|p| format!("{}\n", p.display()))
+                    .collect(),
+                None => describe(emergency_save(path.as_deref(), &input.unwrap())),
+            };
             // The terminal is gone: the result goes to a file.
             let out = env("FILES_TEST_RESULT").unwrap();
-            stdfs::write(out, describe(saved)).unwrap();
+            stdfs::write(out, saved).unwrap();
             // Nothing more to print: the terminal may be gone.
             std::process::exit(0);
         }
         _ => panic!("unknown operation {op}"),
     };
     println!("RESULT: {result}");
+}
+
+/// An editor with the files of `paths` (separated by `:`), and an `x` typed into the first two.
+fn open_editor(paths: &Path) -> crate::commands::Editor {
+    use crate::config::{Options, Place};
+    use crate::keys::Key;
+    let files = paths
+        .to_string_lossy()
+        .split(':')
+        .map(|name| Place::new(name.to_string()))
+        .collect();
+    let mut ed = crate::commands::Editor::open(
+        Options {
+            files,
+            ..Options::default()
+        },
+        80,
+        24,
+    );
+    for key in [
+        Key::Char('x'),
+        Key::Meta('>'),
+        Key::Char('x'),
+        Key::Meta('>'),
+    ] {
+        ed.key(key);
+    }
+    ed
 }
 
 fn describe(r: std::io::Result<PathBuf>) -> String {
@@ -1088,6 +1125,10 @@ fn numbered_backups_in_a_backup_directory() {
 /// Runs the child that waits for a signal; `hangup` closes its terminal, otherwise it gets
 /// SIGTERM. Returns what the child wrote: the path of the copy, or an error.
 fn emergency_on_signal(s: &Scratch, path: Option<&Path>, hangup: bool) -> String {
+    signal_child(s, "signal", path, hangup)
+}
+
+fn signal_child(s: &Scratch, op: &str, path: Option<&Path>, hangup: bool) -> String {
     use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
     let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC).unwrap();
     grantpt(&master).unwrap();
@@ -1103,7 +1144,7 @@ fn emergency_on_signal(s: &Scratch, path: Option<&Path>, hangup: bool) -> String
     stdfs::write(&input, b"unsaved text").unwrap();
     set_mode(&input, 0o644);
     let result = s.home.join("result");
-    let mut cmd = s.command("signal", path, &input);
+    let mut cmd = s.command(op, path, &input);
     cmd.env("FILES_TEST_RESULT", &result)
         .stdin(Stdio::from(slave.try_clone().unwrap()))
         .stdout(Stdio::from(slave.try_clone().unwrap()))
@@ -1150,6 +1191,36 @@ fn sighup_writes_the_emergency_copy_next_to_the_users_own_file() {
         let copy = emergency_on_signal(&s, Some(&path), false);
         assert_eq!(copy, format!("{}.save.1", path.display()));
         assert_eq!(read(Path::new(&copy)), b"unsaved text");
+    }
+}
+
+#[test]
+fn sighup_writes_the_emergency_copy_of_every_modified_buffer() {
+    for who in everyone() {
+        let s = Scratch::new(who);
+        let (a, b, c) = (s.path("a"), s.path("b"), s.path("c"));
+        s.file(&a, b"saved a\n", 0o640, who.uid());
+        s.file(&b, b"saved b\n", 0o600, who.uid());
+        s.file(&c, b"saved c\n", 0o644, who.uid());
+        // Two buffers are changed, the third is not: each changed one has its own copy, and
+        // the files themselves stay as they were.
+        let paths = format!("{}:{}:{}", a.display(), b.display(), c.display());
+        let out = signal_child(&s, "signal-editor", Some(Path::new(&paths)), true);
+        assert_eq!(
+            out,
+            format!("{}.save\n{}.save\n", a.display(), b.display()),
+            "{who:?}"
+        );
+        let copy = |p: &Path| read(Path::new(&format!("{}.save", p.display())));
+        assert_eq!(
+            (copy(&a), copy(&b)),
+            (b"xsaved a\n".to_vec(), b"xsaved b\n".to_vec())
+        );
+        let m = meta(Path::new(&format!("{}.save", a.display())));
+        assert_eq!((m.mode() & 0o7777, m.uid()), (0o640, who.uid()));
+        assert!(!s.path("c.save").exists());
+        assert_eq!(read(&a), b"saved a\n");
+        assert_eq!(read(&b), b"saved b\n");
     }
 }
 
