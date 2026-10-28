@@ -1,0 +1,18 @@
+# The text under a click is worked out from the page the cursor's line is scrolled to: on
+# another line the click lands as far to the right.
+args: --mouse t.txt
+size: 40x12
+file t.txt:
+| short
+| 01234567890123456789012345678901234567890123456789012345678901234567890123456789
+| 0123456789abcdefghij0123456789abcdefghij
+keys: {Down}{End}
+keys: {Click 4 2}
+keys: {Click 20 3}
+keys: {Click 4 2}
+keys: {Down}{End}
+keys: {Click 5 2}
+keys: {Down}
+keys: {Click 39 3}
+keys: {Click 40 3}
+keys: {Click 20 3}

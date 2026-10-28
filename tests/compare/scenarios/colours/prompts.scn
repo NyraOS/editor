@@ -1,0 +1,15 @@
+# The prompt bar has the title bar's colours until promptcolor is set; the questions too.
+size: 60x12
+nanorc: set titlecolor black,yellow
+nanorc: set keycolor red
+args: a.txt
+file a.txt:
+| one
+| two
+keys: {^W}
+keys: {Esc}
+keys: {Esc}
+keys: x
+keys: {^X}
+keys: {^C}
+keys: {Enter}

@@ -1,0 +1,16 @@
+# The same on a narrow window, in a prompt. Coordinates are counted from 1: the status bar is
+# row 10, the help lines are rows 11 and 12.
+args: --mouse t.txt
+size: 40x12
+file t.txt:
+| first
+| second
+| third
+keys: {Click 3 10}
+keys: {Click 23 10}
+keys: {Click 23 11}
+keys: {Click 40 11}
+keys: {Click 13 12}
+keys: {Click 13 11}
+keys: {Click 3 12}
+keys: {Click 3 12}

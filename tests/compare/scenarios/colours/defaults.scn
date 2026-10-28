@@ -1,0 +1,14 @@
+# Without colours in the nanorc the defaults are nano's: the same bars, the selection and the
+# search match, the error message.
+size: 60x12
+nanorc: set linenumbers
+args: a.txt
+file a.txt:
+| one two three
+| four five six
+keys: {M-A}{Right*5}
+keys: {^F}
+keys: five
+keys: {Enter}
+keys: {^U}
+keys: {^X}

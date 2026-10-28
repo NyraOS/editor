@@ -1,0 +1,18 @@
+# The items of a yes-or-no question answer to a click, two columns of 16, and nothing else does.
+# Coordinates are counted from 1: here the status bar is row 10, the items are on rows 11 and 12.
+args: --mouse t.txt
+size: 60x12
+file t.txt:
+| first
+| second
+keys: x
+keys: {^X}
+keys: {Click 3 10}
+keys: {Click 20 11}
+keys: {Click 40 12}
+keys: {Click 20 12}
+keys: {^X}
+keys: {Click 3 11}
+keys: {Click 3 12}
+keys: {^X}
+keys: {Click 3 12}

@@ -1,0 +1,20 @@
+# A click on a wrapped line: on a row that goes on, at the end of the row, in the last row,
+# past the end of the text, and on a line of the same row.
+args: --mouse --softwrap --linenumbers t.txt
+size: 30x12
+file t.txt:
+| 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789
+| short
+| 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789
+keys: {Click 10 2}
+keys: {Click 29 2}
+keys: {Click 30 2}
+keys: {Click 10 3}
+keys: {Click 30 4}
+keys: {Click 4 4}
+keys: {Click 10 5}
+keys: {Click 10 6}
+keys: {Click 29 7}
+keys: {Click 2 8}
+keys: {Click 20 9}
+keys: {Click 20 2}

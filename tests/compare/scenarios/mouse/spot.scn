@@ -1,0 +1,17 @@
+# A click after a search moves the cursor off the match; undo after a click goes back over what was
+# typed before it and after it as separate steps.
+args: --mouse t.txt
+size: 40x12
+file t.txt:
+| first line
+| second line
+| third line
+keys: ^Wsecond{Enter}
+keys: {Click 3 2}
+keys: xyz
+keys: {Click 8 4}
+keys: abc
+keys: {Click 1 2}
+keys: {M-u}
+keys: {M-u}
+keys: {M-e}

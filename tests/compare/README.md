@@ -105,6 +105,10 @@ trailing spaces are trimmed: write them as `{Space}`.
 | Named keys | `{Enter}` `{Tab}` `{Esc}` `{Space}` `{Bsp}` `{Del}` `{Ins}` `{Up}` `{Down}` `{Left}` `{Right}` `{Home}` `{End}` `{PgUp}` `{PgDn}` `{F1}` to `{F12}` |
 | Named keys with modifiers | `{^Left}`, `{S-Up}` (Shift), `{M-Home}`, `{^S-End}`: any of `^`, `M-`, `S-` |
 | Repeated | `{Down*5}`, `{x*3}` (up to 200) |
+| Mouse | `{Click 12 3}`: a press and a release of the left button at column 12, row 3; `{Mouse 65 5 4 M}`: one report of button code 65 (wheel down; 64 up, 0 left, 2 right; add 4, 8, 16 for Shift, Alt, Ctrl) at column 5, row 4, `M` a press and `m` a release. Columns and rows are counted from 1, as in the report. The editor needs `--mouse`. |
+
+Send one mouse report to a step: ncurses does not handle several that arrive in one write the way
+it handles them one by one, and nano's results then depend on its event queue, not on the mouse.
 
 The keys are the bytes xterm sends: Backspace is `^?`, the arrows `ESC O A` and so on, with
 modifiers `ESC [ 1 ; m A`. A lone `{Esc}` must be the last key of its step: followed by more keys in

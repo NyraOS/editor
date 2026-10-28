@@ -1,0 +1,15 @@
+# A click moves the cursor and keeps a mark; a mark made with the shifted arrows is kept too, and
+# the click on the cursor sets the mark when there is none and removes it when there is one.
+args: --mouse t.txt
+size: 40x12
+file t.txt:
+| first line
+| second line
+| third line
+keys: {S-Right}{S-Right}
+keys: {Click 5 3}
+keys: {Click 5 3}
+keys: {Click 5 3}
+keys: ^K
+keys: {Click 3 2}
+keys: ^U

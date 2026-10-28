@@ -1,0 +1,22 @@
+# Line numbers, the selection and the match of a search with colours set; a search match inside
+# a selection; an error message.
+size: 60x12
+nanorc: set linenumbers
+nanorc: set numbercolor red,white
+nanorc: set selectedcolor black,lightcyan
+nanorc: set spotlightcolor white,red
+nanorc: set errorcolor bold,yellow,blue
+args: a.txt
+file a.txt:
+| one two three
+| four five six
+| seven
+keys: {M-A}{Right*5}
+keys: {Down}
+keys: {^F}
+keys: five
+keys: {Enter}
+keys: {M-A}{Down}
+keys: {^U}
+keys: {^X}
+keys: n

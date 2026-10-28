@@ -1,0 +1,19 @@
+# The wheel with soft wrapping scrolls by rows of the screen.
+args: --mouse --softwrap t.txt
+size: 40x12
+file t.txt:
+| 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789
+| short
+| 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789
+| another
+| 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789
+| last
+keys: {Mouse 65 5 4 M}
+keys: {Mouse 65 5 4 M}
+keys: {Mouse 65 5 4 M}
+keys: {Mouse 64 5 4 M}
+keys: {Click 5 3}
+keys: {Click 38 5}
+keys: {Click 5 5}
+keys: {Mouse 65 5 4 M}{Mouse 65 5 4 M}{Mouse 65 5 4 M}{Mouse 65 5 4 M}{Mouse 65 5 4 M}{Mouse 65 5 4 M}
+keys: {Click 5 2}

@@ -3,6 +3,7 @@
 //! rcfile.rs). An option the editor cannot honour yet is refused ("not available yet") rather
 //! than ignored, unless nano would show the same screen with it.
 
+use crate::colours::Colours;
 use crate::syntax::SyntaxDef;
 use crate::{bindings, rcfile};
 use std::path::PathBuf;
@@ -103,6 +104,10 @@ pub struct Options {
     pub casesensitive: bool,
     /// nanorc `set regexp`: searches start with regular expressions.
     pub regexp: bool,
+    /// `-m`: the mouse places the cursor, presses the keys of the help lines and scrolls.
+    pub mouse: bool,
+    /// The colours of the interface, set by the nanorc files.
+    pub colours: Colours,
     /// `-/`: the keys of other editors (^X cuts, ^Q exits, ...), before the nanorc's `bind` lines.
     pub modernbindings: bool,
     /// The nanorc's `bind` and `unbind` lines, in order.
@@ -140,6 +145,8 @@ impl Default for Options {
             afterends: false,
             casesensitive: false,
             regexp: false,
+            mouse: false,
+            colours: Colours::default(),
             modernbindings: false,
             binds: Vec::new(),
             syntaxes: Vec::new(),
@@ -201,7 +208,7 @@ const OPTIONS: &[Opt] = &[
     opt('z', "listsyntaxes", false, Later),
     opt('G', "locking", false, Works),
     opt('F', "multibuffer", false, Works),
-    opt('m', "mouse", false, Later),
+    opt('m', "mouse", false, Works),
     opt('/', "modernbindings", false, Works),
     opt('_', "minibar", false, Later),
     opt('w', "nowrap", false, Ignored),
@@ -461,6 +468,7 @@ fn apply(p: &mut Parsing, opt: &Opt, value: &str) -> Result<Option<Command>, Str
         "zap" => o.zap = true,
         "wordbounds" => o.wordbounds = true,
         "afterends" => o.afterends = true,
+        "mouse" => o.mouse = true,
         "ignorercfiles" => o.ignorercfiles = true,
         // Files are always locked.
         "locking" => {}
@@ -603,6 +611,8 @@ Options:
  -i, --autoindent        Start a new line with the blanks of the one before
  -k, --cutfromcursor     Cut from the cursor to the end of the line
  -l, --linenumbers       Show line numbers in front of the text
+ -m, --mouse             Use the mouse: click to place the cursor or press a key of the help
+                         lines, wheel to scroll
  -t, --saveonexit        Save a modified buffer on exit without asking
  -u, --unix              Save the file in Unix format
  -V, --version           Show the version and exit
@@ -610,7 +620,7 @@ Options:
  -x, --nohelp            Do not show the two help lines
 
 Accepted, with no effect yet: -M, -O, -a, -r, -s, -w.
-Not available yet (refused): -D, -H, -J, -K, -P, -Q, -R, -U, -Y, -b, -d, -e, -f, -g, -j, -m,
+Not available yet (refused): -D, -H, -J, -K, -P, -Q, -R, -U, -Y, -b, -d, -e, -f, -g, -j,
 -n, -o, -p, -q, -v, -z, -@, -%, -_, -0, and - (standard input).
 ";
 
@@ -775,9 +785,7 @@ mod tests {
     #[test]
     fn what_is_not_available_yet_is_refused_not_ignored() {
         for args in [
-            &["-m"][..],
-            &["--mouse"],
-            &["-Y", "sh"],
+            &["-Y", "sh"][..],
             &["-b"],
             &["-%"],
             &["-_"],
@@ -788,12 +796,13 @@ mod tests {
             assert!(err(args).ends_with("is not available yet"), "{args:?}");
         }
         assert_eq!(
-            err(&["-m"]),
-            "editor: option -m (--mouse) is not available yet"
+            err(&["-Y", "sh"]),
+            "editor: option -Y (--syntax) is not available yet"
         );
+        assert!(edit(&["-m"]).mouse && edit(&["--mouse"]).mouse && !edit(&[]).mouse);
         // The first one is the one named; a mistake in an option's argument comes before.
-        assert!(err(&["-g", "-m"]).contains("--showcursor"));
-        assert!(err(&["-m", "-T", "x"]).starts_with("Requested tab size"));
+        assert!(err(&["-g", "-b"]).contains("--showcursor"));
+        assert!(err(&["-b", "-T", "x"]).starts_with("Requested tab size"));
         assert!(edit(&["-/"]).modernbindings);
         assert!(err(&["-"]).contains("standard input"));
     }

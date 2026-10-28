@@ -9,10 +9,10 @@ Early development. What works, the same way as in GNU nano 8.4:
 
 - opening a file (or a new buffer); the command line of nano 8.4 for what is implemented:
   `+LINE,COLUMN`, `+/TEXT` and `+?TEXT` (with the modifiers `c` `C` `r` `R`), `-A` `-B` `-C` `-E`
-  `-F` `-G` `-I` `-L` `-N` `-T` `-W` `-X` `-Z` `-c` `-i` `-k` `-l` `-t` `-u` `-x`, long forms (also
+  `-F` `-G` `-I` `-L` `-N` `-T` `-W` `-X` `-Z` `-c` `-i` `-k` `-l` `-m` `-t` `-u` `-x`, long forms (also
   shortened), joined short options, `--`, and nano's messages for a wrong option. `-M` `-O` `-a`
   `-r` `-s` `-w` are accepted and do nothing yet; every other option of nano (`--syntax`,
-  `--listsyntaxes`, the mouse, ...) is refused with "not available yet", rather than ignored, as is
+  `--listsyntaxes`, `--guidestripe`, ...) is refused with "not available yet", rather than ignored, as is
   the file browser (`^T` in the prompt for a file to read). `--help` lists them;
 - several files: one buffer for each file on the command line (up to 256), with `+LINE,COLUMN`
   and `+/TEXT` applying to the file that follows; `M-<` and `M->` (or `M-,` and `M-.`) switch
@@ -44,9 +44,25 @@ Early development. What works, the same way as in GNU nano 8.4:
 - the title bar, the status bar and the help lines at any terminal size, the help screen (`^G`);
 - writing the file (`^O` `^S`) and exiting (`^X`);
 - syntax colouring from the `syntax`, `header`, `color`, `icolor` and `extendsyntax` lines of a
-  nanorc (see below). The colours of the interface (`titlecolor`, `statuscolor`, ...), `tabgives`,
-  `linter` and `formatter` are refused with "not available yet", and `comment` too (it is for a key
-  that comments lines); `magic` is read and does nothing, as it only works with `--magic`;
+  nanorc (see below). `tabgives`, `linter` and `formatter` are refused with "not available yet",
+  and `comment` too (it is for a key that comments lines); `magic` is read and does nothing, as it
+  only works with `--magic`;
+- the colours of the interface: `set titlecolor`, `statuscolor`, `errorcolor`, `selectedcolor`,
+  `numbercolor`, `keycolor`, `functioncolor`, `promptcolor` and `spotlightcolor` in a nanorc, in the
+  syntax of the colours of a syntax (`bold,italic,white,red`, `lightblue`, `#f80`), with nano's
+  defaults and its messages for a wrong colour. They colour the title bar, the status bar, the
+  prompts, the line numbers, the keys and the names of the help lines, the selection and the search
+  match. `stripecolor` and `scrollercolor`, `minicolor` (the guide stripe, the scrollbar and the
+  mini bar are not in the editor) are refused with "not available yet";
+- the mouse, with `-m` (`--mouse`) or `set mouse`, off unless asked: a click of the left button puts
+  the cursor there, a second one on the same character sets the mark (or takes it away), a click
+  on an item of the help lines or on Yes, No, All or Cancel of a question presses its key, and the
+  wheel scrolls the text (or the help text) by two lines. The other buttons, a drag and a click on
+  the bars do nothing, as in nano. The editor reads a mouse report strictly (it is dropped if it is
+  not exactly `ESC [ < button ; column ; row M` or `m` with numbers of at most five digits), so the
+  bytes of one are never typed as text. Mouse reporting, the bracketed paste and the alternate
+  screen are switched off again whenever the editor ends, by a signal and by a panic too. `M-M`
+  (switching the mouse on and off while editing) and `NO_COLOR` are not in the editor yet;
 - key bindings: `bind KEY FUNCTION MENU` and `unbind KEY MENU` in a nanorc (key names, menus and
   messages as in `man nanorc`; a function the editor does not have yet is refused with a message,
   a string as the function types it in the main menu), and `--modernbindings`, applied first. The

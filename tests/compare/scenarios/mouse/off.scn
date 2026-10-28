@@ -1,0 +1,10 @@
+# "unset mouse" after "set mouse" leaves the mouse off: the reports are not asked for, and a
+# click does nothing (the editor drops what a program writes to the terminal).
+nanorc: set mouse
+nanorc: unset mouse
+args: t.txt
+size: 40x12
+file t.txt:
+| first line
+| second line
+keys: {^C}

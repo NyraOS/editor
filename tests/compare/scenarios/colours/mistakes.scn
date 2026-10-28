@@ -1,0 +1,27 @@
+# The mistakes of the colour settings, each reported with its line in nano's words; a mistake
+# leaves the default colours, and a later valid line sets them.
+size: 100x30
+nanorc: set titlecolor
+nanorc: unset titlecolor
+nanorc: set titlecolor purple
+nanorc: set titlecolor lightpink
+nanorc: set titlecolor red,wrong
+nanorc: set titlecolor bold
+nanorc: set titlecolor bold,
+nanorc: set titlecolor ,
+nanorc: set titlecolor #12
+nanorc: set titlecolor #12x
+nanorc: set statuscolor lightnormal
+nanorc: set statuscolor red,green,blue
+nanorc: set keycolor "bold,red"
+nanorc: set functioncolor italic
+nanorc: set numbercolor brightred
+nanorc: set promptcolor
+nanorc: set errorcolor normal
+nanorc: set spotlightcolor normal,normal
+nanorc: set selectedcolor ,red
+nanorc: set titlecolor normal
+args: a.txt
+file a.txt:
+| text
+keys: {^X}

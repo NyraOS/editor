@@ -579,6 +579,54 @@ mod tests {
     }
 
     #[test]
+    fn every_colour_name_works() {
+        for (i, (name, number)) in COLOUR_NAMES.iter().enumerate() {
+            assert_eq!(parse_hue(name).unwrap().fg, *number, "{name}");
+            // As the background too.
+            assert_eq!(
+                parse_hue(&format!(",{name}")).unwrap().bg,
+                *number,
+                "{name}"
+            );
+            // Only the first eight take a prefix: "light" is the colour 8 higher, "bright" (the
+            // older word) is the colour in bold.
+            let (light, bright) = (
+                parse_hue(&format!("light{name}")),
+                parse_hue(&format!("bright{name}")),
+            );
+            match number {
+                Some(n) if i < 8 => {
+                    assert_eq!(light.unwrap().fg, Some(n + 8), "light{name}");
+                    let bright = bright.unwrap();
+                    assert_eq!((bright.fg, bright.bold), (Some(*n), true), "bright{name}");
+                }
+                _ => {
+                    let error = Err(format!("Color '{name}' takes no prefix"));
+                    assert_eq!(light, error, "light{name}");
+                    assert_eq!(bright, error, "bright{name}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hexadecimal_colours() {
+        // The corners of the cube, the grey ramp, and a digit that is not hexadecimal.
+        for (text, number) in [
+            ("#000", 16),
+            ("#fff", 231),
+            ("#00f", 21),
+            ("#0f0", 46),
+            ("#111", 233),
+        ] {
+            assert_eq!(parse_hue(text).unwrap().fg, Some(number), "{text}");
+        }
+        for text in ["#ggg", "#ff", "#ffff", "#-ff"] {
+            assert!(parse_hue(text).is_err(), "{text}");
+        }
+    }
+
+    #[test]
     fn regex_strings() {
         assert_eq!(next_regex("\"a b\" \"c\""), Ok(("a b", "\"c\"")));
         // A double quote inside is part of it unless a blank or the end follows.

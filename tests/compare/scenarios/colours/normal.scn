@@ -1,0 +1,24 @@
+# The colour `normal` is the terminal's own: no inverse video, nothing but what is asked for.
+size: 60x12
+nanorc: set linenumbers
+nanorc: set titlecolor normal
+nanorc: set statuscolor bold,normal
+nanorc: set keycolor ,red
+nanorc: set numbercolor normal,normal
+nanorc: set selectedcolor italic,normal
+nanorc: set functioncolor bold,normal
+nanorc: set promptcolor normal
+nanorc: set errorcolor normal
+nanorc: set spotlightcolor normal
+args: a.txt
+file a.txt:
+| one two three
+| four five six
+keys: {M-A}{Right*5}
+keys: {^F}
+keys: five
+keys: {Enter}
+keys: {^U}
+keys: {^W}
+keys: {^C}
+keys: {^X}

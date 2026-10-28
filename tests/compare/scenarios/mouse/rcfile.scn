@@ -1,0 +1,9 @@
+# The mouse is on with "set mouse" in a nanorc file, and off for "unset mouse" after it.
+nanorc: set mouse
+args: t.txt
+size: 40x12
+file t.txt:
+| first line
+| second line
+keys: {Click 5 3}
+keys: {Click 5 3}
