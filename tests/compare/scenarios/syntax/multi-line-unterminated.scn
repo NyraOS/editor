@@ -1,0 +1,11 @@
+# a start= with no end= after it paints to the end of the text
+size: 60x12
+nanorc: syntax t "\\.t$"
+nanorc: color red start="<<" end=">>"
+args: a.t
+file a.t:
+| a
+| b << c
+| d
+| e
+keys: {^X}

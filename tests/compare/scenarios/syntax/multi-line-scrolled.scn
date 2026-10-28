@@ -1,0 +1,22 @@
+# a match that starts above the screen paints the lines that are shown
+size: 60x8
+nanorc: syntax t "\\.t$"
+nanorc: color red start="<<" end=">>"
+nanorc: color green "x"
+args: a.t
+file a.t:
+| 1 <<
+| 2 x
+| 3 x
+| 4 x
+| 5 x
+| 6 >> x
+| 7 x
+| 8 << x
+| 9 x
+| 10 x
+| 11 x
+keys: {PgDn}
+keys: {PgDn}
+keys: {Up*2}
+keys: {^X}

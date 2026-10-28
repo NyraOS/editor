@@ -1,0 +1,12 @@
+# A background colour on blanks with the cursor moved and a selection over them
+size: 40x8
+nanorc: syntax t "\\.t$"
+nanorc: color ,green "[[:space:]]+"
+args: a.t
+file a.t:
+| a   b   
+keys: {Right*2}
+keys: {^^}
+keys: {Right*4}
+keys: {^X}
+keys: n

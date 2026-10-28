@@ -1,0 +1,10 @@
+# the default syntax is for the files that no other syntax matches
+size: 40x8
+nanorc: syntax sh "\\.sh$"
+nanorc: color red "echo"
+nanorc: syntax default
+nanorc: color green "print"
+args: a.txt
+file a.txt:
+| echo print
+keys: {^X}

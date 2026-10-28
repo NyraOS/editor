@@ -9,6 +9,7 @@ use crate::files::{self, Expected, Locking, Meta, SaveError, SaveOptions};
 use crate::keys::{Key, Mods, Named};
 use crate::replace::Replacing;
 use crate::search::{self, Pattern};
+use crate::syntax::{self, Rule};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -149,6 +150,8 @@ pub struct Editor {
     lock_says_modified: bool,
     /// A warning shown for a moment, with nothing else, before this question (as nano does).
     pub warning: Option<Question>,
+    /// The rules of the syntax picked for the file, empty for none: see `syntax`.
+    pub syntax: Vec<Rule>,
     /// The editor is done: it exits.
     pub done: bool,
 }
@@ -313,6 +316,7 @@ impl Editor {
             lock: None,
             lock_says_modified: false,
             warning: None,
+            syntax: Vec::new(),
             done: false,
         };
         if ed.name.is_empty() {
@@ -323,6 +327,7 @@ impl Editor {
                 ed.take_lock(false);
             }
         }
+        ed.pick_syntax();
         if let Some((line, col)) = ed.opts.start {
             ed.goto(Some(line), Some(col));
         }
@@ -341,6 +346,21 @@ impl Editor {
             ed.error(&alert);
         }
         ed
+    }
+
+    /// Picks the syntax for the file by its name or its first line, as nano does when the file is
+    /// opened and when it is saved under another name.
+    fn pick_syntax(&mut self) {
+        let first = syntax::head(&self.buf, 0);
+        self.syntax = Vec::new();
+        let Some(def) = syntax::find(&self.opts.syntaxes, &self.name, &first) else {
+            return;
+        };
+        let (rules, errors) = syntax::compile(def);
+        self.syntax = rules;
+        if let Some(first) = errors.first() {
+            self.error(first);
+        }
     }
 
     fn read_file(&mut self) {
@@ -1254,6 +1274,7 @@ impl Editor {
                 self.buf = Buffer::new("", Format::Unix);
                 self.name.clear();
                 self.meta = None;
+                self.pick_syntax();
                 self.say("For basic help, type Ctrl+G.");
             }
             (Question::Replace(_), _) => {}
@@ -1355,6 +1376,7 @@ impl Editor {
                     // The lock goes with the name.
                     self.lock = None;
                     self.name = name;
+                    self.pick_syntax();
                     if let Ok(Locking::Locked(lock)) = files::lock(Path::new(&self.name), false) {
                         self.lock = Some(lock);
                         self.lock_says_modified = false;

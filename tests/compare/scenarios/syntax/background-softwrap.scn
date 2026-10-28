@@ -1,0 +1,10 @@
+# A background colour on trailing blanks of a line that is soft wrapped
+size: 12x8
+nanorc: syntax t "\\.t$"
+nanorc: set softwrap
+nanorc: color ,green "[[:space:]]+$"
+args: a.t
+file a.t:
+| abcdefghijkl          
+| ab   
+keys: {^X}

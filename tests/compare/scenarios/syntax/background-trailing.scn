@@ -1,0 +1,13 @@
+# A background colour shows on blanks: at the end of a line, on tabs and on a line of blanks
+size: 40x10
+nanorc: syntax t "\\.t$"
+nanorc: color ,green "[[:space:]]+$"
+nanorc: color red,blue "x"
+args: a.t
+file a.t:
+| text   
+| x   y   
+| 	tab	
+|    
+| 
+keys: {^X}

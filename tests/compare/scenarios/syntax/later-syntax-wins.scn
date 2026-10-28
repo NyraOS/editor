@@ -1,0 +1,10 @@
+# of two syntaxes that match a file, the one defined last is used
+size: 40x8
+nanorc: syntax first "\\.t$"
+nanorc: color red "x"
+nanorc: syntax second "\\.t$"
+nanorc: color green "x"
+args: a.t
+file a.t:
+| x
+keys: {^X}

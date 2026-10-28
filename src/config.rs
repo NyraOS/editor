@@ -3,6 +3,7 @@
 //! rcfile.rs). An option the editor cannot honour yet is refused ("not available yet") rather
 //! than ignored, unless nano would show the same screen with it.
 
+use crate::syntax::SyntaxDef;
 use crate::{bindings, rcfile};
 use std::path::PathBuf;
 
@@ -85,6 +86,8 @@ pub struct Options {
     pub modernbindings: bool,
     /// The nanorc's `bind` and `unbind` lines, in order.
     pub binds: Vec<bindings::Op>,
+    /// The syntaxes of the nanorc files, in the order they were defined.
+    pub syntaxes: Vec<SyntaxDef>,
 }
 
 impl Default for Options {
@@ -119,6 +122,7 @@ impl Default for Options {
             regexp: false,
             modernbindings: false,
             binds: Vec::new(),
+            syntaxes: Vec::new(),
         }
     }
 }

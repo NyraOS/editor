@@ -4,6 +4,7 @@
 
 use crate::buffer::{MARK, column_of, raw_byte};
 use crate::commands::{Editor, Mode, Prompt, Question};
+use crate::syntax::{self, Hue};
 use rustix::termios::{self, OptionalActions, Termios};
 use std::io::{self, Write};
 use unicode_width::UnicodeWidthChar;
@@ -17,11 +18,12 @@ pub const ERROR: u8 = 2;
 pub const SPOT: u8 = 3;
 
 /// One screen cell. Its text is one character with its combining marks; the right half of a
-/// wide character has no text.
+/// wide character has no text. The colours of a syntax (`hue`) show only on a plain cell.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Cell {
     pub text: String,
     pub style: u8,
+    pub hue: Hue,
 }
 
 impl Cell {
@@ -29,6 +31,7 @@ impl Cell {
         Self {
             text: c.to_string(),
             style,
+            hue: Hue::default(),
         }
     }
 
@@ -112,7 +115,11 @@ pub fn put(row: &mut [Cell], mut col: usize, text: &str, style: u8) -> usize {
             break;
         }
         for p in pieces {
-            row[col] = Cell { text: p, style };
+            row[col] = Cell {
+                text: p,
+                style,
+                hue: Hue::default(),
+            };
             col += 1;
         }
     }
@@ -161,6 +168,42 @@ pub fn cells_between(
         col += w;
     }
     (cells, col)
+}
+
+/// Gives the cells of the screen columns `start..end` of a line the colours of its characters;
+/// `hues` has one for each byte of the line (the first ones, see `syntax::paint`), and `from` is
+/// as in `cells_between`. Only plain cells are coloured: the markers of a line that goes on past
+/// the edge are not.
+pub fn colour_cells(
+    cells: &mut [Cell],
+    line: &str,
+    hues: &[Hue],
+    from: (usize, usize),
+    (start, end): (usize, usize),
+    tabsize: usize,
+) {
+    let mut col = from.1;
+    for (i, c) in line[from.0..].char_indices() {
+        let Some(&hue) = hues.get(from.0 + i) else {
+            break;
+        };
+        if col >= end {
+            break;
+        }
+        let w = width_at(c, col, tabsize);
+        // A character left of `start` (a line scrolled sideways) has no cells to colour.
+        let (first, last) = (col.max(start) - start, (col + w).min(end));
+        for cell in cells
+            .iter_mut()
+            .take(last.saturating_sub(start))
+            .skip(first)
+        {
+            if cell.style == PLAIN {
+                cell.hue = hue;
+            }
+        }
+        col += w;
+    }
 }
 
 /// The cells of a text line from screen column `start`, `width` of them. As in nano, a line
@@ -445,6 +488,14 @@ pub fn compose(ed: &Editor) -> Frame {
                 .collect()
         };
         let cursor_row = ed.opts.softwrap.then(|| ed.cursor_span());
+        // The colours of the lines shown, all at once because a match may go from one line to the
+        // next.
+        let (first_line, painted) = match (shown.first(), shown.last()) {
+            (Some(a), Some(b)) if !ed.syntax.is_empty() => {
+                (a.line, syntax::paint(&ed.syntax, &ed.buf, a.line, b.line))
+            }
+            _ => (0, Vec::new()),
+        };
         let mut cached: Option<(usize, String)> = None;
         for (r, row_shown) in shown.iter().enumerate().take(rows.saturating_sub(1)) {
             let Shown {
@@ -463,6 +514,9 @@ pub fn compose(ed: &Editor) -> Frame {
             } else {
                 line_cells(text, start, width, ed.opts.tabsize)
             };
+            if let Some(hues) = painted.get(line - first_line) {
+                colour_cells(&mut cells, text, hues, from, (start, end), ed.opts.tabsize);
+            }
             if let Some((_, from, to)) = ed.spot.filter(|s| s.0 == line) {
                 let from = column_of(text, from, ed.opts.tabsize);
                 let to = column_of(text, to, ed.opts.tabsize);
@@ -473,6 +527,7 @@ pub fn compose(ed: &Editor) -> Frame {
                         cells[col - start].text = " ".into();
                     }
                     cells[col - start].style = SPOT;
+                    cells[col - start].hue = Hue::default();
                 }
             }
             // nano takes the selection away while it asks about a match, and gives it back after.
@@ -486,6 +541,7 @@ pub fn compose(ed: &Editor) -> Frame {
                     for col in from.max(start)..to.min(end) {
                         if let Some(cell) = cells.get_mut(col - start) {
                             cell.style = INVERSE;
+                            cell.hue = Hue::default();
                         }
                     }
                 }
@@ -638,27 +694,58 @@ impl Terminal {
     }
 }
 
-fn sgr(style: u8) -> &'static str {
+/// The colour `n` of the 256-colour palette as the parameters of a graphic rendition: `base` is
+/// 30 for the foreground and 40 for the background.
+fn colour_code(out: &mut String, colour: Option<u8>, base: u8) {
+    match colour {
+        None => {}
+        Some(n) if n < 8 => out.push_str(&format!(";{}", base + n)),
+        Some(n) if n < 16 => out.push_str(&format!(";{}", base + 60 + n - 8)),
+        Some(n) => out.push_str(&format!(";{};5;{n}", base + 8)),
+    }
+}
+
+/// What the terminal is told before a cell of this look. The colours of a syntax are numbers
+/// that come from the nanorc, so nothing of the text can get into this.
+fn sgr(style: u8, hue: Hue) -> String {
     match style {
-        INVERSE => "\x1b[0;7m",
-        ERROR => "\x1b[0;1;37;41m",
-        SPOT => "\x1b[0;30;103m",
-        _ => "\x1b[0m",
+        INVERSE => "\x1b[0;7m".into(),
+        ERROR => "\x1b[0;1;37;41m".into(),
+        SPOT => "\x1b[0;30;103m".into(),
+        _ => {
+            let mut codes = String::from("\x1b[0");
+            if hue.bold {
+                codes.push_str(";1");
+            }
+            if hue.italic {
+                codes.push_str(";3");
+            }
+            colour_code(&mut codes, hue.fg, 30);
+            colour_code(&mut codes, hue.bg, 40);
+            codes.push('m');
+            codes
+        }
     }
 }
 
 fn draw_row(out: &mut String, r: usize, row: &[Cell]) {
     out.push_str(&format!("\x1b[{};1H", r + 1));
-    // Blank plain cells at the end are cleared in one go.
+    // Blank plain cells at the end are cleared in one go, unless a syntax gave them a colour
+    // (a background shows on blanks): clearing would leave them uncoloured.
     let end = row
         .iter()
-        .rposition(|c| c.text != " " || c.style != PLAIN)
+        .rposition(|c| c.text != " " || c.style != PLAIN || c.hue != Hue::default())
         .map_or(0, |i| i + 1);
-    let mut style = u8::MAX;
+    let mut look = None;
     for cell in &row[..end] {
-        if cell.style != style {
-            style = cell.style;
-            out.push_str(sgr(style));
+        let hue = if cell.style == PLAIN {
+            cell.hue
+        } else {
+            Hue::default()
+        };
+        if look != Some((cell.style, hue)) {
+            look = Some((cell.style, hue));
+            out.push_str(&sgr(cell.style, hue));
         }
         // A byte that is not valid UTF-8 shows as the replacement character, as in nano.
         let mut chars = cell.text.chars().peekable();
@@ -679,6 +766,9 @@ fn draw_row(out: &mut String, r: usize, row: &[Cell]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buffer::{Buffer, Format};
+    use crate::config::Options;
+    use crate::syntax::{self, SyntaxDef};
 
     fn text(row: &[Cell]) -> String {
         row.iter().map(|c| c.text.as_str()).collect()
@@ -746,6 +836,131 @@ mod tests {
         let [a, b] = help_rows(&items, 15);
         assert_eq!(text(&a), "^G Help^O Write");
         assert_eq!(text(&b), "^X Exit^R Read ");
+    }
+
+    /// `r`, `g`, `b` for a red, green, blue cell, `.` for one with no colour.
+    fn colours(cells: &[Cell]) -> String {
+        let letter = |c: &Cell| match c.hue.fg {
+            Some(1) => 'r',
+            Some(2) => 'g',
+            Some(4) => 'b',
+            _ => '.',
+        };
+        cells.iter().map(letter).collect()
+    }
+
+    fn hues_of(line: &str, letters: &str) -> Vec<Hue> {
+        let mut hues = Vec::new();
+        for (c, l) in line.chars().zip(letters.chars()) {
+            let fg = match l {
+                'r' => Some(1),
+                'g' => Some(2),
+                _ => Some(4),
+            };
+            hues.extend(std::iter::repeat_n(
+                Hue {
+                    fg,
+                    ..Hue::default()
+                },
+                c.len_utf8(),
+            ));
+        }
+        hues
+    }
+
+    #[test]
+    fn colours_follow_tabs_and_wide_characters() {
+        // a, a tab of 3 columns (tabsize 4), a wide character, b: one hue for each character.
+        let line = "a\t\u{65e5}b";
+        let hues = hues_of(line, "rgbr");
+        let paint = |from, start, end| {
+            let mut cells = vec![Cell::blank(); end - start];
+            colour_cells(&mut cells, line, &hues, from, (start, end), 4);
+            colours(&cells)
+        };
+        assert_eq!(paint((0, 0), 0, 8), "rgggbbr.");
+        // Scrolled sideways: characters left of the window have no cells.
+        assert_eq!(paint((0, 0), 2, 7), "ggbbr");
+        // A wide character cut by the window colours the half that is shown.
+        assert_eq!(paint((0, 0), 5, 7), "br");
+        // A soft-wrapped row starts in the middle of the line.
+        assert_eq!(paint((2, 4), 4, 7), "bbr");
+        // A wide character that does not fit is not coloured past the edge.
+        assert_eq!(paint((0, 0), 0, 5), "rgggb");
+    }
+
+    #[test]
+    fn marks_and_selection_are_not_coloured() {
+        let line = "0123456789abcdefghij";
+        let hues = hues_of(line, "rrrrrrrrrrgggggggggg");
+        let mut cells = line_cells(line, 4, 10, 8);
+        colour_cells(&mut cells, line, &hues, (0, 0), (4, 14), 8);
+        // The `<` and `>` are drawn inverse and keep no hue.
+        assert_eq!(colours(&cells), ".rrrrrggg.");
+    }
+
+    /// Everything the terminal receives for the rows, with the editor's own sequences taken out:
+    /// a graphic rendition, a move of the cursor and a clear of the rest of the row.
+    fn without_own_sequences(out: &str) -> String {
+        let mut rest = out;
+        let mut text = String::new();
+        while let Some(at) = rest.find('\x1b') {
+            text.push_str(&rest[..at]);
+            let tail = &rest[at + 1..];
+            let body = tail.strip_prefix('[').expect("a sequence that is not ours");
+            let end = body
+                .find(|c: char| !(c.is_ascii_digit() || c == ';'))
+                .unwrap();
+            assert!(matches!(&body[end..end + 1], "m" | "H" | "K"), "{out:?}");
+            rest = &body[end + 1..];
+        }
+        text.push_str(rest);
+        text
+    }
+
+    #[test]
+    fn escape_sequences_in_the_file_never_reach_the_terminal() {
+        // Rules that match the escape sequences themselves, and everything else: the colours must
+        // still come only from the nanorc, and the bytes of the file only as printable text.
+        let attack = "\x1b[31mred\x1b]0;title\x07\x1b[2J\u{9b}31m\u{9d}x\x00\x7f \x1b[?1049h\x1b";
+        for width in [80, 20, 7] {
+            for softwrap in [false, true] {
+                let opts = Options {
+                    softwrap,
+                    ..Options::default()
+                };
+                let mut ed = Editor::open(opts, width, 12);
+                ed.buf = Buffer::new(&format!("{attack}\n{attack}"), Format::Unix);
+                let mut defs = Vec::new();
+                for rest in [
+                    "red \".*\"",
+                    "blue start=\"\\]\" end=\"\"",
+                    "red start=\"\\[\" end=\"Z\"",
+                    "green \"\\[[0-9;]*m\"",
+                ] {
+                    defs.extend(syntax::parse_rules(rest, false).0);
+                }
+                let def = SyntaxDef {
+                    name: "t".into(),
+                    files: Vec::new(),
+                    headers: Vec::new(),
+                    rules: defs,
+                };
+                ed.syntax = syntax::compile(&def).0;
+                let frame = compose(&ed);
+                let mut out = String::new();
+                for (r, row) in frame.rows.iter().enumerate() {
+                    draw_row(&mut out, r, row);
+                }
+                // The test would pass for no colours at all, so check that there are some.
+                if width == 80 {
+                    assert!(out.contains("\x1b[0;31m") && out.contains("\x1b[0;32m"));
+                }
+                let text = without_own_sequences(&out);
+                let bad = |c: char| c < ' ' || ('\x7f'..='\u{9f}').contains(&c);
+                assert!(!text.chars().any(bad), "{text:?}");
+            }
+        }
     }
 
     #[test]

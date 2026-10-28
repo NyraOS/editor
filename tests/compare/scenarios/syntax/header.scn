@@ -1,0 +1,13 @@
+# the first line of a file that no name matches chooses the syntax
+size: 40x8
+nanorc: syntax sh "\\.sh$"
+nanorc: header "^#!.*/sh"
+nanorc: color red "echo"
+nanorc: syntax py
+nanorc: header "^#!.*python"
+nanorc: color green "print"
+args: script
+file script:
+| #!/bin/sh
+| echo print
+keys: {^X}

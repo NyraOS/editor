@@ -1,0 +1,10 @@
+# extendsyntax can add header regexes
+size: 40x8
+nanorc: syntax sh "\\.sh$"
+nanorc: color red "x"
+nanorc: extendsyntax sh header "^#!/bin/sh"
+args: b
+file b:
+| #!/bin/sh
+| x y z
+keys: {^X}

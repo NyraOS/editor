@@ -1,0 +1,15 @@
+# the selection is drawn over the colours, which come back after it
+size: 40x10
+nanorc: syntax t "\\.t$"
+nanorc: color red "[a-z]+"
+nanorc: color green "[0-9]+"
+args: a.t
+file a.t:
+| abc 123 def 456
+| ghi 789 jkl
+keys: {Home}{Right*2}
+keys: {^^}
+keys: {Right*6}
+keys: {Down}
+keys: {M-A}
+keys: {^X}

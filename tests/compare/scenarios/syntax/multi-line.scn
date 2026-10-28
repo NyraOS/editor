@@ -1,0 +1,13 @@
+# start= and end=: a match goes from a start to the next end, over lines, several in a line
+size: 60x14
+nanorc: syntax t "\\.t$"
+nanorc: color red start="/\\*" end="\\*/"
+args: a.t
+file a.t:
+| a /* b
+| c
+| d */ e /* f */ g /* h
+| i */ j
+| /**/ k
+| l
+keys: {^X}

@@ -1,0 +1,15 @@
+# Mistakes in the syntax lines of a nanorc, in the order they are read.
+size: 100x30
+nanorc: syntax
+nanorc: syntax "none"
+nanorc: syntax "bad
+nanorc: syntax "default" "x"
+nanorc: syntax "empty" "\\.txt$"
+nanorc: syntax "second" "\\.txt$"
+nanorc: color red "x"
+nanorc: extendsyntax nothere color red "x"
+nanorc: header "x"
+args: a.txt
+file a.txt:
+| text
+keys: {^X}

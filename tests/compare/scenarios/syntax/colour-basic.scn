@@ -1,0 +1,12 @@
+# color paints every match of a regex in the text of the files whose name the syntax matches
+nanorc: syntax sh "\\.sh$"
+nanorc: color red "\\<(if|then|fi)\\>"
+nanorc: color green "\\$[A-Za-z_]+"
+nanorc: color blue "'[^']*'"
+args: a.sh
+size: 60x12
+file a.sh:
+| if [ -n $HOME ]; then
+|   echo 'it is $x' ; fi
+| #!/bin/sh
+keys: {^X}

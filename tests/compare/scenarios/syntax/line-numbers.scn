@@ -1,0 +1,9 @@
+# colours with line numbers
+args: -l a.t
+size: 30x8
+nanorc: syntax t "\\.t$"
+nanorc: color red "[a-z]+"
+file a.t:
+| abc 12
+| def 34
+keys: {^X}

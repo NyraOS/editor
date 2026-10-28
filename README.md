@@ -11,9 +11,9 @@ Early development. What works, the same way as in GNU nano 8.4:
   `+LINE,COLUMN`, `+/TEXT` and `+?TEXT` (with the modifiers `c` `C` `r` `R`), `-A` `-B` `-C` `-E`
   `-G` `-I` `-L` `-N` `-T` `-W` `-X` `-Z` `-c` `-i` `-k` `-l` `-t` `-u` `-x`, long forms (also
   shortened), joined short options, `--`, and nano's messages for a wrong option. `-M` `-O` `-a`
-  `-r` `-s` `-w` are accepted and do nothing yet; every other option of nano (colours, soft
-  wrap, several files, the mouse, ...) is refused with "not available yet", rather than ignored.
-  `--help` lists them;
+  `-r` `-s` `-w` are accepted and do nothing yet; every other option of nano (`--syntax`,
+  `--listsyntaxes`, several files, the mouse, ...) is refused with "not available yet", rather
+  than ignored. `--help` lists them;
 - moving: arrows, Home and End, `^A` `^E` `^P` `^N`, PgUp and PgDn (`^Y` `^V`), ^Home and ^End
   (`M-\` `M-/`), ^Left and ^Right by words; long lines scroll sideways;
 - typing and deleting, Enter, Tab, Backspace and Delete (`^H` `^D`); UTF-8 with wide characters
@@ -35,6 +35,10 @@ Early development. What works, the same way as in GNU nano 8.4:
   text, and the next one on each `^]` in a row; one step of undo;
 - the title bar, the status bar and the help lines at any terminal size, the help screen (`^G`);
 - writing the file (`^O` `^S`) and exiting (`^X`);
+- syntax colouring from the `syntax`, `header`, `color`, `icolor` and `extendsyntax` lines of a
+  nanorc (see below). The colours of the interface (`titlecolor`, `statuscolor`, ...), `tabgives`,
+  `linter` and `formatter` are refused with "not available yet", and `comment` too (it is for a key
+  that comments lines); `magic` is read and does nothing, as it only works with `--magic`;
 - key bindings: `bind KEY FUNCTION MENU` and `unbind KEY MENU` in a nanorc (key names, menus and
   messages as in `man nanorc`; a function the editor does not have yet is refused with a message,
   a string as the function types it in the main menu), and `--modernbindings`, applied first. The
@@ -45,6 +49,33 @@ Saving is safe (a new file renamed over the old one, or a copy first when the fi
 written in place), and a file changed on disk since it was read is noticed, as in nano. Files are
 always locked (nano's `--locking`, vim-style `.NAME.swp`); SIGHUP, SIGTERM or a closed terminal
 write the changes to `NAME.save`.
+
+## Syntax colouring
+
+No syntax is built in, and the package ships none. The editor colours a file only when a nanorc
+defines a syntax for it, in the nanorc format of nano 8.4 (`man nanorc`). The files are read in
+this order, a later one winning: `/usr/share/nyra-editor/nanorc`, `/etc/nanorc`, then the user's
+`~/.nanorc` (else `$XDG_CONFIG_HOME/nano/nanorc`, else `~/.config/nano/nanorc`), and the files
+that these name in an `include "GLOB"` line. A syntax is picked when a file is opened or saved
+under another name: the one whose `syntax NAME "REGEX"...` matches the full name of the file, else
+the one whose `header "REGEX"...` matches its first line, else `default`. A `color` or `icolor`
+line gives a foreground and background (nano's names, `bright` and `light` before the basic ones, `#rgb`, `normal`, and `bold,` or `italic,` first)
+and one or more expressions, or `start="..." end="..."` for text over several lines. Rules apply
+in order, and a later rule paints over an earlier one. [docs/sh.nanorc](docs/sh.nanorc) is a small
+example.
+
+The text of a file never reaches the terminal as bytes, only as the printable characters and the
+`^X` forms that the editor draws without colours too; the colours come from the nanorc only. A
+file cannot make the screen hang either: the expressions are the same as in search (see
+[docs/REGEX.md](docs/REGEX.md)) and are also limited in size, a syntax has at most 2000 rules,
+only the first 2000 bytes of a line are coloured, a multi-line rule is looked for in the 1000
+lines above the screen at most, and a screen takes 50 ms of matching at most (the rest of it is
+drawn without colour).
+
+Differences from nano: all syntaxes of the nanorc files are read at the start, and a mistake in
+one is reported then, not when a file needs it; and the limits above. nano also colours nothing
+that starts past 2000 bytes of a line, but lets a match that starts before it run on: here a
+match is cut there (`x+` on a line of 3000 `x` colours 2000), and `$` matches at the cut.
 
 ## Build and test
 

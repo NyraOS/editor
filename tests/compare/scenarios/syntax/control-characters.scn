@@ -1,0 +1,9 @@
+# a control character in a match shows as before (^A), in the colour of the match
+size: 30x8
+nanorc: syntax t "\\.t$"
+nanorc: color red "a.b"
+nanorc: color green "c"
+args: a.t
+file a.t:
+| a\x01b c\e[31m c
+keys: {^X}

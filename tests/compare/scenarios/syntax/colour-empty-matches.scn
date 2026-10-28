@@ -1,0 +1,12 @@
+# a regex that can match nothing paints only what it matches
+size: 60x12
+nanorc: syntax t "\\.t$"
+nanorc: color red "x*"
+nanorc: color green "^"
+nanorc: color blue "$"
+args: a.t
+file a.t:
+| abxxcx
+|
+| x
+keys: {^X}

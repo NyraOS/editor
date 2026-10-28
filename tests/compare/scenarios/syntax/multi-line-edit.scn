@@ -1,0 +1,14 @@
+# typing a start= or an end= changes the lines after it
+size: 60x10
+nanorc: syntax t "\\.t$"
+nanorc: color red start="\\(" end="\\)"
+args: a.t
+file a.t:
+| one
+| two
+| three
+keys: {Home}(
+keys: {Down*2}{End})
+keys: {Up}
+keys: {^X}
+keys: n
