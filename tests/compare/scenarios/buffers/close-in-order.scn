@@ -1,0 +1,13 @@
+# ^X closes the buffer and shows the next one; the last ^X exits. The help line says Close until
+# one buffer is left.
+args: a.txt b.txt c.txt
+file a.txt:
+| alpha
+file b.txt:
+| bravo
+file c.txt:
+| charlie
+keys: {M->}
+keys: {^X}
+keys: {^X}
+keys: {^X}

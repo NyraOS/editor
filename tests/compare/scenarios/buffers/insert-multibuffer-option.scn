@@ -1,0 +1,18 @@
+# -F makes ^R read into a new buffer, and M-F in the prompt makes it read into the text.
+args: -F a.txt
+file a.txt:
+| alpha
+file extra.txt:
+| one
+file more.txt:
+| two
+keys: {^R}
+keys: extra.txt
+keys: {Enter}
+keys: {^R}
+keys: {M-F}
+keys: more.txt
+keys: {Enter}
+keys: {^X}
+keys: {^X}
+keys: n

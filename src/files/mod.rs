@@ -46,7 +46,7 @@ use std::path::{Path, PathBuf};
 use rustix::fs::{self, CWD, FileType, Mode, Statx};
 use rustix::io::Errno;
 
-pub use emergency::{emergency_save, watch_signals};
+pub use emergency::{emergency_save_all, watch_signals};
 pub use lock::{Lock, LockInfo, Locking, lock};
 pub use save::{Expected, Method, SaveError, SaveOptions, Saved, save};
 

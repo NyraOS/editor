@@ -9,11 +9,19 @@ Early development. What works, the same way as in GNU nano 8.4:
 
 - opening a file (or a new buffer); the command line of nano 8.4 for what is implemented:
   `+LINE,COLUMN`, `+/TEXT` and `+?TEXT` (with the modifiers `c` `C` `r` `R`), `-A` `-B` `-C` `-E`
-  `-G` `-I` `-L` `-N` `-T` `-W` `-X` `-Z` `-c` `-i` `-k` `-l` `-t` `-u` `-x`, long forms (also
+  `-F` `-G` `-I` `-L` `-N` `-T` `-W` `-X` `-Z` `-c` `-i` `-k` `-l` `-t` `-u` `-x`, long forms (also
   shortened), joined short options, `--`, and nano's messages for a wrong option. `-M` `-O` `-a`
   `-r` `-s` `-w` are accepted and do nothing yet; every other option of nano (`--syntax`,
-  `--listsyntaxes`, several files, the mouse, ...) is refused with "not available yet", rather
-  than ignored. `--help` lists them;
+  `--listsyntaxes`, the mouse, ...) is refused with "not available yet", rather than ignored, as is
+  the file browser (`^T` in the prompt for a file to read). `--help` lists them;
+- several files: one buffer for each file on the command line (up to 256), with `+LINE,COLUMN`
+  and `+/TEXT` applying to the file that follows; `M-<` and `M->` (or `M-,` and `M-.`) switch
+  between them and the title bar shows `[n/m]`; `^X` closes the current buffer, asking to save
+  it, and the editor ends after the last; `^R` reads a file into the text, and with `M-F` (or
+  `-F`/`--multibuffer` for every time) into a new buffer. Undo, the mark, the syntax, the lock
+  file and the disk-change check are each buffer's own. A file that is already open can be
+  opened again after the lock question, as in nano; both buffers then edit the same file, and
+  the disk-change check warns the one that saves second;
 - moving: arrows, Home and End, `^A` `^E` `^P` `^N`, PgUp and PgDn (`^Y` `^V`), ^Home and ^End
   (`M-\` `M-/`), ^Left and ^Right by words; long lines scroll sideways;
 - typing and deleting, Enter, Tab, Backspace and Delete (`^H` `^D`); UTF-8 with wide characters
@@ -48,7 +56,7 @@ Early development. What works, the same way as in GNU nano 8.4:
 Saving is safe (a new file renamed over the old one, or a copy first when the file must be
 written in place), and a file changed on disk since it was read is noticed, as in nano. Files are
 always locked (nano's `--locking`, vim-style `.NAME.swp`); SIGHUP, SIGTERM or a closed terminal
-write the changes to `NAME.save`.
+write the changes of every modified buffer to its `NAME.save`.
 
 ## Syntax colouring
 

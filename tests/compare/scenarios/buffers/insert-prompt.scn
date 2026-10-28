@@ -1,0 +1,15 @@
+# ^R asks for a file and inserts it at the cursor; M-F switches to a new buffer and back.
+args: a.txt
+file a.txt:
+| alpha
+| beta
+file extra.txt:
+| one
+| two
+keys: {^R}
+keys: {M-F}
+keys: {M-F}
+keys: extra.txt
+keys: {Enter}
+keys: {^X}
+keys: n

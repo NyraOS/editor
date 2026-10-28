@@ -1,0 +1,12 @@
+# A DOS file is converted when it is inserted, and the message says so.
+args: a.txt
+file a.txt:
+| alpha
+file dos.txt:
+| one\r
+| two\r
+keys: {^R}
+keys: dos.txt
+keys: {Enter}
+keys: {^X}
+keys: n

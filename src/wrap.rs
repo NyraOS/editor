@@ -147,12 +147,12 @@ impl Editor {
     }
 
     fn spans_of(&self, line: usize) -> Vec<Span> {
-        Chunks::new(line, &self.buf.line_text(line), self.rules()).collect()
+        Chunks::new(line, &self.file.buf.line_text(line), self.rules()).collect()
     }
 
     /// The row of the cursor.
     pub fn cursor_span(&self) -> Span {
-        let b = &self.buf;
+        let b = &self.file.buf;
         let text = b.line_text(b.line);
         let col = b.column(self.opts.tabsize);
         Chunks::new(b.line, &text, self.rules())
@@ -162,7 +162,7 @@ impl Editor {
 
     /// The row at the top of the screen: the one with the column the top remembers.
     fn top_span(&self) -> Span {
-        let b = &self.buf;
+        let b = &self.file.buf;
         let line = b.top.min(b.lines() - 1);
         let text = b.line_text(line);
         Chunks::new(line, &text, self.rules())
@@ -174,7 +174,7 @@ impl Editor {
     fn rows_from(&self, from: Span, n: usize) -> Vec<Span> {
         let mut rows = Vec::new();
         let mut line = from.line;
-        while rows.len() < n && line < self.buf.lines() {
+        while rows.len() < n && line < self.file.buf.lines() {
             let spans = self.spans_of(line);
             let skip = if line == from.line {
                 spans
@@ -198,7 +198,7 @@ impl Editor {
     /// The row `delta` rows after (before, when negative) `from`, or the first or the last of
     /// the text, and how many rows it is away.
     fn shift(&self, from: Span, delta: isize) -> (Span, usize) {
-        let lines = self.buf.lines();
+        let lines = self.file.buf.lines();
         let mut line = from.line;
         let mut spans = self.spans_of(line);
         let mut idx = spans
@@ -229,8 +229,8 @@ impl Editor {
     }
 
     fn set_top(&mut self, row: Span) {
-        self.buf.top = row.line;
-        self.buf.top_col = row.start;
+        self.file.buf.top = row.line;
+        self.file.buf.top_col = row.start;
     }
 
     /// Scrolls just enough to show the cursor's row.
@@ -260,12 +260,12 @@ impl Editor {
     /// The cursor in `row`, in the column it keeps for moving up and down.
     fn place(&mut self, row: Span) {
         let width = self.rules().width;
-        let text = self.buf.line_text(row.line);
-        let col = row.start + self.buf.want % width;
+        let text = self.file.buf.line_text(row.line);
+        let col = row.start + self.file.buf.want % width;
         // On a row that goes on, the cursor stays on the row.
         let col = if row.last { col } else { col.min(row.end - 1) };
-        self.buf.line = row.line;
-        self.buf.x = index_at(&text, col, self.opts.tabsize);
+        self.file.buf.line = row.line;
+        self.file.buf.x = index_at(&text, col, self.opts.tabsize);
     }
 
     pub fn wrap_up(&mut self) {
@@ -303,16 +303,16 @@ impl Editor {
     /// Returns false when the key is for the line to handle (the first row, or at its start).
     pub fn wrap_home(&mut self) -> bool {
         let row = self.cursor_span();
-        let text = self.buf.line_text(row.line);
+        let text = self.file.buf.line_text(row.line);
         let start = index_at(&text, row.start, self.opts.tabsize);
-        if row.start == 0 || self.buf.x == start {
+        if row.start == 0 || self.file.buf.x == start {
             return false;
         }
-        self.buf.x = start;
-        self.buf.keep_column(self.opts.tabsize);
+        self.file.buf.x = start;
+        self.file.buf.keep_column(self.opts.tabsize);
         // Observed in nano 8.4: after Home the wanted column is the left edge of the screen, even
         // when the row starts further in because a wide character went to the next row.
-        self.buf.want = 0;
+        self.file.buf.want = 0;
         true
     }
 
@@ -320,14 +320,14 @@ impl Editor {
     /// line.
     pub fn wrap_end(&mut self) {
         let row = self.cursor_span();
-        let text = self.buf.line_text(row.line);
+        let text = self.file.buf.line_text(row.line);
         let last = index_at(&text, row.end.saturating_sub(1), self.opts.tabsize);
-        self.buf.x = if row.last || self.buf.x == last {
-            self.buf.line_len(row.line)
+        self.file.buf.x = if row.last || self.file.buf.x == last {
+            self.file.buf.line_len(row.line)
         } else {
             last
         };
-        self.buf.keep_column(self.opts.tabsize);
+        self.file.buf.keep_column(self.opts.tabsize);
     }
 }
 

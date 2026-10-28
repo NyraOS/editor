@@ -1,0 +1,14 @@
+# An inserted file is one step of undo.
+args: a.txt
+file a.txt:
+| alpha
+file extra.txt:
+| one
+| two
+keys: {^R}
+keys: extra.txt
+keys: {Enter}
+keys: {M-u}
+keys: {M-e}
+keys: {^X}
+keys: n

@@ -1,0 +1,14 @@
+# ^C in the question keeps the buffer, which stays modified.
+args: a.txt b.txt
+file a.txt:
+| alpha
+file b.txt:
+| bravo
+keys: x
+keys: {^X}
+keys: {^C}
+keys: {M->}
+keys: {M-<}
+keys: {^X}
+keys: n
+keys: {^X}

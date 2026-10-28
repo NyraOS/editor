@@ -82,7 +82,7 @@ fn run(opts: config::Options) -> io::Result<()> {
     term.stop();
     // The terminal went away, or SIGHUP or SIGTERM came: the changes go to an emergency copy.
     if result.is_err() || stop.load(Ordering::Relaxed) {
-        if let Some(path) = ed.emergency_save() {
+        for path in ed.emergency_save() {
             eprintln!("Buffer written to {}", path.display());
         }
     }

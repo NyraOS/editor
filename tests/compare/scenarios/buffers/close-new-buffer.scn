@@ -1,0 +1,11 @@
+# A new buffer with a changed text asks for a name when it is closed.
+args: a.txt b.txt
+file a.txt:
+| alpha
+keys: {M->}
+keys: hello
+keys: {^X}
+keys: y
+keys: new.txt
+keys: {Enter}
+keys: {^X}

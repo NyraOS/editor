@@ -105,7 +105,6 @@ impl Completion {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
 
     fn endings(text: &str, fragment: &str, skip: usize) -> Vec<String> {
         let text = Rope::from_str(text);
@@ -135,11 +134,11 @@ mod tests {
         let text = Rope::from_str(&format!("{}\nwo", words.join(" ")));
         let fragment = String::from("wo");
         let skip = text.len_chars() - 2;
-        let started = Instant::now();
         let mut completion = Completion::new(fragment, skip);
         assert_eq!(completion.next_ending(&text, "").as_deref(), Some("rd0"));
         assert_eq!(completion.next_ending(&text, "").as_deref(), Some("rd1"));
-        // A generous bound: scanning all the words every time took seconds.
-        assert!(started.elapsed().as_millis() < 100);
+        // Counted in work, not time: it read the few characters of the first two words, not
+        // the 50,000 (scanning all of them every time took seconds).
+        assert!(completion.scan < 20, "{}", completion.scan);
     }
 }

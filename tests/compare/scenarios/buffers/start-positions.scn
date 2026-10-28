@@ -1,0 +1,33 @@
+# A + argument applies to the file that follows it, and only to that one.
+args: a.txt +2,3 b.txt +3 c.txt +-1,2 d.txt
+file a.txt:
+| one
+| two
+file b.txt:
+| first
+| second line
+| third
+file c.txt:
+| apple
+| mango tree
+| banana
+file d.txt:
+| red
+| green
+| blue
+keys: x
+keys: {M->}
+keys: y
+keys: {M->}
+keys: z
+keys: {M->}
+keys: w
+keys: {M->}
+keys: {^X}
+keys: n
+keys: {^X}
+keys: n
+keys: {^X}
+keys: n
+keys: {^X}
+keys: n

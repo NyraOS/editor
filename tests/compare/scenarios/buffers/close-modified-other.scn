@@ -1,0 +1,12 @@
+# A change in another buffer does not stop the exit of this one, and the title says Modified only
+# for the buffer shown.
+args: a.txt b.txt
+file a.txt:
+| alpha
+file b.txt:
+| bravo
+keys: x
+keys: {M->}
+keys: {^X}
+keys: {^X}
+keys: n

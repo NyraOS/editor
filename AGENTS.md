@@ -10,7 +10,7 @@ Guide for coding agents and people working in this repository. What the project 
 
 1. `README.md`: what works today and what is refused with "not available yet".
 2. `src/main.rs`, `src/config.rs`, `src/rcfile.rs`: start-up, the command line, the nanorc files.
-3. `src/commands.rs`, `src/bindings.rs`, `src/keys.rs`: the editor state, what each key does, key bindings.
+3. `src/commands.rs`, `src/commands/buffers.rs` (the open files: opening, switching, closing, the emergency copies), `src/bindings.rs`, `src/keys.rs`: the editor state, what each key does, key bindings.
 4. `src/buffer.rs`, `src/search.rs`, `src/replace.rs`, `src/complete.rs`, `src/wrap.rs`, `src/syntax.rs`: the text (a rope), search and replace, completion, soft wrapping, syntax colouring.
 5. `src/screen.rs`: drawing and the terminal.
 6. `src/files/`: reading, safe saving, lock files, backups, emergency copies.

@@ -1,0 +1,9 @@
+# An empty file changes nothing: the buffer is not modified.
+args: a.txt
+file a.txt:
+| alpha
+file empty.txt:
+keys: {^R}
+keys: empty.txt
+keys: {Enter}
+keys: {^X}

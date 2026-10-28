@@ -2,16 +2,22 @@
 //! The editor's state and its commands: what each key does.
 
 use crate::bindings::{self, Bindings, Outcome};
-use crate::buffer::{self, Buffer, Format, Kind, Mark, next_index, prev_index};
+use crate::buffer::{self, Format, Kind, Mark, next_index, prev_index};
 use crate::complete::{self, Completion};
-use crate::config::Options;
+use crate::config::{Options, Place};
 use crate::files::{self, Expected, Locking, Meta, SaveError, SaveOptions};
 use crate::keys::{Key, Mods, Named};
 use crate::replace::Replacing;
 use crate::search::{self, Pattern};
 use crate::syntax::{self, Rule};
+mod buffers;
+pub use buffers::File;
+
+use std::collections::VecDeque;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::rc::Rc;
+use std::time::Duration;
 
 /// How many keys a message stays for, as in nano.
 const MESSAGE_KEYS: u8 = 20;
@@ -19,6 +25,10 @@ const MESSAGE_KEYS: u8 = 20;
 pub struct Message {
     pub text: String,
     pub error: bool,
+    /// One of nano's alerts (the worst kind): a later alert while starting only adds dots to it.
+    alert: bool,
+    /// Dots after the message: more alerts came while the files were opened.
+    pub dots: bool,
     /// The keys still to come before it goes.
     keys_left: u8,
 }
@@ -44,15 +54,15 @@ pub enum Question {
     /// The file changed on disk since it was read or written; Yes writes over it only as it was
     /// when asked.
     Changed(String, bool, Expected),
-    /// Another editor holds the lock file.
-    Locked(files::LockInfo),
+    /// Another editor holds the lock file of this file, which is being opened.
+    Locked(String, files::LockInfo),
     /// A replacing, at a match.
     Replace(Box<Replacing>),
 }
 
 impl Question {
     /// The question as nano words it, with the space after it where nano has one.
-    pub fn text(&self, name: &str) -> String {
+    pub fn text(&self) -> String {
         match self {
             Question::SaveOnExit => "Save modified buffer? ".into(),
             Question::OtherName(..) => "Save file under DIFFERENT NAME? ".into(),
@@ -61,8 +71,8 @@ impl Question {
                 "File was modified since you opened it; continue saving? ".into()
             }
             Question::Replace(_) => "Replace this instance? ".into(),
-            Question::Locked(info) => format!(
-                "File {name} is being edited by {} (with {}, PID {}); open anyway?",
+            Question::Locked(file, info) => format!(
+                "File {file} is being edited by {} (with {}, PID {}); open anyway?",
                 info.user, info.program, info.pid
             ),
         }
@@ -105,6 +115,8 @@ pub enum PromptKind {
     Replacement { backwards: bool },
     /// The line and column to go to.
     Goto,
+    /// The file to read into the text, or into a new buffer.
+    Insert { new_buffer: bool },
 }
 
 /// What the last key did to the cut buffer: the next cut, or copy, of a line adds to it when
@@ -117,9 +129,9 @@ enum Chain {
 }
 
 pub struct Editor {
-    pub buf: Buffer,
-    /// The file name, empty for a new buffer.
-    pub name: String,
+    /// The buffer being edited, with its file name, lock and the rest that goes with it. Its
+    /// place in `files` holds a blank one: see `buffers`.
+    pub file: File,
     pub opts: Options,
     bindings: Bindings,
     /// What the title bar shows on the left.
@@ -143,15 +155,24 @@ pub struct Editor {
     replace_history: Vec<String>,
     /// What the last search found, highlighted until the next key: line, from, to (characters).
     pub spot: Option<(usize, usize, usize)>,
-    /// The file as read or written last, to notice changes on disk; None for a new file.
-    meta: Option<Meta>,
-    /// The lock file held, and whether it says the buffer is modified.
-    lock: Option<files::Lock>,
-    lock_says_modified: bool,
     /// A warning shown for a moment, with nothing else, before this question (as nano does).
     pub warning: Option<Question>,
-    /// The rules of the syntax picked for the file, empty for none: see `syntax`.
-    pub syntax: Vec<Rule>,
+    /// All the buffers in order; the one being edited is at `current`, as a blank `File`.
+    files: Vec<File>,
+    current: usize,
+    /// The time the colouring of a screen may take; a field so that a test can give it more.
+    pub paint_time: Duration,
+    /// The syntaxes compiled so far, by their place in `opts.syntaxes`, so that the buffers of
+    /// the same syntax share its rules (compiling a big syntax takes long) and its first error.
+    compiled: Vec<(usize, Rc<[Rule]>, Option<String>)>,
+    /// Two buffers were open at some time: the title bar shows `[n/m]` from then on (as nano).
+    more_than_one: bool,
+    /// The files of the command line that are not opened yet, and the one whose lock question is
+    /// being asked.
+    pending: VecDeque<Place>,
+    placing: Option<Place>,
+    /// The start-up is over: the files of the command line are open.
+    pub started: bool,
     /// The editor is done: it exits.
     pub done: bool,
 }
@@ -161,7 +182,14 @@ pub const HELP_TITLE: &str = "Help";
 impl Editor {
     /// The help lines for the mode, from the key bindings.
     pub fn help_lines_of(&self) -> Vec<(String, &'static str)> {
-        self.bindings.help_lines(self.slot())
+        let mut lines = self.bindings.help_lines(self.slot());
+        // As in nano, ^X closes a buffer while there are several, and exits with the last.
+        if self.files.len() > 1 {
+            for line in lines.iter_mut().filter(|l| l.1 == "Exit") {
+                line.1 = "Close";
+            }
+        }
+        lines
     }
 
     /// The menu of the key bindings that a key pressed in this mode belongs to.
@@ -176,6 +204,7 @@ impl Editor {
                 PromptKind::Replacement { .. } => bindings::REPLACE_WITH,
                 PromptKind::Goto => bindings::GOTO,
                 PromptKind::Write { .. } => bindings::WRITE_OUT,
+                PromptKind::Insert { .. } => bindings::INSERT,
             },
         }
     }
@@ -193,6 +222,13 @@ work in the text:";
 const HELP_KEYS: &[(&str, &str, &str)] = &[
     ("^G", "F1", "Show this help"),
     ("^X", "F2", "Exit, asking whether to save the changes"),
+    (
+        "^R",
+        "F5",
+        "Read a file into the text (M-F: into a new buffer)",
+    ),
+    ("M-<", "M-,", "Switch to the previous file buffer"),
+    ("M->", "M-.", "Switch to the next file buffer"),
     ("^O", "F3", "Write the text to a file"),
     ("^S", "", "Save the file without asking for its name"),
     ("", "", ""),
@@ -291,12 +327,12 @@ fn error_text(e: &io::Error) -> String {
 }
 
 impl Editor {
-    /// Opens the file in `opts`, or a new buffer.
-    pub fn open(opts: Options, cols: usize, rows: usize) -> Self {
+    /// Opens the files in `opts`, a buffer each, or a new buffer.
+    pub fn open(mut opts: Options, cols: usize, rows: usize) -> Self {
         let (case_sensitive, regexp) = (opts.casesensitive, opts.regexp);
+        let pending = std::mem::take(&mut opts.files).into();
         let mut ed = Self {
-            buf: Buffer::new("", Format::Unix),
-            name: opts.file.clone().unwrap_or_default(),
+            file: File::blank(),
             bindings: Bindings::new(opts.modernbindings, &opts.binds),
             opts,
             program: format!("Editor {}", env!("CARGO_PKG_VERSION")),
@@ -312,117 +348,19 @@ impl Editor {
             regexp,
             replace_history: Vec::new(),
             spot: None,
-            meta: None,
-            lock: None,
-            lock_says_modified: false,
             warning: None,
-            syntax: Vec::new(),
+            files: Vec::new(),
+            current: 0,
+            paint_time: syntax::TIME_LIMIT,
+            compiled: Vec::new(),
+            more_than_one: false,
+            pending,
+            placing: None,
+            started: false,
             done: false,
         };
-        if ed.name.is_empty() {
-            ed.say("For basic help, type Ctrl+G.");
-        } else {
-            ed.read_file();
-            if !ed.name.is_empty() {
-                ed.take_lock(false);
-            }
-        }
-        ed.pick_syntax();
-        if let Some((line, col)) = ed.opts.start {
-            ed.goto(Some(line), Some(col));
-        }
-        if let Some(found) = ed.opts.search.take() {
-            ed.case_sensitive = found.case_sensitive;
-            ed.regexp = found.regexp;
-            ed.history.push(found.text);
-            ed.search(found.backwards);
-            // As in nano, the wrapping and the reading of the file are not said, only a failure.
-            if ed.message.as_ref().is_some_and(|m| !m.error) {
-                ed.message = None;
-            }
-        }
-        // After the messages of reading the file and searching, as in nano.
-        if let Some(alert) = ed.opts.start_alert.take() {
-            ed.error(&alert);
-        }
+        ed.open_pending();
         ed
-    }
-
-    /// Picks the syntax for the file by its name or its first line, as nano does when the file is
-    /// opened and when it is saved under another name.
-    fn pick_syntax(&mut self) {
-        let first = syntax::head(&self.buf, 0);
-        self.syntax = Vec::new();
-        let Some(def) = syntax::find(&self.opts.syntaxes, &self.name, &first) else {
-            return;
-        };
-        let (rules, errors) = syntax::compile(def);
-        self.syntax = rules;
-        if let Some(first) = errors.first() {
-            self.error(first);
-        }
-    }
-
-    fn read_file(&mut self) {
-        match files::read(Path::new(&self.name)) {
-            Ok(loaded) => {
-                let text = buffer::decode(loaded.bytes);
-                let (text, format) = if self.opts.noconvert {
-                    (text, Format::Unix)
-                } else {
-                    buffer::convert_line_ends(text)
-                };
-                self.buf = Buffer::new(&text, if self.opts.unix { Format::Unix } else { format });
-                self.meta = Some(loaded.meta);
-                let mut msg = format!("Read {}", plural(self.buf.file_lines(), "line"));
-                self.magic_line();
-                match format {
-                    Format::Dos => msg.push_str(" (converted from DOS format)"),
-                    Format::Mac => msg.push_str(" (converted from Mac format)"),
-                    Format::Unix => {}
-                }
-                self.say(&msg);
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => self.say("New File"),
-            // A directory or a device: nano says so and edits a new buffer.
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    io::ErrorKind::IsADirectory | io::ErrorKind::InvalidInput
-                ) =>
-            {
-                let name = std::mem::take(&mut self.name);
-                self.error(&format!("\"{name}\" {e}"));
-            }
-            Err(e) => self.error(&format!("Error reading {}: {}", self.name, error_text(&e))),
-        }
-    }
-
-    /// Locks the file, as nano does with `--locking` (here always). When the lock file cannot
-    /// be made (a directory without write permission), the file is edited without one.
-    fn take_lock(&mut self, force: bool) {
-        match files::lock(Path::new(&self.name), force) {
-            Ok(Locking::Locked(lock)) => {
-                let _ = lock.set_modified(self.buf.modified);
-                self.lock_says_modified = self.buf.modified;
-                self.lock = Some(lock);
-            }
-            Ok(Locking::Busy(info)) => self.mode = Mode::Ask(Question::Locked(info)),
-            Ok(Locking::Bad(path)) => {
-                self.error(&format!("Bad lock file is ignored: {}", path.display()));
-            }
-            Err(_) => {}
-        }
-    }
-
-    /// Writes the emergency copy of a modified buffer (the terminal went away, or SIGHUP or
-    /// SIGTERM came); returns where.
-    pub fn emergency_save(&mut self) -> Option<PathBuf> {
-        if !self.buf.modified {
-            return None;
-        }
-        let name = (!self.name.is_empty()).then(|| Path::new(&self.name));
-        files::emergency_save(name, &self.buf.to_bytes()).ok()
     }
 
     /// Puts the cursor on a line and a screen column, 1-based; negative numbers count from the end
@@ -431,16 +369,16 @@ impl Editor {
     fn goto(&mut self, line: Option<i64>, col: Option<i64>) {
         let tab = self.opts.tabsize;
         self.spot = None;
-        let lines = self.buf.lines() as i64;
-        let line = line.unwrap_or(self.buf.line as i64 + 1);
+        let lines = self.file.buf.lines() as i64;
+        let line = line.unwrap_or(self.file.buf.line as i64 + 1);
         let line = if line < 0 {
             lines.saturating_add(line) + 1
         } else {
             line
         };
-        self.buf.line = (line.clamp(1, lines) - 1) as usize;
-        let text = self.buf.line_text(self.buf.line);
-        let col = col.unwrap_or(self.buf.want as i64 + 1);
+        self.file.buf.line = (line.clamp(1, lines) - 1) as usize;
+        let text = self.file.buf.line_text(self.file.buf.line);
+        let col = col.unwrap_or(self.file.buf.want as i64 + 1);
         let col = if col < 0 {
             let width = buffer::column_of(&text, text.chars().count(), tab) as i64;
             (width + 2).saturating_add(col)
@@ -448,16 +386,16 @@ impl Editor {
             col
         };
         let col = col.max(1);
-        self.buf.x = buffer::index_at(&text, col as usize - 1, tab);
-        self.buf.want = col as usize - 1;
+        self.file.buf.x = buffer::index_at(&text, col as usize - 1, tab);
+        self.file.buf.want = col as usize - 1;
         self.center_cursor();
     }
 
     pub fn display_name(&self) -> &str {
-        if self.name.is_empty() {
+        if self.file.name.is_empty() {
             "New Buffer"
         } else {
-            &self.name
+            &self.file.name
         }
     }
 
@@ -470,7 +408,7 @@ impl Editor {
     /// The width of the line numbers and the space after them.
     pub fn margin(&self) -> usize {
         if self.opts.linenumbers {
-            self.buf.lines().to_string().len().max(2) + 1
+            self.file.buf.lines().to_string().len().max(2) + 1
         } else {
             0
         }
@@ -480,6 +418,8 @@ impl Editor {
         self.message = Some(Message {
             text: text.to_string(),
             error: false,
+            alert: false,
+            dots: false,
             keys_left: MESSAGE_KEYS,
         });
     }
@@ -488,8 +428,24 @@ impl Editor {
         self.message = Some(Message {
             text: text.to_string(),
             error: true,
+            alert: false,
+            dots: false,
             keys_left: MESSAGE_KEYS,
         });
+    }
+
+    /// An error of the worst kind in nano's words: a file that cannot be opened. While the
+    /// editor starts, nano keeps it for a file that was not read, to say it again when the
+    /// buffer is switched to.
+    fn alert(&mut self, text: &str) {
+        self.error(text);
+        if let Some(m) = &mut self.message {
+            m.alert = true;
+        }
+        let several = self.files.len() > 1;
+        if !self.started && several && self.file.meta.is_none() && self.file.read_error.is_none() {
+            self.file.read_error = Some(text.to_string());
+        }
     }
 
     pub fn resized(&mut self, cols: usize, rows: usize) {
@@ -550,16 +506,18 @@ impl Editor {
         }
         let chain = std::mem::replace(&mut self.chain, Chain::None);
         let completion = self.completion.take();
+        let taken = self.buffer_keys(&key);
         match &mut self.mode {
+            _ if taken => {}
             Mode::Edit => self.edit_key(key, chain, completion),
             Mode::Help(_) => self.help_key(key),
             Mode::Prompt(_) => self.prompt_key(key),
             Mode::Ask(_) => self.ask_key(key),
         }
-        if let Some(lock) = &self.lock {
-            if self.buf.modified != self.lock_says_modified {
-                let _ = lock.set_modified(self.buf.modified);
-                self.lock_says_modified = self.buf.modified;
+        if let Some(lock) = &self.file.lock {
+            if self.file.buf.modified != self.file.lock_says_modified {
+                let _ = lock.set_modified(self.file.buf.modified);
+                self.file.lock_says_modified = self.file.buf.modified;
             }
         }
     }
@@ -571,12 +529,12 @@ impl Editor {
             ..Mods::default()
         };
         let (key, shifted) = unshift(key);
-        if shifted && self.buf.mark.is_none() {
-            let at = self.buf.pos();
-            self.buf.mark = Some(Mark { at, soft: true });
+        if shifted && self.file.buf.mark.is_none() {
+            let at = self.file.buf.pos();
+            self.file.buf.mark = Some(Mark { at, soft: true });
         }
-        if !shifted && self.buf.mark.is_some_and(|m| m.soft) && ends_soft_mark(&key) {
-            self.buf.mark = None;
+        if !shifted && self.file.buf.mark.is_some_and(|m| m.soft) && ends_soft_mark(&key) {
+            self.file.buf.mark = None;
         }
         match key {
             Key::Char(c) => self.type_text(&c.to_string()),
@@ -625,7 +583,7 @@ impl Editor {
             // The main loop draws the whole screen again.
             Key::Ctrl('L') => {}
             Key::PasteStart => {
-                self.buf.end_group();
+                self.file.buf.end_group();
                 self.message = None;
             }
             Key::Paste(text) => {
@@ -636,7 +594,7 @@ impl Editor {
                 }
             }
             Key::PasteEnd { flawed } => {
-                self.buf.end_group();
+                self.file.buf.end_group();
                 if flawed {
                     self.error("Flawed paste");
                 }
@@ -672,23 +630,25 @@ impl Editor {
     }
 
     fn insert_text(&mut self, s: &str, kind: Kind) {
-        let last = self.buf.line + 1 == self.buf.lines();
-        let at = self.buf.pos();
-        self.buf.insert(s);
-        self.buf.record(kind, at, String::new(), s.to_string(), at);
+        let last = self.file.buf.line + 1 == self.file.buf.lines();
+        let at = self.file.buf.pos();
+        self.file.buf.insert(s);
+        self.file
+            .buf
+            .record(kind, at, String::new(), s.to_string(), at);
         if last && self.magic_line() {
-            self.buf.record_final_newline();
+            self.file.buf.record_final_newline();
         }
-        self.buf.keep_column(self.opts.tabsize);
+        self.file.buf.keep_column(self.opts.tabsize);
     }
 
     /// As in nano, the text ends with an empty line (the file with a newline), unless `-L`.
     /// Returns whether it added the newline.
     fn magic_line(&mut self) -> bool {
-        let add = !self.opts.nonewlines && !self.buf.ends_with_newline();
+        let add = !self.opts.nonewlines && !self.file.buf.ends_with_newline();
         if add {
-            let end = self.buf.text.len_chars();
-            self.buf.text.insert(end, "\n");
+            let end = self.file.buf.text.len_chars();
+            self.file.buf.text.insert(end, "\n");
         }
         add
     }
@@ -696,17 +656,20 @@ impl Editor {
     fn enter(&mut self) {
         let mut text = String::from("\n");
         if self.opts.autoindent {
-            let line = self.buf.line_text(self.buf.line);
+            let line = self.file.buf.line_text(self.file.buf.line);
             // As in nano, at the end of a line of blanks only, they move to the new line.
             let blanks = line.chars().count();
-            if blanks > 0 && self.buf.x == blanks && line.chars().all(|c| matches!(c, ' ' | '\t')) {
-                let at = self.buf.pos() - blanks;
-                self.buf.substitute(at, blanks, &format!("\n{line}"));
-                self.buf.keep_column(self.opts.tabsize);
+            if blanks > 0
+                && self.file.buf.x == blanks
+                && line.chars().all(|c| matches!(c, ' ' | '\t'))
+            {
+                let at = self.file.buf.pos() - blanks;
+                self.file.buf.substitute(at, blanks, &format!("\n{line}"));
+                self.file.buf.keep_column(self.opts.tabsize);
                 return;
             }
             let indent = line.chars().take_while(|c| matches!(c, ' ' | '\t'));
-            text.extend(indent.take(self.buf.x));
+            text.extend(indent.take(self.file.buf.x));
         }
         self.type_text(&text);
     }
@@ -715,7 +678,7 @@ impl Editor {
     fn tab(&mut self) {
         if self.opts.tabstospaces {
             let tab = self.opts.tabsize;
-            let spaces = tab - self.buf.column(tab) % tab;
+            let spaces = tab - self.file.buf.column(tab) % tab;
             self.type_text(&" ".repeat(spaces));
         } else {
             self.type_text("\t");
@@ -728,7 +691,7 @@ impl Editor {
         if self.opts.softwrap && self.wrap_home() {
             return;
         }
-        let b = &mut self.buf;
+        let b = &mut self.file.buf;
         let indent = b
             .line_text(b.line)
             .chars()
@@ -749,26 +712,26 @@ impl Editor {
         if self.opts.softwrap {
             return self.wrap_end();
         }
-        self.buf.x = self.buf.line_len(self.buf.line);
-        self.buf.keep_column(self.opts.tabsize);
+        self.file.buf.x = self.file.buf.line_len(self.file.buf.line);
+        self.file.buf.keep_column(self.opts.tabsize);
     }
 
     fn undo(&mut self) {
-        match self.buf.undo() {
+        match self.file.buf.undo() {
             Some(kind) => self.say(&format!("Undid {}", kind.name())),
             None => self.error("Nothing to undo"),
         }
         self.center();
-        self.buf.keep_column(self.opts.tabsize);
+        self.file.buf.keep_column(self.opts.tabsize);
     }
 
     fn redo(&mut self) {
-        match self.buf.redo() {
+        match self.file.buf.redo() {
             Some(kind) => self.say(&format!("Redid {}", kind.name())),
             None => self.error("Nothing to redo"),
         }
         self.center();
-        self.buf.keep_column(self.opts.tabsize);
+        self.file.buf.keep_column(self.opts.tabsize);
     }
 
     /// ^] completes the word fragment before the cursor with a word of the text; again in a
@@ -779,12 +742,12 @@ impl Editor {
         let mut completion = match completion {
             Some(c) => {
                 // Takes back the last ending: the one edit made, and nothing to redo of it.
-                self.buf.undo();
+                self.file.buf.undo();
                 c
             }
             None => {
-                let text = &self.buf.text;
-                let cursor = self.buf.pos();
+                let text = &self.file.buf.text;
+                let cursor = self.file.buf.pos();
                 let start = complete::fragment_start(text, cursor, &wordchars);
                 if start == cursor {
                     self.error("No word fragment");
@@ -793,8 +756,8 @@ impl Editor {
                 Completion::new(String::from(text.slice(start..cursor)), start)
             }
         };
-        let Some(ending) = completion.next_ending(&self.buf.text, &wordchars) else {
-            self.buf.keep_column(self.opts.tabsize);
+        let Some(ending) = completion.next_ending(&self.file.buf.text, &wordchars) else {
+            self.file.buf.keep_column(self.opts.tabsize);
             self.error(if first {
                 "No matches"
             } else {
@@ -804,7 +767,7 @@ impl Editor {
         };
         // As in nano, a message still shown goes.
         self.message = None;
-        self.buf.end_group();
+        self.file.buf.end_group();
         self.insert_text(&ending, Kind::Add);
         self.completion = Some(completion);
     }
@@ -815,7 +778,7 @@ impl Editor {
         if self.zap_selection() {
             return;
         }
-        let b = &mut self.buf;
+        let b = &mut self.file.buf;
         if b.x > 0 {
             let pos = b.pos();
             // A byte that is not valid UTF-8 goes as a whole, with its mark.
@@ -831,7 +794,7 @@ impl Editor {
             b.x = b.line_len(b.line);
             self.delete_at(before);
         }
-        self.buf.keep_column(self.opts.tabsize);
+        self.file.buf.keep_column(self.opts.tabsize);
     }
 
     /// Deletes the character under the cursor with its combining marks, or at the end of a
@@ -840,16 +803,16 @@ impl Editor {
         if self.zap_selection() {
             return;
         }
-        self.delete_at(self.buf.pos());
+        self.delete_at(self.file.buf.pos());
     }
 
     /// For `-Z`: erases the selection, which does not go to the cut buffer. Returns whether there
     /// was one.
     fn zap_selection(&mut self) -> bool {
-        let Some((from, to)) = self.buf.selection().filter(|_| self.opts.zap) else {
+        let Some((from, to)) = self.file.buf.selection().filter(|_| self.opts.zap) else {
             return false;
         };
-        self.buf.mark = None;
+        self.file.buf.mark = None;
         if from != to {
             self.erase_cut(from, to, Kind::Zap);
         }
@@ -858,7 +821,7 @@ impl Editor {
 
     /// `delete`, for the cursor that was at `before` (it is moved when Backspace joins lines).
     fn delete_at(&mut self, before: usize) {
-        let b = &mut self.buf;
+        let b = &mut self.file.buf;
         let len = b.line_len(b.line);
         let pos = b.pos();
         if b.x < len {
@@ -876,44 +839,48 @@ impl Editor {
     fn up(&mut self) {
         if self.opts.softwrap {
             self.wrap_up();
-        } else if self.buf.line > 0 {
-            self.buf.goto_line(self.buf.line - 1, self.opts.tabsize);
+        } else if self.file.buf.line > 0 {
+            self.file
+                .buf
+                .goto_line(self.file.buf.line - 1, self.opts.tabsize);
         }
     }
 
     fn down(&mut self) {
         if self.opts.softwrap {
             self.wrap_down();
-        } else if self.buf.line + 1 < self.buf.lines() {
-            self.buf.goto_line(self.buf.line + 1, self.opts.tabsize);
+        } else if self.file.buf.line + 1 < self.file.buf.lines() {
+            self.file
+                .buf
+                .goto_line(self.file.buf.line + 1, self.opts.tabsize);
         }
     }
 
     fn left(&mut self) {
-        let b = &mut self.buf;
+        let b = &mut self.file.buf;
         if b.x > 0 {
             b.x = prev_index(&b.line_text(b.line), b.x);
         } else if b.line > 0 {
             b.line -= 1;
             b.x = b.line_len(b.line);
         }
-        self.buf.keep_column(self.opts.tabsize);
+        self.file.buf.keep_column(self.opts.tabsize);
     }
 
     fn right(&mut self) {
-        let b = &mut self.buf;
+        let b = &mut self.file.buf;
         if b.x < b.line_len(b.line) {
             b.x = next_index(&b.line_text(b.line), b.x);
         } else if b.line + 1 < b.lines() {
             b.line += 1;
             b.x = 0;
         }
-        self.buf.keep_column(self.opts.tabsize);
+        self.file.buf.keep_column(self.opts.tabsize);
     }
 
     /// The character at a text position, if any.
     fn char_at(&self, pos: usize) -> Option<char> {
-        (pos < self.buf.text.len_chars()).then(|| self.buf.text.char(pos))
+        (pos < self.file.buf.text.len_chars()).then(|| self.file.buf.text.char(pos))
     }
 
     /// Letters and digits, the `-X` characters, and with `-W` also punctuation.
@@ -927,7 +894,7 @@ impl Editor {
 
     /// To the start of the next word, or with `afterends` to the end of this one.
     fn word_right(&mut self) {
-        let mut pos = self.buf.pos();
+        let mut pos = self.file.buf.pos();
         if self.opts.afterends {
             let mut seen_word = self.is_word(self.char_at(pos));
             while self.char_at(pos).is_some() {
@@ -946,21 +913,21 @@ impl Editor {
                 pos += 1;
             }
         }
-        self.buf.set_pos(pos);
-        self.buf.keep_column(self.opts.tabsize);
+        self.file.buf.set_pos(pos);
+        self.file.buf.keep_column(self.opts.tabsize);
     }
 
     /// To the start of this word, or of the one before.
     fn word_left(&mut self) {
-        let mut pos = self.buf.pos();
+        let mut pos = self.file.buf.pos();
         while pos > 0 && !self.is_word(self.char_at(pos - 1)) {
             pos -= 1;
         }
         while pos > 0 && self.is_word(self.char_at(pos - 1)) {
             pos -= 1;
         }
-        self.buf.set_pos(pos);
-        self.buf.keep_column(self.opts.tabsize);
+        self.file.buf.set_pos(pos);
+        self.file.buf.keep_column(self.opts.tabsize);
     }
 
     /// A page is the text rows less two, as in nano: two lines stay on the screen.
@@ -973,9 +940,10 @@ impl Editor {
             return self.wrap_page(false);
         }
         let page = self.page();
-        self.buf.top = self.buf.top.saturating_sub(page);
-        self.buf
-            .goto_line(self.buf.line.saturating_sub(page), self.opts.tabsize);
+        self.file.buf.top = self.file.buf.top.saturating_sub(page);
+        self.file
+            .buf
+            .goto_line(self.file.buf.line.saturating_sub(page), self.opts.tabsize);
     }
 
     /// Down a page, the text with the cursor; at the end, the cursor goes to the last line.
@@ -984,25 +952,27 @@ impl Editor {
             return self.wrap_page(true);
         }
         let page = self.page();
-        let last = self.buf.lines() - 1;
-        if self.buf.line + page > last {
-            self.buf.goto_line(last, self.opts.tabsize);
+        let last = self.file.buf.lines() - 1;
+        if self.file.buf.line + page > last {
+            self.file.buf.goto_line(last, self.opts.tabsize);
         } else {
-            self.buf.top += page;
-            self.buf.goto_line(self.buf.line + page, self.opts.tabsize);
+            self.file.buf.top += page;
+            self.file
+                .buf
+                .goto_line(self.file.buf.line + page, self.opts.tabsize);
         }
     }
 
     fn first_line(&mut self) {
-        self.buf.line = 0;
-        self.buf.x = 0;
-        self.buf.keep_column(self.opts.tabsize);
+        self.file.buf.line = 0;
+        self.file.buf.x = 0;
+        self.file.buf.keep_column(self.opts.tabsize);
     }
 
     fn last_line(&mut self) {
-        self.buf.line = self.buf.lines() - 1;
-        self.buf.x = self.buf.line_len(self.buf.line);
-        self.buf.keep_column(self.opts.tabsize);
+        self.file.buf.line = self.file.buf.lines() - 1;
+        self.file.buf.x = self.file.buf.line_len(self.file.buf.line);
+        self.file.buf.keep_column(self.opts.tabsize);
     }
 
     /// Scrolls just enough to show the cursor's line.
@@ -1011,7 +981,7 @@ impl Editor {
             return self.wrap_scroll();
         }
         let rows = self.edit_rows();
-        let b = &mut self.buf;
+        let b = &mut self.file.buf;
         if b.line < b.top {
             b.top = b.line;
         } else if b.line >= b.top + rows {
@@ -1025,7 +995,7 @@ impl Editor {
             return self.wrap_center(false);
         }
         let rows = self.edit_rows();
-        let b = &mut self.buf;
+        let b = &mut self.file.buf;
         if b.line < b.top || b.line >= b.top + rows {
             b.top = b.line.saturating_sub(rows / 2);
         }
@@ -1037,17 +1007,17 @@ impl Editor {
             return self.wrap_center(true);
         }
         let rows = self.edit_rows();
-        self.buf.top = self.buf.line.saturating_sub(rows / 2);
+        self.file.buf.top = self.file.buf.line.saturating_sub(rows / 2);
     }
 
     /// ^K: the selection, or else the line; cutting lines in a row adds them to the cut buffer.
     fn cut(&mut self, chain: Chain) {
-        if let Some((from, to)) = self.buf.selection() {
-            self.buf.mark = None;
+        if let Some((from, to)) = self.file.buf.selection() {
+            self.file.buf.mark = None;
             if from == to {
                 return self.say("Nothing was cut");
             }
-            self.cut = String::from(self.buf.text.slice(from..to));
+            self.cut = String::from(self.file.buf.text.slice(from..to));
             self.erase_cut(from, to, Kind::Cut);
             return;
         }
@@ -1062,11 +1032,11 @@ impl Editor {
         if chain != Chain::Cut {
             self.cut.clear();
             // Only cuts with nothing pressed between them make one step, as in nano.
-            self.buf.end_group();
+            self.file.buf.end_group();
         }
         self.cut
-            .push_str(&String::from(self.buf.text.slice(from..to)));
-        let b = &mut self.buf;
+            .push_str(&String::from(self.file.buf.text.slice(from..to)));
+        let b = &mut self.file.buf;
         let before = b.pos();
         if !self.opts.cutfromcursor {
             b.x = 0;
@@ -1079,18 +1049,18 @@ impl Editor {
 
     /// M-T: everything from the cursor to the end of the text.
     fn cut_to_end(&mut self) {
-        let (from, to) = (self.buf.pos(), self.buf.text.len_chars());
+        let (from, to) = (self.file.buf.pos(), self.file.buf.text.len_chars());
         if from == to {
             return self.say("Nothing was cut");
         }
-        self.cut = String::from(self.buf.text.slice(from..to));
+        self.cut = String::from(self.file.buf.text.slice(from..to));
         self.erase_cut(from, to, Kind::Cut);
     }
 
     /// Deletes the text between `from` and `to` as one step of undo of its own, with the cursor
     /// left at `from`.
     fn erase_cut(&mut self, from: usize, to: usize, kind: Kind) {
-        let b = &mut self.buf;
+        let b = &mut self.file.buf;
         let before = b.pos();
         b.end_group();
         b.set_pos(from);
@@ -1103,7 +1073,7 @@ impl Editor {
     /// The first character of the cursor's line, and where the next line starts (the end of the
     /// text on the last line).
     fn line_range(&self) -> (usize, usize) {
-        let b = &self.buf;
+        let b = &self.file.buf;
         let from = b.text.line_to_char(b.line);
         let to = if b.line + 1 < b.lines() {
             b.text.line_to_char(b.line + 1)
@@ -1115,7 +1085,7 @@ impl Editor {
 
     /// For `-k`: from the cursor to the end of the line; at the end of a line, its line break.
     fn cursor_to_line_end(&self) -> (usize, usize) {
-        let b = &self.buf;
+        let b = &self.file.buf;
         let from = b.pos();
         let end = b.text.line_to_char(b.line) + b.line_len(b.line);
         if from < end || b.line + 1 == b.lines() {
@@ -1129,10 +1099,10 @@ impl Editor {
     /// row adds them to the cut buffer.
     fn copy(&mut self, chain: Chain) {
         let mut next = Chain::Copy;
-        let (from, to) = match self.buf.selection() {
+        let (from, to) = match self.file.buf.selection() {
             Some(range) => {
                 next = Chain::None;
-                self.buf.mark = None;
+                self.file.buf.mark = None;
                 range
             }
             None => self.line_range(),
@@ -1144,10 +1114,10 @@ impl Editor {
             return self.say("Copied nothing");
         }
         self.cut
-            .push_str(&String::from(self.buf.text.slice(from..to)));
+            .push_str(&String::from(self.file.buf.text.slice(from..to)));
         self.chain = next;
         self.message = None;
-        let b = &mut self.buf;
+        let b = &mut self.file.buf;
         if next == Chain::Copy {
             if b.line + 1 < b.lines() {
                 b.line += 1;
@@ -1161,11 +1131,11 @@ impl Editor {
 
     /// M-A: sets the mark, or takes it away.
     fn toggle_mark(&mut self) {
-        if self.buf.mark.take().is_some() {
+        if self.file.buf.mark.take().is_some() {
             self.say("Mark Unset");
         } else {
-            let at = self.buf.pos();
-            self.buf.mark = Some(Mark { at, soft: false });
+            let at = self.file.buf.pos();
+            self.file.buf.mark = Some(Mark { at, soft: false });
             self.say("Mark Set");
         }
     }
@@ -1174,18 +1144,18 @@ impl Editor {
         if self.cut.is_empty() {
             return self.error("Cutbuffer is empty");
         }
-        if self.buf.mark.is_some_and(|m| m.soft) {
-            self.buf.mark = None;
+        if self.file.buf.mark.is_some_and(|m| m.soft) {
+            self.file.buf.mark = None;
         }
         let text = self.cut.clone();
-        self.buf.end_group();
+        self.file.buf.end_group();
         self.insert_text(&text, Kind::Paste);
         self.message = None;
     }
 
     /// The cursor's position as ^C shows it.
     pub fn location(&self) -> String {
-        let b = &self.buf;
+        let b = &self.file.buf;
         let tab = self.opts.tabsize;
         let percent = |n: usize, of: usize| (100 * n).checked_div(of).unwrap_or(0);
         let (line, lines) = (b.line + 1, b.lines());
@@ -1204,18 +1174,18 @@ impl Editor {
     }
 
     fn exit(&mut self) {
-        if self.buf.modified && self.opts.saveonexit {
-            if self.name.is_empty() {
+        if self.file.buf.modified && self.opts.saveonexit {
+            if self.file.name.is_empty() {
                 // As nano: a warning for a moment, then the usual question.
                 self.error("No file name");
                 self.warning = Some(Question::SaveOnExit);
             } else {
-                self.save_as(self.name.clone(), true);
+                self.save_as(self.file.name.clone(), true);
             }
-        } else if self.buf.modified {
+        } else if self.file.buf.modified {
             self.mode = Mode::Ask(Question::SaveOnExit);
         } else {
-            self.done = true;
+            self.close_current();
         }
     }
 
@@ -1229,12 +1199,16 @@ impl Editor {
         let yes = match key {
             Key::Char('y' | 'Y') => true,
             Key::Char('n' | 'N') => false,
-            // As nano: cancelling the question about a locked file leaves at once, and the one
-            // about a file changed on disk goes back to its name.
-            Key::Ctrl('C') if matches!(question, Question::Locked(_)) => {
+            // Cancelling the question about a lock file ends the editor while it starts, as in
+            // nano; later it is a No.
+            Key::Ctrl('C') if matches!(question, Question::Locked(..)) => {
+                if let (Question::Locked(name, _), true) = (&question, self.started) {
+                    return self.lock_answered(name, false);
+                }
                 self.done = true;
                 return;
             }
+            // As nano: cancelling the question about a file changed on disk goes back to its name.
             Key::Ctrl('C') => {
                 if let Question::Changed(name, exit, _) = question {
                     self.ask_name(exit);
@@ -1253,7 +1227,7 @@ impl Editor {
         };
         match (question, yes) {
             (Question::SaveOnExit, true) => self.ask_name(true),
-            (Question::SaveOnExit, false) => self.done = true,
+            (Question::SaveOnExit, false) => self.close_current(),
             (Question::OtherName(name, exit), true) => self.save_as(name, exit),
             (Question::OtherName(name, exit) | Question::Overwrite(name, exit, _), false) => {
                 self.ask_name(exit);
@@ -1268,15 +1242,7 @@ impl Editor {
             }
             (Question::Changed(name, exit, expected), true) => self.save(name, expected, exit),
             (Question::Changed(..), false) => {}
-            (Question::Locked(_), true) => self.take_lock(true),
-            // As nano: the file is not opened; a new buffer is.
-            (Question::Locked(_), false) => {
-                self.buf = Buffer::new("", Format::Unix);
-                self.name.clear();
-                self.meta = None;
-                self.pick_syntax();
-                self.say("For basic help, type Ctrl+G.");
-            }
+            (Question::Locked(name, _), yes) => self.lock_answered(&name, yes),
             (Question::Replace(_), _) => {}
         }
     }
@@ -1288,7 +1254,7 @@ impl Editor {
     }
 
     fn write_label(&self) -> String {
-        let format = match self.buf.format {
+        let format = match self.file.buf.format {
             Format::Unix => "",
             Format::Dos => " [DOS Format]",
             Format::Mac => " [Mac Format]",
@@ -1301,16 +1267,16 @@ impl Editor {
         self.mode = Mode::Prompt(Prompt::new(
             PromptKind::Write { exit },
             self.write_label(),
-            self.name.clone(),
+            self.file.name.clone(),
             0,
         ));
     }
 
     fn save_now(&mut self) {
-        if self.name.is_empty() {
+        if self.file.name.is_empty() {
             self.ask_name(false);
         } else {
-            self.save_as(self.name.clone(), false);
+            self.save_as(self.file.name.clone(), false);
         }
     }
 
@@ -1318,14 +1284,14 @@ impl Editor {
     /// another file has that name or the file changed on disk.
     fn save_as(&mut self, name: String, exit: bool) {
         let now = files::stat(Path::new(&name));
-        if name != self.name {
+        if name != self.file.name {
             match now {
                 Ok(Some(meta)) => self.mode = Mode::Ask(Question::Overwrite(name, exit, meta)),
                 _ => self.save(name, Expected::Absent, exit),
             }
             return;
         }
-        match (self.meta, now) {
+        match (self.file.meta, now) {
             (Some(meta), Ok(Some(now))) if now.changed_since(&meta) => {
                 self.changed(name, exit, Some(now));
             }
@@ -1341,6 +1307,7 @@ impl Editor {
     /// write into whatever that user put there; another name can still be written.
     fn changed(&mut self, name: String, exit: bool, now: Option<Meta>) {
         let owner = self
+            .file
             .meta
             .map_or_else(|| rustix::process::geteuid().as_raw(), |m| m.uid);
         if now.is_some_and(|now| now.uid != owner) {
@@ -1362,7 +1329,7 @@ impl Editor {
     /// Writes the text to `name`, which must still be the `expected` file.
     fn save(&mut self, name: String, expected: Expected, exit: bool) {
         self.magic_line();
-        let bytes = self.buf.to_bytes();
+        let bytes = self.file.buf.to_bytes();
         let options = SaveOptions {
             backup: self.opts.backup,
             backup_dir: self.opts.backupdir.clone(),
@@ -1370,27 +1337,31 @@ impl Editor {
         };
         match files::save(Path::new(&name), &bytes, expected, &options) {
             Ok(saved) => {
-                self.meta = Some(saved.meta);
-                self.buf.mark_saved();
-                if name != self.name {
+                self.file.meta = Some(saved.meta);
+                self.file.buf.mark_saved();
+                if name != self.file.name {
                     // The lock goes with the name.
-                    self.lock = None;
-                    self.name = name;
+                    self.file.lock = None;
+                    self.file.name = name;
                     self.pick_syntax();
-                    if let Ok(Locking::Locked(lock)) = files::lock(Path::new(&self.name), false) {
-                        self.lock = Some(lock);
-                        self.lock_says_modified = false;
+                    if let Ok(Locking::Locked(lock)) =
+                        files::lock(Path::new(&self.file.name), false)
+                    {
+                        self.file.lock = Some(lock);
+                        self.file.lock_says_modified = false;
                     }
                 }
-                let lines = self.buf.file_lines();
+                let lines = self.file.buf.file_lines();
                 self.say(&format!("Wrote {}", plural(lines, "line")));
-                self.done = exit;
+                if exit {
+                    self.close_current();
+                }
             }
             Err(SaveError::Changed) => {
                 let now = files::stat(Path::new(&name)).ok().flatten();
                 match now {
                     // A file appeared under a new name.
-                    Some(meta) if name != self.name => {
+                    Some(meta) if name != self.file.name => {
                         self.mode = Mode::Ask(Question::Overwrite(name, exit, meta));
                     }
                     _ => self.changed(name, exit, now),
@@ -1442,7 +1413,7 @@ impl Editor {
         }
         if replace {
             label.push_str(" (to replace)");
-            if self.buf.mark.is_some() {
+            if self.file.buf.mark.is_some() {
                 label.push_str(" in selection");
             }
         }
@@ -1583,7 +1554,7 @@ impl Editor {
                 if answer.is_empty() {
                     return self.cancel();
                 }
-                if !self.name.is_empty() && answer != self.name {
+                if !self.file.name.is_empty() && answer != self.file.name {
                     self.mode = Mode::Ask(Question::OtherName(answer, exit));
                     return;
                 }
@@ -1609,6 +1580,7 @@ impl Editor {
                 }
                 self.start_replacing(backwards, answer);
             }
+            PromptKind::Insert { new_buffer } => self.insert_file(&answer, new_buffer),
             PromptKind::Goto => {
                 if answer.is_empty() {
                     return self.cancel();
@@ -1632,16 +1604,16 @@ impl Editor {
             Ok(pattern) => pattern,
             Err(why) => return self.error(&format!("Bad regex \"{needle}\": {why}")),
         };
-        let Some(found) = search::find(&self.buf, &pattern, backwards) else {
+        let Some(found) = search::find(&self.file.buf, &pattern, backwards) else {
             let shown = search::shorten(&needle, self.cols / 2);
             return self.error(&format!("\"{shown}\" not found"));
         };
-        let start = (self.buf.line, self.buf.x);
-        self.buf.line = found.line;
-        self.buf.x = found.x;
-        self.buf.keep_column(self.opts.tabsize);
+        let start = (self.file.buf.line, self.file.buf.x);
+        self.file.buf.line = found.line;
+        self.file.buf.x = found.x;
+        self.file.buf.keep_column(self.opts.tabsize);
         // nano shows the selection instead of the match.
-        if self.buf.mark.is_none() {
+        if self.file.buf.mark.is_none() {
             self.spot = Some((found.line, found.x, found.x + found.len));
         }
         if (found.line, found.x) == start {
@@ -1677,28 +1649,28 @@ impl Editor {
             Ok(pattern) => pattern,
             Err(why) => return self.error(&format!("Bad regex \"{needle}\": {why}")),
         };
-        let run = Replacing::new(pattern, with, backwards, &self.buf);
+        let run = Replacing::new(pattern, with, backwards, &self.file.buf);
         self.replace_next(Box::new(run));
     }
 
     /// Asks about the next match, or ends when there is none.
     fn replace_next(&mut self, mut run: Box<Replacing>) {
-        let Some((at, len)) = run.next(&self.buf) else {
+        let Some((at, len)) = run.next(&self.file.buf) else {
             return self.end_replacing(&run);
         };
-        self.buf.set_pos(at);
-        self.buf.keep_column(self.opts.tabsize);
-        self.spot = Some((self.buf.line, self.buf.x, self.buf.x + len));
+        self.file.buf.set_pos(at);
+        self.file.buf.keep_column(self.opts.tabsize);
+        self.spot = Some((self.file.buf.line, self.file.buf.x, self.file.buf.x + len));
         self.center();
         self.mode = Mode::Ask(Question::Replace(run));
     }
 
     fn replace_key(&mut self, mut run: Box<Replacing>, key: Key) {
         match key {
-            Key::Char('y' | 'Y') => run.replace(&mut self.buf),
+            Key::Char('y' | 'Y') => run.replace(&mut self.file.buf),
             Key::Char('n' | 'N') => run.skip(),
             Key::Char('a' | 'A') => {
-                run.replace_all(&mut self.buf);
+                run.replace_all(&mut self.file.buf);
                 return self.end_replacing(&run);
             }
             Key::Ctrl('C') => return self.end_replacing(&run),
@@ -1713,8 +1685,8 @@ impl Editor {
     fn end_replacing(&mut self, run: &Replacing) {
         self.spot = None;
         self.mode = Mode::Edit;
-        run.finish(&mut self.buf);
-        self.buf.keep_column(self.opts.tabsize);
+        run.finish(&mut self.file.buf);
+        self.file.buf.keep_column(self.opts.tabsize);
         self.center();
         if run.found {
             let n = run.count;
@@ -1784,10 +1756,11 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buffer::Buffer;
     use std::fs;
     use std::path::PathBuf;
 
-    fn dir(name: &str) -> PathBuf {
+    pub(super) fn dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("editor-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
@@ -1803,13 +1776,13 @@ mod tests {
 
     fn open(path: &Path) -> Editor {
         let opts = Options {
-            file: Some(path.display().to_string()),
+            files: vec![Place::new(path.display().to_string())],
             ..Options::default()
         };
         Editor::open(opts, 80, 24)
     }
 
-    fn asking(ed: &Editor) -> bool {
+    pub(super) fn asking(ed: &Editor) -> bool {
         matches!(ed.mode, Mode::Ask(_))
     }
 
@@ -1837,7 +1810,7 @@ mod tests {
         after_warning(&mut ed);
         ed.key(Key::Char('y'));
         assert_eq!(fs::read_to_string(&path).unwrap(), "xone\n");
-        assert!(!ed.buf.modified);
+        assert!(!ed.file.buf.modified);
         drop(ed);
         fs::remove_dir_all(&dir).unwrap();
     }
@@ -1877,7 +1850,7 @@ mod tests {
         let mut read = now;
         read.uid = now.uid + 1;
         read.ino = now.ino + 1;
-        ed.meta = Some(read);
+        ed.file.meta = Some(read);
         ed.key(Key::Ctrl('S'));
         assert!(ed.warning.is_none() && !asking(&ed));
         let message = ed.message.as_ref().unwrap();
@@ -1908,19 +1881,19 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
-    fn typed(ed: &mut Editor, keys: &[Key]) {
+    pub(super) fn typed(ed: &mut Editor, keys: &[Key]) {
         for key in keys {
             ed.key(key.clone());
         }
     }
 
-    fn text(ed: &Editor) -> String {
-        String::from(&ed.buf.text)
+    pub(super) fn text(ed: &Editor) -> String {
+        String::from(&ed.file.buf.text)
     }
 
-    fn editor(text: &str) -> Editor {
+    pub(super) fn editor(text: &str) -> Editor {
         let mut ed = Editor::open(Options::default(), 80, 24);
-        ed.buf = Buffer::new(text, Format::Unix);
+        ed.file.buf = Buffer::new(text, Format::Unix);
         ed
     }
 
@@ -1939,11 +1912,11 @@ mod tests {
                 ..Options::default()
             };
             let mut ed = Editor::open(opts, 80, 24);
-            ed.buf = Buffer::new("one two\nx", Format::Unix);
+            ed.file.buf = Buffer::new("one two\nx", Format::Unix);
             let mut at = Vec::new();
             for _ in 0..3 {
                 typed(&mut ed, std::slice::from_ref(&ctrl_right));
-                at.push(ed.buf.pos());
+                at.push(ed.file.buf.pos());
             }
             assert_eq!(at, stops, "afterends {afterends}");
         }
@@ -1959,7 +1932,7 @@ mod tests {
             &[right.clone(), right.clone(), right, Key::Ctrl('K')],
         );
         assert_eq!(text(&ed), " two\n");
-        assert_eq!(ed.buf.mark, None);
+        assert_eq!(ed.file.buf.mark, None);
         typed(&mut ed, &[Key::Ctrl('U')]);
         assert_eq!(text(&ed), "one two\n");
         typed(&mut ed, &[Key::Meta('u'), Key::Meta('u')]);
@@ -1972,7 +1945,7 @@ mod tests {
         typed(&mut ed, &[Key::Meta('6'), Key::Meta('6')]);
         assert_eq!(ed.cut, "a\nb\n");
         assert_eq!(text(&ed), "a\nb\nc\n");
-        assert!(!ed.buf.modified);
+        assert!(!ed.file.buf.modified);
     }
 
     #[test]
@@ -1983,9 +1956,9 @@ mod tests {
             ..Mods::default()
         };
         typed(&mut ed, &[Key::Named(Named::Right, shifted)]);
-        assert_eq!(ed.buf.selection(), Some((0, 1)));
+        assert_eq!(ed.file.buf.selection(), Some((0, 1)));
         typed(&mut ed, &[Key::Named(Named::Right, Mods::default())]);
-        assert_eq!(ed.buf.mark, None);
+        assert_eq!(ed.file.buf.mark, None);
     }
 
     #[test]

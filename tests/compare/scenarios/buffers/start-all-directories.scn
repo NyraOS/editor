@@ -1,0 +1,5 @@
+# Every file a directory: each is said (the first with dots after it) and a new buffer is edited.
+args: . ..
+keys: x
+keys: {^X}
+keys: n

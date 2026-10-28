@@ -82,6 +82,7 @@ fn flag<'a>(o: &'a mut Options, name: &str) -> Option<&'a mut bool> {
         "constantshow" => &mut o.constantshow,
         "cutfromcursor" => &mut o.cutfromcursor,
         "linenumbers" => &mut o.linenumbers,
+        "multibuffer" => &mut o.multibuffer,
         "noconvert" => &mut o.noconvert,
         "nohelp" => &mut o.nohelp,
         "nonewlines" => &mut o.nonewlines,
@@ -112,7 +113,6 @@ const LATER_FLAGS: &[&str] = &[
     "jumpyscrolling",
     "minibar",
     "mouse",
-    "multibuffer",
     "positionlog",
     "preserve",
     "quickblank",
@@ -912,7 +912,7 @@ mod tests {
             "bind ^X cut main\nbind ^1 cut main\nbind ^X nosuch main\nunbind ^X\n\
              bind ^X \"ab main\nbind ^X \"ab\" main\nunbind F5 all\nbind ^X zap main\n",
         );
-        assert_eq!(o.binds.len(), 1 + 1 + 8);
+        assert_eq!(o.binds.len(), 1 + 1 + 9);
         let want = [
             "Key name ^1 is invalid",
             "Unknown function: nosuch",
@@ -1178,7 +1178,7 @@ mod tests {
         let (rules, errors) = syntax::compile(def);
         assert!(errors.is_empty(), "{errors:?}");
         let buf = Buffer::new(script, Format::Unix);
-        let hues = syntax::paint(&rules, &buf, 0, 1);
+        let hues = syntax::paint_within(&rules, &buf, 0, 1, std::time::Duration::from_secs(3600));
         let coloured = |line: usize, at: usize| hues[line][at].fg;
         assert!(coloured(0, 0).is_some(), "the comment line");
         assert!(coloured(1, 0).is_some(), "the keyword `if`");

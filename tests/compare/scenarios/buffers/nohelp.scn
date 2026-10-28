@@ -1,0 +1,9 @@
+# Several files with -x: no help lines.
+args: -x a.txt b.txt
+file a.txt:
+| alpha
+file b.txt:
+| bravo
+keys: {M->}
+keys: {^X}
+keys: {^X}

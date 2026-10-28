@@ -324,8 +324,10 @@ fn dotted(name: &str, keep: usize) -> String {
     format!("...{}", tail.into_iter().collect::<String>())
 }
 
-/// A message in the status bar: centered, in brackets; too long for that, from the left.
-fn message_row(cols: usize, text: &str, style: u8) -> Row {
+/// A message in the status bar: centered, in brackets; too long for that, from the left. With
+/// `dots`, three dots follow it, where nano puts them when more alerts came (only when the
+/// message is not wide).
+fn message_row(cols: usize, text: &str, style: u8, dots: bool) -> Row {
     let mut row = vec![Cell::blank(); cols];
     let bracketed = format!("[ {text} ]");
     if text_width(&bracketed) <= cols {
@@ -335,6 +337,10 @@ fn message_row(cols: usize, text: &str, style: u8) -> Row {
             &bracketed,
             style,
         );
+        let start = (cols - text_width(text)) / 2;
+        if dots && start > 4 {
+            put(&mut row, cols + 2 - start, "...", style);
+        }
     } else {
         put(&mut row, 0, text, style);
     }
@@ -446,10 +452,15 @@ pub fn compose(ed: &Editor) -> Frame {
         {
             screen[1 + r] = line_cells(line, 0, cols, 8);
         }
-    } else if matches!(ed.mode, Mode::Ask(Question::Locked(_))) {
+    } else if matches!(ed.mode, Mode::Ask(Question::Locked(..))) && !ed.started {
         // As nano: the question about a locked file comes before anything of the file.
     } else {
-        screen[0] = title_row(cols, &ed.program, ed.display_name(), ed.buf.modified);
+        screen[0] = title_row(
+            cols,
+            &ed.upper_left(),
+            ed.display_name(),
+            ed.file.buf.modified,
+        );
         let margin = ed.margin();
         let width = cols.saturating_sub(margin);
         let digits = margin.saturating_sub(1);
@@ -469,10 +480,10 @@ pub fn compose(ed: &Editor) -> Frame {
         } else {
             (0..edit_rows)
                 .map_while(|r| {
-                    let line = ed.buf.top + r;
-                    (line < ed.buf.lines()).then(|| {
-                        let start = if line == ed.buf.line {
-                            page_start(ed.buf.column(ed.opts.tabsize), width)
+                    let line = ed.file.buf.top + r;
+                    (line < ed.file.buf.lines()).then(|| {
+                        let start = if line == ed.file.buf.line {
+                            page_start(ed.file.buf.column(ed.opts.tabsize), width)
                         } else {
                             0
                         };
@@ -491,9 +502,10 @@ pub fn compose(ed: &Editor) -> Frame {
         // The colours of the lines shown, all at once because a match may go from one line to the
         // next.
         let (first_line, painted) = match (shown.first(), shown.last()) {
-            (Some(a), Some(b)) if !ed.syntax.is_empty() => {
-                (a.line, syntax::paint(&ed.syntax, &ed.buf, a.line, b.line))
-            }
+            (Some(a), Some(b)) if !ed.file.syntax.is_empty() => (
+                a.line,
+                syntax::paint_within(&ed.file.syntax, &ed.file.buf, a.line, b.line, ed.paint_time),
+            ),
             _ => (0, Vec::new()),
         };
         let mut cached: Option<(usize, String)> = None;
@@ -506,7 +518,7 @@ pub fn compose(ed: &Editor) -> Frame {
                 numbered,
             } = *row_shown;
             if cached.as_ref().is_none_or(|c| c.0 != line) {
-                cached = Some((line, ed.buf.line_text(line)));
+                cached = Some((line, ed.file.buf.line_text(line)));
             }
             let text = &cached.as_ref().expect("just set").1;
             let mut cells = if ed.opts.softwrap {
@@ -532,8 +544,8 @@ pub fn compose(ed: &Editor) -> Frame {
             }
             // nano takes the selection away while it asks about a match, and gives it back after.
             let asking = matches!(ed.mode, Mode::Ask(Question::Replace(_)));
-            if let Some((lo, hi)) = ed.buf.selection().filter(|_| !asking) {
-                let first = ed.buf.text.line_to_char(line);
+            if let Some((lo, hi)) = ed.file.buf.selection().filter(|_| !asking) {
+                let first = ed.file.buf.text.line_to_char(line);
                 let len = text.chars().count();
                 if lo < first + len && hi > first {
                     let from = column_of(text, lo.saturating_sub(first), ed.opts.tabsize);
@@ -556,8 +568,8 @@ pub fn compose(ed: &Editor) -> Frame {
                 put(row, 0, &format!("{number:>digits$}"), INVERSE);
             }
             row.splice(margin.min(cols).., cells);
-            if line == ed.buf.line && cursor_row.is_none_or(|c| c.start == start) {
-                let col = ed.buf.column(ed.opts.tabsize);
+            if line == ed.file.buf.line && cursor_row.is_none_or(|c| c.start == start) {
+                let col = ed.file.buf.column(ed.opts.tabsize);
                 cursor = Some((1 + r, margin + col - start));
             }
         }
@@ -576,17 +588,17 @@ pub fn compose(ed: &Editor) -> Frame {
             Mode::Ask(question) => {
                 let mut row = vec![Cell::new(' ', INVERSE); cols];
                 let room = cols.saturating_sub(1);
-                let col = put(&mut row[..room], 0, &question.text(&ed.name), INVERSE);
+                let col = put(&mut row[..room], 0, &question.text(), INVERSE);
                 screen[status] = row;
                 cursor = (!matches!(question, Question::Replace(_)))
                     .then_some((status, col.min(cols.saturating_sub(1))));
             }
             _ => {
                 if let Some(m) = &ed.message {
-                    screen[status] =
-                        message_row(cols, &m.text, if m.error { ERROR } else { INVERSE });
+                    let style = if m.error { ERROR } else { INVERSE };
+                    screen[status] = message_row(cols, &m.text, style, m.dots);
                 } else if ed.opts.constantshow && matches!(ed.mode, Mode::Edit) {
-                    screen[status] = message_row(cols, &ed.location(), INVERSE);
+                    screen[status] = message_row(cols, &ed.location(), INVERSE, false);
                 }
             }
         }
@@ -930,7 +942,7 @@ mod tests {
                     ..Options::default()
                 };
                 let mut ed = Editor::open(opts, width, 12);
-                ed.buf = Buffer::new(&format!("{attack}\n{attack}"), Format::Unix);
+                ed.file.buf = Buffer::new(&format!("{attack}\n{attack}"), Format::Unix);
                 let mut defs = Vec::new();
                 for rest in [
                     "red \".*\"",
@@ -946,7 +958,9 @@ mod tests {
                     headers: Vec::new(),
                     rules: defs,
                 };
-                ed.syntax = syntax::compile(&def).0;
+                ed.file.syntax = syntax::compile(&def).0.into();
+                // The check is for the colours to be there, not for the time limit.
+                ed.paint_time = std::time::Duration::from_secs(3600);
                 let frame = compose(&ed);
                 let mut out = String::new();
                 for (r, row) in frame.rows.iter().enumerate() {

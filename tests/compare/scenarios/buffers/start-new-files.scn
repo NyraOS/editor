@@ -1,0 +1,8 @@
+# Files that do not exist are new buffers, one each.
+args: a.txt b.txt
+keys: {M->}
+keys: abc
+keys: {M->}
+keys: {^X}
+keys: n
+keys: {^X}

@@ -1,0 +1,10 @@
+# A directory among the files is said and left out, the other files are opened.
+args: a.txt . b.txt
+file a.txt:
+| alpha
+file b.txt:
+| bravo
+keys: {M->}
+keys: {M->}
+keys: {^X}
+keys: {^X}

@@ -47,6 +47,10 @@ pub enum Named {
     F(u8),
     /// A sequence the editor does not know.
     Unknown,
+    /// What a key bound to a function the editor does not have yet gives, so that the menu that
+    /// has the function can say so. A key the terminal sent that is not understood is `Unknown`,
+    /// which nano ignores.
+    NotAvailable,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

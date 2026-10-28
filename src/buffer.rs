@@ -123,6 +123,8 @@ pub enum Kind {
     /// `-Z`: the selection erased.
     Zap,
     Paste,
+    /// A file read into the text.
+    Insert,
     Replace,
 }
 
@@ -136,6 +138,7 @@ impl Kind {
             Kind::Cut => "cut",
             Kind::Zap => "erasure",
             Kind::Paste => "paste",
+            Kind::Insert => "insertion",
             Kind::Replace => "replacement",
         }
     }

@@ -1,0 +1,12 @@
+# Closing the last buffer shows the first.
+args: a.txt b.txt c.txt
+file a.txt:
+| alpha
+file b.txt:
+| bravo
+file c.txt:
+| charlie
+keys: {M-<}
+keys: {^X}
+keys: {^X}
+keys: {^X}
