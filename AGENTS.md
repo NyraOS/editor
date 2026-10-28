@@ -9,13 +9,13 @@ Guide for coding agents and people working in this repository. What the project 
 ## Map (read in this order)
 
 1. `README.md`: what works today and what is refused with "not available yet".
-2. `src/main.rs`, `src/config.rs`, `src/rcfile.rs`: start-up, the command line, the nanorc files.
-3. `src/commands.rs`, `src/commands/buffers.rs` (the open files: opening, switching, closing, the emergency copies), `src/bindings.rs`, `src/keys.rs`: the editor state, what each key does, key bindings.
+2. `src/main.rs`, `src/config.rs`, `src/rcfile.rs`, `src/colours.rs`: start-up, the command line, the nanorc files, the colours of the interface.
+3. `src/commands.rs`, `src/commands/buffers.rs` (the open files: opening, switching, closing, the emergency copies), `src/commands/clicks.rs` (what the mouse does), `src/bindings.rs`, `src/keys.rs`, `src/mouse.rs` (reading keys and mouse reports): the editor state, what each key does, key bindings.
 4. `src/buffer.rs`, `src/search.rs`, `src/replace.rs`, `src/complete.rs`, `src/wrap.rs`, `src/syntax.rs`: the text (a rope), search and replace, completion, soft wrapping, syntax colouring.
 5. `src/screen.rs`: drawing and the terminal.
 6. `src/files/`: reading, safe saving, lock files, backups, emergency copies.
 7. `docs/REGEX.md`: how nano's regular expressions map to the `regex` crate.
-8. `tests/cli.rs` and `tests/compare/` (scenarios run on GNU nano and on the editor; see `tests/compare/README.md`).
+8. `tests/cli.rs`, `tests/terminal.rs` (the terminal modes at the end) and `tests/compare/` (scenarios run on GNU nano and on the editor; see `tests/compare/README.md`).
 
 ## Build, test, lint
 
@@ -55,7 +55,7 @@ cargo deny --locked check      # needs cargo-deny
 
 ## Security-sensitive areas
 
-The editor opens and writes files with the rights of whoever runs it. Changes here need a security review before merge: saving, locks, backups and emergency copies (`src/files/`: no lost data, the right file, the right permissions), the handling of pasted text and escape sequences (a paste is never run as keys), the reading of nanorc files, and the colouring of text (`src/syntax.rs`, `colour_cells` and `sgr` in `src/screen.rs`: only numbers from the nanorc reach the terminal, and the work per screen is bounded). Never put secrets, keys or tokens in the repository, tests or logs; secrets in tests are throwaway. Report vulnerabilities privately: [SECURITY.md](SECURITY.md).
+The editor opens and writes files with the rights of whoever runs it. Changes here need a security review before merge: saving, locks, backups and emergency copies (`src/files/`: no lost data, the right file, the right permissions), the handling of pasted text and escape sequences (a paste is never run as keys; a mouse report is read strictly in `src/mouse.rs` and never typed), the reading of nanorc files, and the colouring of text and of the interface (`src/syntax.rs`, `src/colours.rs`, `colour_cells` and `sgr` in `src/screen.rs`: only numbers from the nanorc reach the terminal, and the work per screen is bounded), and the terminal modes (`RESTORE` in `src/screen.rs`: always switched off again, checked by `tests/terminal.rs`). Never put secrets, keys or tokens in the repository, tests or logs; secrets in tests are throwaway. Report vulnerabilities privately: [SECURITY.md](SECURITY.md).
 
 ## Docs
 

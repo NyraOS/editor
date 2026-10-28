@@ -3,19 +3,30 @@
 //! bar and the help lines), and the terminal, which is sent only the rows that changed.
 
 use crate::buffer::{MARK, column_of, raw_byte};
+use crate::colours::Colours;
 use crate::commands::{Editor, Mode, Prompt, Question};
 use crate::syntax::{self, Hue};
 use rustix::termios::{self, OptionalActions, Termios};
 use std::io::{self, Write};
 use unicode_width::UnicodeWidthChar;
 
-/// The looks of a cell.
+/// The looks of a cell. Each part of the interface has one, so that its colour (see `colours`)
+/// is found when the cell is drawn; `INVERSE` is the look nano gives to the marks of a line that
+/// goes on, whatever colours are set.
 pub const PLAIN: u8 = 0;
 pub const INVERSE: u8 = 1;
-/// Error messages: bold white on red.
+/// Error messages: bold white on red by default.
 pub const ERROR: u8 = 2;
-/// The text a search found: black on bright yellow.
+/// The text a search found: black on bright yellow by default.
 pub const SPOT: u8 = 3;
+pub const TITLE: u8 = 4;
+pub const STATUS: u8 = 5;
+pub const PROMPT: u8 = 6;
+pub const NUMBER: u8 = 7;
+/// The key of a help line, and the words after it.
+pub const KEY: u8 = 8;
+pub const FUNCTION: u8 = 9;
+pub const SELECTED: u8 = 10;
 
 /// One screen cell. Its text is one character with its combining marks; the right half of a
 /// wide character has no text. The colours of a syntax (`hue`) show only on a plain cell.
@@ -244,12 +255,18 @@ pub fn page_start(col: usize, width: usize) -> usize {
     }
 }
 
+/// How many columns the help lines have for `count` items in `cols` columns, and how wide each
+/// is (the last one takes what is left).
+pub fn help_slots(count: usize, cols: usize) -> (usize, usize) {
+    let slots = count.div_ceil(2).min((cols / 10 + 4) / 2).max(1);
+    (slots, cols / slots)
+}
+
 /// Two help lines from (key, label) pairs, laid out in columns like nano's: the first pair in
 /// the top row, the second below it, and so on; as many columns as the width allows.
 pub fn help_rows(items: &[(&str, &str)], cols: usize) -> [Row; 2] {
     let mut rows = [vec![Cell::blank(); cols], vec![Cell::blank(); cols]];
-    let slots = items.len().div_ceil(2).min((cols / 10 + 4) / 2).max(1);
-    let width = cols / slots;
+    let (slots, width) = help_slots(items.len(), cols);
     for (i, (key, label)) in items.iter().take(slots * 2).enumerate() {
         let (slot, row) = (i / 2, i % 2);
         let from = slot * width;
@@ -259,9 +276,9 @@ pub fn help_rows(items: &[(&str, &str)], cols: usize) -> [Row; 2] {
             from + width
         };
         let cells = &mut rows[row][from..to];
-        let after = put(cells, 0, key, INVERSE);
+        let after = put(cells, 0, key, KEY);
         if after < cells.len() {
-            put(cells, after + 1, label, PLAIN);
+            put(cells, after + 1, label, FUNCTION);
         }
     }
     rows
@@ -270,41 +287,41 @@ pub fn help_rows(items: &[(&str, &str)], cols: usize) -> [Row; 2] {
 /// The title bar: the program and version on the left, the file name in the middle and
 /// "Modified" on the right, leaving out what does not fit the way nano does.
 pub fn title_row(cols: usize, program: &str, name: &str, modified: bool) -> Row {
-    let mut row = vec![Cell::new(' ', INVERSE); cols];
+    let mut row = vec![Cell::new(' ', TITLE); cols];
     let (p, n) = (text_width(program), text_width(name));
     // The width of "Modified", kept free even when the buffer is not modified.
     let s = 8;
     let state = if modified { "Modified" } else { "" };
     if cols >= p + 3 + n + 1 + s + 2 {
-        put(&mut row, 2, program, INVERSE);
+        put(&mut row, 2, program, TITLE);
         put(
             &mut row,
             p + 3 + (cols - (p + 3) - (n + 1) - (s + 2)) / 2,
             name,
-            INVERSE,
+            TITLE,
         );
-        put(&mut row, cols - s - 2, state, INVERSE);
+        put(&mut row, cols - s - 2, state, TITLE);
     } else if cols >= 2 + n + 1 + s + 2 {
         put(
             &mut row,
             2 + (cols - 2 - (n + 1) - (s + 2)) / 2,
             name,
-            INVERSE,
+            TITLE,
         );
-        put(&mut row, cols - s - 2, state, INVERSE);
+        put(&mut row, cols - s - 2, state, TITLE);
     } else if modified {
         if n + 1 + s <= cols {
-            put(&mut row, 0, name, INVERSE);
+            put(&mut row, 0, name, TITLE);
         } else if cols >= 5 + s {
-            put(&mut row, 0, &dotted(name, cols - s - 4), INVERSE);
+            put(&mut row, 0, &dotted(name, cols - s - 4), TITLE);
         }
-        put(&mut row, cols.saturating_sub(s), state, INVERSE);
+        put(&mut row, cols.saturating_sub(s), state, TITLE);
     } else if cols >= n + 4 {
-        put(&mut row, (cols - n) / 2, name, INVERSE);
+        put(&mut row, (cols - n) / 2, name, TITLE);
     } else if n <= cols {
-        put(&mut row, 0, name, INVERSE);
+        put(&mut row, 0, name, TITLE);
     } else {
-        put(&mut row, 0, &dotted(name, cols.saturating_sub(3)), INVERSE);
+        put(&mut row, 0, &dotted(name, cols.saturating_sub(3)), TITLE);
     }
     row
 }
@@ -352,7 +369,7 @@ fn message_row(cols: usize, text: &str, style: u8, dots: bool) -> Row {
 /// answer too long for the row scrolls in steps, as in nano, with `<` just before it and `>` at
 /// the end of the row when there is more.
 fn prompt_row(cols: usize, prompt: &Prompt) -> (Row, usize) {
-    let mut row = vec![Cell::new(' ', INVERSE); cols];
+    let mut row = vec![Cell::new(' ', PROMPT); cols];
     let label: String = prompt
         .label
         .chars()
@@ -361,7 +378,7 @@ fn prompt_row(cols: usize, prompt: &Prompt) -> (Row, usize) {
             (*w <= cols.saturating_sub(5)).then_some(c)
         })
         .collect();
-    let start = (put(&mut row, 0, &format!("{label}:"), INVERSE) + 1).min(cols);
+    let start = (put(&mut row, 0, &format!("{label}:"), PROMPT) + 1).min(cols);
     let room = cols - start;
     let before: String = prompt.answer.chars().take(prompt.x).collect();
     let x = text_width(&before);
@@ -377,24 +394,29 @@ fn prompt_row(cols: usize, prompt: &Prompt) -> (Row, usize) {
     };
     row.splice(at.., cells);
     for c in &mut row {
-        c.style = INVERSE;
+        c.style = PROMPT;
     }
     (row, start + x - first)
 }
 
 /// The keys of a yes-or-no question, with the row and the column (of 16 or half the width) of
 /// each; "All" is only in the question of a replacing.
-const YES_NO: [(&str, &str, usize, usize); 4] = [
+pub const YES_NO: [(&str, &str, usize, usize); 4] = [
     (" Y", "Yes", 0, 0),
     (" N", "No", 1, 0),
     (" A", "All", 0, 1),
     ("^C", "Cancel", 1, 1),
 ];
 
+/// The width of a column of the help lines of a yes-or-no question.
+pub fn yes_no_width(cols: usize) -> usize {
+    (cols / 2).min(16)
+}
+
 /// The help lines of a yes-or-no question.
 fn yes_no_rows(cols: usize, all: bool, cancel: &str) -> [Row; 2] {
     let mut rows = [vec![Cell::blank(); cols], vec![Cell::blank(); cols]];
-    let width = (cols / 2).min(16);
+    let width = yes_no_width(cols);
     for &(key, label, row, column) in YES_NO.iter().filter(|k| all || k.1 != "All") {
         let from = column * width;
         let to = (from + width).min(cols);
@@ -404,9 +426,9 @@ fn yes_no_rows(cols: usize, all: bool, cancel: &str) -> [Row; 2] {
         if key.is_empty() {
             continue;
         }
-        let after = put(cells, 0, key, INVERSE);
+        let after = put(cells, 0, key, KEY);
         if after < cells.len() {
-            put(cells, after + 1, label, PLAIN);
+            put(cells, after + 1, label, FUNCTION);
         }
     }
     rows
@@ -434,13 +456,13 @@ pub fn compose(ed: &Editor) -> Frame {
     let mut cursor = None;
 
     if let Mode::Help(top) = ed.mode {
-        let mut title = vec![Cell::new(' ', INVERSE); cols];
+        let mut title = vec![Cell::new(' ', TITLE); cols];
         let name = crate::commands::HELP_TITLE;
         put(
             &mut title,
             cols.saturating_sub(text_width(name)) / 2,
             name,
-            INVERSE,
+            TITLE,
         );
         screen[0] = title;
         let help = ed.help_lines();
@@ -551,8 +573,11 @@ pub fn compose(ed: &Editor) -> Frame {
                     let from = column_of(text, lo.saturating_sub(first), ed.opts.tabsize);
                     let to = column_of(text, (hi - first).min(len), ed.opts.tabsize);
                     for col in from.max(start)..to.min(end) {
-                        if let Some(cell) = cells.get_mut(col - start) {
-                            cell.style = INVERSE;
+                        // The marks of a long line stay inverse, whatever the selection's colour.
+                        if let Some(cell) =
+                            cells.get_mut(col - start).filter(|c| c.style != INVERSE)
+                        {
+                            cell.style = SELECTED;
                             cell.hue = Hue::default();
                         }
                     }
@@ -565,7 +590,7 @@ pub fn compose(ed: &Editor) -> Frame {
                 } else {
                     String::new()
                 };
-                put(row, 0, &format!("{number:>digits$}"), INVERSE);
+                put(row, 0, &format!("{number:>digits$}"), NUMBER);
             }
             row.splice(margin.min(cols).., cells);
             if line == ed.file.buf.line && cursor_row.is_none_or(|c| c.start == start) {
@@ -586,19 +611,19 @@ pub fn compose(ed: &Editor) -> Frame {
                 cursor = Some((status, col.min(cols.saturating_sub(1))));
             }
             Mode::Ask(question) => {
-                let mut row = vec![Cell::new(' ', INVERSE); cols];
+                let mut row = vec![Cell::new(' ', PROMPT); cols];
                 let room = cols.saturating_sub(1);
-                let col = put(&mut row[..room], 0, &question.text(), INVERSE);
+                let col = put(&mut row[..room], 0, &question.text(), PROMPT);
                 screen[status] = row;
                 cursor = (!matches!(question, Question::Replace(_)))
                     .then_some((status, col.min(cols.saturating_sub(1))));
             }
             _ => {
                 if let Some(m) = &ed.message {
-                    let style = if m.error { ERROR } else { INVERSE };
+                    let style = if m.error { ERROR } else { STATUS };
                     screen[status] = message_row(cols, &m.text, style, m.dots);
                 } else if ed.opts.constantshow && matches!(ed.mode, Mode::Edit) {
-                    screen[status] = message_row(cols, &ed.location(), INVERSE, false);
+                    screen[status] = message_row(cols, &ed.location(), STATUS, false);
                 }
             }
         }
@@ -637,21 +662,27 @@ pub fn compose(ed: &Editor) -> Frame {
 /// The terminal, in raw mode on the alternate screen while the editor runs.
 pub struct Terminal {
     saved: Termios,
+    colours: Colours,
     /// The rows as the terminal shows them now; empty after a resize or a refresh.
     shown: Vec<Row>,
 }
 
 impl Terminal {
-    pub fn start() -> io::Result<Self> {
+    /// Sets up the terminal. With `mouse`, it is asked to report clicks and the wheel.
+    pub fn start(colours: Colours, mouse: bool) -> io::Result<Self> {
         let saved = termios::tcgetattr(io::stdin())?;
         let mut raw = saved.clone();
         raw.make_raw();
         termios::tcsetattr(io::stdin(), OptionalActions::Flush, &raw)?;
         let mut out = io::stdout().lock();
         out.write_all(b"\x1b[?1049h\x1b[H\x1b[2J\x1b[?2004h")?;
+        if mouse {
+            out.write_all(MOUSE_ON)?;
+        }
         out.flush()?;
         Ok(Self {
             saved,
+            colours,
             shown: Vec::new(),
         })
     }
@@ -685,7 +716,7 @@ impl Terminal {
         out.push_str("\x1b[?25l");
         for (r, row) in frame.rows.iter().enumerate() {
             if self.shown[r] != *row {
-                draw_row(&mut out, r, row);
+                draw_row(&mut out, r, row, &self.colours);
                 self.shown[r].clone_from(row);
             }
         }
@@ -697,14 +728,36 @@ impl Terminal {
         stdout.flush()
     }
 
-    /// Leaves the alternate screen and restores the terminal's settings.
+    /// Leaves the alternate screen and restores the terminal's settings. Called on every way out:
+    /// the exit, a hang-up, SIGTERM and a failed terminal.
     pub fn stop(&mut self) {
-        let mut out = io::stdout().lock();
-        let _ = out.write_all(b"\x1b[0m\x1b[?25h\x1b[?2004l\x1b[?1049l");
-        let _ = out.flush();
-        let _ = termios::tcsetattr(io::stdin(), OptionalActions::Flush, &self.saved);
+        restore(&self.saved);
+    }
+
+    /// The attributes of the terminal from before the editor, for the panic hook.
+    pub fn saved(&self) -> Termios {
+        self.saved.clone()
     }
 }
+
+/// Puts the terminal back as it was: the modes (`RESTORE`) and the attributes `saved`.
+pub fn restore(saved: &Termios) {
+    let mut out = io::stdout().lock();
+    let _ = out.write_all(RESTORE);
+    let _ = out.flush();
+    let _ = termios::tcsetattr(io::stdin(), OptionalActions::Flush, saved);
+}
+
+/// Asks the terminal to report the press and the release of the buttons, and the wheel, with
+/// the coordinates written in decimal (xterm's modes 1000 and 1006), as nano does. No motion is
+/// reported.
+const MOUSE_ON: &[u8] = b"\x1b[?1006;1000h";
+
+/// What puts the terminal back as it was: the attributes, the cursor, the mouse reports and the
+/// bracketed paste off, the main screen. The mouse is switched off even when it was never on:
+/// that is harmless, and the sequence is the same for every way out, the panic of the editor
+/// included, so none can leave the shell receiving mouse reports as text.
+pub const RESTORE: &[u8] = b"\x1b[0m\x1b[?25h\x1b[?1006;1000l\x1b[?2004l\x1b[?1049l";
 
 /// The colour `n` of the 256-colour palette as the parameters of a graphic rendition: `base` is
 /// 30 for the foreground and 40 for the background.
@@ -717,30 +770,42 @@ fn colour_code(out: &mut String, colour: Option<u8>, base: u8) {
     }
 }
 
-/// What the terminal is told before a cell of this look. The colours of a syntax are numbers
-/// that come from the nanorc, so nothing of the text can get into this.
-fn sgr(style: u8, hue: Hue) -> String {
+/// The parameters of a graphic rendition for a colour from the nanorc: only numbers.
+fn hue_sgr(hue: Hue) -> String {
+    let mut codes = String::from("\x1b[0");
+    if hue.bold {
+        codes.push_str(";1");
+    }
+    if hue.italic {
+        codes.push_str(";3");
+    }
+    colour_code(&mut codes, hue.fg, 30);
+    colour_code(&mut codes, hue.bg, 40);
+    codes.push('m');
+    codes
+}
+
+/// What the terminal is told before a cell of this look. The colours are numbers that come from
+/// the nanorc, so nothing of the text can get into this.
+fn sgr(style: u8, hue: Hue, colours: &Colours) -> String {
+    // A part of the interface without a colour of its own is inverse (or plain).
+    let part = |own: Option<Hue>| own.map_or_else(|| "\x1b[0;7m".into(), hue_sgr);
     match style {
         INVERSE => "\x1b[0;7m".into(),
-        ERROR => "\x1b[0;1;37;41m".into(),
-        SPOT => "\x1b[0;30;103m".into(),
-        _ => {
-            let mut codes = String::from("\x1b[0");
-            if hue.bold {
-                codes.push_str(";1");
-            }
-            if hue.italic {
-                codes.push_str(";3");
-            }
-            colour_code(&mut codes, hue.fg, 30);
-            colour_code(&mut codes, hue.bg, 40);
-            codes.push('m');
-            codes
-        }
+        ERROR => part(colours.error),
+        SPOT => part(colours.spotlight),
+        TITLE => part(colours.title),
+        STATUS => part(colours.status),
+        PROMPT => part(colours.prompt.or(colours.title)),
+        NUMBER => part(colours.number),
+        KEY => part(colours.key),
+        SELECTED => part(colours.selected),
+        FUNCTION => colours.function.map_or_else(|| "\x1b[0m".into(), hue_sgr),
+        _ => hue_sgr(hue),
     }
 }
 
-fn draw_row(out: &mut String, r: usize, row: &[Cell]) {
+fn draw_row(out: &mut String, r: usize, row: &[Cell], colours: &Colours) {
     out.push_str(&format!("\x1b[{};1H", r + 1));
     // Blank plain cells at the end are cleared in one go, unless a syntax gave them a colour
     // (a background shows on blanks): clearing would leave them uncoloured.
@@ -757,7 +822,7 @@ fn draw_row(out: &mut String, r: usize, row: &[Cell]) {
         };
         if look != Some((cell.style, hue)) {
             look = Some((cell.style, hue));
-            out.push_str(&sgr(cell.style, hue));
+            out.push_str(&sgr(cell.style, hue, colours));
         }
         // A byte that is not valid UTF-8 shows as the replacement character, as in nano.
         let mut chars = cell.text.chars().peekable();
@@ -964,7 +1029,7 @@ mod tests {
                 let frame = compose(&ed);
                 let mut out = String::new();
                 for (r, row) in frame.rows.iter().enumerate() {
-                    draw_row(&mut out, r, row);
+                    draw_row(&mut out, r, row, &Colours::default());
                 }
                 // The test would pass for no colours at all, so check that there are some.
                 if width == 80 {

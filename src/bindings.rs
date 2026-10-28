@@ -336,6 +336,25 @@ enum Spec {
     Delete,
 }
 
+/// The key a `Spec` is typed as.
+fn key_of(spec: Spec) -> Key {
+    match spec {
+        Spec::Ctrl(c) => Key::Ctrl(c),
+        Spec::Meta(c) => Key::Meta(c),
+        Spec::ShiftMeta(c) => Key::ShiftMeta(c),
+        Spec::F(n) if n > 12 => Key::Named(
+            Named::F(n - 12),
+            Mods {
+                shift: true,
+                ..Mods::default()
+            },
+        ),
+        Spec::F(n) => Key::Named(Named::F(n), Mods::default()),
+        Spec::Insert => Key::Named(Named::Insert, Mods::default()),
+        Spec::Delete => Key::Named(Named::Delete, Mods::default()),
+    }
+}
+
 /// A change of a menu, as a nanorc line asks for it. Kept as it was read, because
 /// `--modernbindings` is applied first and the command line is read after the files.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -781,6 +800,21 @@ impl Bindings {
             None if matches!(spec, Spec::ShiftMeta(_)) => Outcome::Unbound(spec_name(spec)),
             None => Outcome::Key(key),
         }
+    }
+
+    /// The keys of the help lines of a menu, in the order of `help_lines`: what a click on one
+    /// presses. None for a line shown but not typeable.
+    pub fn help_keys(&self, slot: usize) -> Vec<Option<Key>> {
+        let (keys, _) = DEFAULTS[slot];
+        keys.iter()
+            .filter(|(_, text, _)| !text.is_empty())
+            .filter_map(|&(function, _, _)| {
+                let first = self.menus[slot]
+                    .iter()
+                    .find(|e| e.function == Some(function))?;
+                Some(first.key.map(key_of))
+            })
+            .collect()
     }
 
     /// The help lines of a menu: the first key of each function that has one, and its label.

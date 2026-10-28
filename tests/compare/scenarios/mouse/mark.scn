@@ -1,0 +1,16 @@
+# A click where the cursor is sets the mark, and again takes it away, even when the click is
+# on another column of the same character. Moving by a click keeps the mark.
+args: --mouse t.txt
+size: 40x12
+file t.txt:
+| first line here
+| \tsecond line
+keys: {Click 4 2}
+keys: {Click 4 2}
+keys: {Click 10 2}
+keys: {Click 4 3}
+keys: {Click 4 3}
+keys: {Click 7 3}
+keys: {Click 7 3}
+keys: {^C}
+keys: {Click 7 3}

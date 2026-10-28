@@ -1,0 +1,26 @@
+# Only the left button does anything: the others, a motion, and a release of the wheel do not.
+# Shift, Alt and Ctrl make no difference to a click. In a prompt a click in the text does nothing.
+args: --mouse t.txt
+size: 40x12
+file t.txt:
+| first line
+| second line
+| third line
+keys: {Mouse 2 5 3 M}
+keys: {Mouse 2 5 3 m}
+keys: {Mouse 1 5 3 M}
+keys: {Mouse 1 5 3 m}
+keys: {Mouse 32 6 3 M}
+keys: {Mouse 64 5 3 m}
+keys: {Mouse 4 7 3 M}
+keys: {Mouse 4 7 3 m}
+keys: {Mouse 8 4 4 M}
+keys: {Mouse 8 4 4 m}
+keys: {Mouse 16 9 2 M}
+keys: {Mouse 16 9 2 m}
+keys: {^W}
+keys: {Click 5 3}
+keys: {Click 5 1}
+keys: {Mouse 65 5 3 M}
+keys: {^C}
+keys: {Click 5 3}

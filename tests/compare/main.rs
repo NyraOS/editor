@@ -399,8 +399,24 @@ fn keys_notation() {
     );
     assert_eq!(k("{Down*3}{x*2}"), b"\x1bOB\x1bOB\x1bOBxx");
     assert_eq!(k("é"), "é".as_bytes());
+    // The mouse, as xterm's SGR reports: counted from 1, a click is a press and a release.
+    assert_eq!(k("{Mouse 65 5 4 M}"), b"\x1b[<65;5;4M");
+    assert_eq!(k("{Mouse 0 5 4 m*2}"), b"\x1b[<0;5;4m\x1b[<0;5;4m");
+    assert_eq!(k("{Click 12 3}"), b"\x1b[<0;12;3M\x1b[<0;12;3m");
     for bad in [
-        "{", "{Nope}", "{^Ab}", "{S-a}", "{Down*0}", "{Down*x}", "{^1}", "{}",
+        "{",
+        "{Nope}",
+        "{^Ab}",
+        "{S-a}",
+        "{Down*0}",
+        "{Down*x}",
+        "{^1}",
+        "{}",
+        "{Click 1}",
+        "{Click 1 2 3}",
+        "{Click a 2}",
+        "{Mouse 0 1 2}",
+        "{Mouse 0 1 2 X}",
     ] {
         assert!(scenario::keys(bad).is_err(), "{bad} should be an error");
     }

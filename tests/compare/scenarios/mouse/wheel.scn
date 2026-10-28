@@ -1,0 +1,77 @@
+# The wheel scrolls the text by two lines and takes the cursor along when it would leave the
+# window; over the title bar, the help lines and past the right edge it does nothing, over the
+# status bar it scrolls too. Each turn wears the message on the status bar down by three keys, so
+# it is gone after the seventh. One report to a step: a terminal sends them one by one, and
+# several in one write are not handled alike by ncurses. Coordinates are counted from 1.
+args: --mouse t.txt
+size: 40x12
+file t.txt:
+| line 01 of the file
+| line 02 of the file
+| line 03 of the file
+| line 04 of the file
+| line 05 of the file
+| line 06 of the file
+| line 07 of the file
+| line 08 of the file
+| line 09 of the file
+| line 10 of the file
+| line 11 of the file
+| line 12 of the file
+| line 13 of the file
+| line 14 of the file
+| line 15 of the file
+| line 16 of the file
+| line 17 of the file
+| line 18 of the file
+| line 19 of the file
+| line 20 of the file
+| line 21 of the file
+| line 22 of the file
+| line 23 of the file
+| line 24 of the file
+| line 25 of the file
+| line 26 of the file
+| line 27 of the file
+| line 28 of the file
+| line 29 of the file
+| line 30 of the file
+| line 31 of the file
+| line 32 of the file
+| line 33 of the file
+| line 34 of the file
+| line 35 of the file
+| line 36 of the file
+| line 37 of the file
+| line 38 of the file
+| line 39 of the file
+| line 40 of the file
+keys: {Mouse 65 5 4 M}
+keys: {Mouse 65 5 4 M}
+keys: {Mouse 65 5 4 M}
+keys: {Mouse 64 5 4 M}
+keys: {Mouse 65 5 1 M}
+keys: {Mouse 65 5 11 M}
+keys: {Mouse 65 5 12 M}
+keys: {Mouse 65 5 10 M}
+keys: {Mouse 65 50 4 M}
+keys: {Mouse 64 5 4 M}
+keys: {Mouse 64 5 4 M}
+keys: {Mouse 64 5 4 M}
+keys: {Mouse 64 5 4 M}
+keys: {Mouse 64 5 4 M}
+keys: {Mouse 69 5 4 M}
+keys: {Mouse 85 5 4 M}
+keys: {Mouse 65 5 4 m}
+keys: {Down}{Down}
+keys: {Mouse 65 5 4 M}
+keys: {Click 5 4}
+keys: {Mouse 64 5 4 M}
+keys: ^V^V^V^V^V
+keys: {Mouse 65 5 4 M}
+keys: {Mouse 65 5 4 M}
+keys: {Mouse 65 5 4 M}
+keys: {Mouse 65 5 4 M}
+keys: {Mouse 65 5 4 M}
+keys: {Mouse 65 5 4 M}
+keys: {Mouse 65 5 4 M}

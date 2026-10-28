@@ -1,0 +1,20 @@
+# A click on an item of the help lines presses its key; on the status bar, between the items
+# and past the last one, nothing happens. Coordinates are counted from 1: on this window the
+# status bar is row 10, and the help lines are rows 11 and 12.
+args: --mouse t.txt
+size: 80x12
+file t.txt:
+| first
+| second
+| third
+keys: {Click 3 10}
+differ: rows 0-9: the help text is the editor's own
+keys: {Click 3 11}
+keys: {Click 3 12}
+differ: none
+keys: {Click 80 12}
+keys: {Click 1 1}
+keys: {Click 60 11}
+keys: {Click 41 12}
+keys: {^C}
+keys: {Click 23 12}

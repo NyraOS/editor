@@ -1,0 +1,9 @@
+# The marks of a long line (< and >) stay inverse under a selection with its own colour.
+size: 40x8
+nanorc: set selectedcolor black,lightcyan
+args: a.txt
+file a.txt:
+| 0123456789012345678901234567890123456789012345678901234567890123456789
+keys: {M-A}{End}
+keys: {Home}
+keys: {M-A}{End}{Left*3}

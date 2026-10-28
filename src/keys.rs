@@ -2,6 +2,7 @@
 //! Keys: the bytes the terminal sends, read as keys the way xterm sends them.
 
 use crate::buffer;
+use crate::mouse::{self, Mouse, Read, Report};
 use std::time::{Duration, Instant};
 
 /// A key, with its modifiers; or a part of a bracketed paste.
@@ -20,6 +21,9 @@ pub enum Key {
     ShiftMeta(char),
     /// A named key, with Ctrl, Alt and Shift.
     Named(Named, Mods),
+    /// A click or a turn of the wheel. It is never a key to bind and never text: the editor
+    /// handles it apart from the keys, and only when it was started with the mouse on.
+    Mouse(Mouse),
     /// A bracketed paste begins: what follows, up to `PasteEnd`, is text, not keys.
     PasteStart,
     /// Text of a paste: printable characters, tabs and "\n" for each line break.
@@ -90,6 +94,10 @@ pub struct Reader {
     last_input: Option<Instant>,
     /// Escape was the last key: the next one comes with Alt, as in nano.
     escape: bool,
+    /// The left mouse button is down: a release after it is a click.
+    pressed: bool,
+    /// Inside a mouse report that was too long to read: what is left of it is dropped.
+    dropping: bool,
 }
 
 impl Reader {
@@ -103,39 +111,125 @@ impl Reader {
         self.last_input = Some(Instant::now());
         let mut keys = Vec::new();
         let mut i = 0;
-        while i < self.pending.len() {
-            if self.pasting {
-                if !self.paste(&mut i, &mut keys) {
-                    break;
-                }
-                continue;
-            }
-            // The end of a paste that is not there: nothing to do, and nothing to say.
-            if self.pending[i..].starts_with(PASTE_END) {
-                i += PASTE_END.len();
-                continue;
-            }
-            let Some((key, len)) = parse(&self.pending[i..]) else {
-                break;
-            };
-            i += len;
-            match key {
-                Some(Key::PasteStart) => {
-                    self.escape = false;
-                    self.pasting = true;
-                    self.after_cr = false;
-                    self.flawed = false;
-                }
-                None => self.escape = true,
-                Some(key) if self.escape => {
-                    self.escape = false;
-                    keys.push(with_alt(key));
-                }
-                Some(key) => keys.push(key),
-            }
-        }
+        while i < self.pending.len() && self.step(&mut i, &mut keys) {}
         self.pending.drain(..i);
         keys
+    }
+
+    /// Reads what is at `pending[*i..]` (a key, a report, a piece of a paste), moving `*i` past
+    /// it. False when the rest is only the start of something and needs more bytes.
+    fn step(&mut self, i: &mut usize, keys: &mut Vec<Key>) -> bool {
+        if self.pasting {
+            return self.paste(i, keys);
+        }
+        // The end of a paste that is not there: nothing to do, and nothing to say.
+        if self.pending[*i..].starts_with(PASTE_END) {
+            *i += PASTE_END.len();
+            return true;
+        }
+        if self.dropping {
+            self.drop_rest_of_report(i);
+            return true;
+        }
+        if !self.rejoin_escape(*i) {
+            return false;
+        }
+        // An Escape right before a report is an Escape of its own, not the start of
+        // "Escape, Escape and a key" (which would leave the rest of the report to be typed).
+        if self.pending[*i..].starts_with(b"\x1b\x1b[<") {
+            self.escape = true;
+            *i += 1;
+            return true;
+        }
+        if let Some(len) = self.mouse_report(*i, keys) {
+            *i += len;
+            return len > 0;
+        }
+        self.read_key(i, keys)
+    }
+
+    /// Escape and the start of a report can come in two reads. The Escape was taken for a key of
+    /// its own, so the report would be typed: put it back before the report. False: a `[` that
+    /// may be the start of one has to wait for the next byte.
+    fn rejoin_escape(&mut self, i: usize) -> bool {
+        let rest = &self.pending[i..];
+        if !self.escape {
+            return true;
+        }
+        if rest.starts_with(b"[<") || rest.starts_with(b"[M") {
+            self.pending.insert(i, 0x1b);
+        }
+        self.pending[i..] != b"["[..]
+    }
+
+    /// The rest of a mouse report that was too long, up to its final byte.
+    fn drop_rest_of_report(&mut self, i: &mut usize) {
+        match self.pending[*i] {
+            0x20..=0x3f => *i += 1,
+            0x40..=0x7e => {
+                *i += 1;
+                self.dropping = false;
+            }
+            _ => self.dropping = false,
+        }
+    }
+
+    /// One key at `pending[*i..]`. False when it is not all there yet.
+    fn read_key(&mut self, i: &mut usize, keys: &mut Vec<Key>) -> bool {
+        let Some((key, len)) = parse(&self.pending[*i..]) else {
+            return false;
+        };
+        *i += len;
+        match key {
+            Some(Key::PasteStart) => {
+                self.escape = false;
+                self.pasting = true;
+                self.after_cr = false;
+                self.flawed = false;
+            }
+            None => self.escape = true,
+            Some(key) if self.escape => {
+                self.escape = false;
+                keys.push(with_alt(key));
+            }
+            Some(key) => keys.push(key),
+        }
+        true
+    }
+
+    /// A mouse report at `pending[i..]`: how many bytes it took (0: the report is not all there
+    /// yet), with the key it makes, if any. None: not a report. Nothing of a report is ever read
+    /// as another key: the ones of the old form (`ESC [ M` and three bytes) are dropped whole.
+    fn mouse_report(&mut self, i: usize, keys: &mut Vec<Key>) -> Option<usize> {
+        let rest = &self.pending[i..];
+        if rest.starts_with(b"\x1b[M") || rest.starts_with(b"\x1b[<") {
+            // A report is not a key to follow an Escape with.
+            self.escape = false;
+        }
+        if rest.starts_with(b"\x1b[M") {
+            return Some(mouse::old_report(rest));
+        }
+        if !rest.starts_with(b"\x1b[<") {
+            return None;
+        }
+        match mouse::read_sgr(rest) {
+            Read::Incomplete => Some(0),
+            Read::Drop { len, more } => {
+                self.dropping = more;
+                Some(len)
+            }
+            Read::Report(report, len) => {
+                match report {
+                    Report::Press(..) => self.pressed = true,
+                    Report::Release(col, row) if std::mem::take(&mut self.pressed) => {
+                        keys.push(Key::Mouse(Mouse::Click { col, row }));
+                    }
+                    Report::Wheel(wheel) => keys.push(Key::Mouse(wheel)),
+                    Report::Release(..) | Report::Other => keys.push(Key::Mouse(Mouse::Other)),
+                }
+                Some(len)
+            }
+        }
     }
 
     /// Reads the text of a paste from `pending[*i..]` as far as it goes. Returns false when the
@@ -318,8 +412,9 @@ fn parse_escape(b: &[u8]) -> Option<(Option<Key>, usize)> {
         None => Some((None, 1)),
         Some(b'[') => parse_csi(b),
         Some(b'O') => {
-            let Some(&c) = b.get(2) else {
-                // Escape and O: Alt+O.
+            // Escape and O: Alt+O. Another Escape after it starts the next sequence, and is not
+            // part of this one.
+            let Some(&c) = b.get(2).filter(|&&c| c != 0x1b) else {
                 return Some((Some(Key::Meta('o')), 2));
             };
             let n = match c {
@@ -337,6 +432,8 @@ fn parse_escape(b: &[u8]) -> Option<(Option<Key>, usize)> {
         // Escape, Escape and a key: Ctrl and the key (nano's way to type it without Ctrl).
         Some(0x1b) => match b.get(2) {
             None => Some((None, 1)),
+            // Escape, Escape and "[" may be the start of a report: wait for the next byte.
+            Some(b'[') if b.len() == 3 => None,
             Some(&c) if c.is_ascii_alphabetic() || (0x40..=0x5f).contains(&c) => {
                 Some((Some(Key::Ctrl(char::from(c.to_ascii_uppercase()))), 3))
             }
@@ -351,7 +448,13 @@ fn parse_escape(b: &[u8]) -> Option<(Option<Key>, usize)> {
 
 /// `ESC [ params final`.
 fn parse_csi(b: &[u8]) -> Option<(Option<Key>, usize)> {
-    let end = b[2..].iter().position(|c| (0x40..=0x7e).contains(c))? + 2;
+    // Parameter bytes, then the final byte. Any other byte (an Escape above all) ends the
+    // sequence without being part of it: it starts the next one, as a report must not be eaten.
+    let end = match b[2..].iter().position(|c| !(0x20..=0x3f).contains(c)) {
+        None => return None,
+        Some(n) if (0x40..=0x7e).contains(&b[2 + n]) => n + 2,
+        Some(n) => return Some((Some(named(Named::Unknown)), n + 2)),
+    };
     let params: Vec<u32> = std::str::from_utf8(&b[2..end])
         .unwrap_or("")
         .split(';')
@@ -503,5 +606,153 @@ mod tests {
     #[test]
     fn an_end_marker_outside_a_paste_is_ignored() {
         assert_eq!(keys(b"a\x1b[201~b"), [Key::Char('a'), Key::Char('b')]);
+    }
+
+    fn mouse_keys(b: &[u8]) -> Vec<Key> {
+        keys(b)
+    }
+
+    #[test]
+    fn a_press_and_a_release_are_a_click() {
+        assert_eq!(
+            mouse_keys(b"\x1b[<0;10;5M\x1b[<0;10;5m"),
+            [Key::Mouse(Mouse::Click { col: 9, row: 4 })]
+        );
+        // The release decides the place, and the bytes may come in any pieces.
+        let mut r = Reader::default();
+        assert_eq!(r.feed(b"\x1b[<0;3;3M\x1b[<0;"), []);
+        assert_eq!(r.feed(b"4;4"), []);
+        assert_eq!(r.feed(b"m"), [Key::Mouse(Mouse::Click { col: 3, row: 3 })]);
+        // A release with no press before it is no click.
+        assert_eq!(mouse_keys(b"\x1b[<0;3;3m"), [Key::Mouse(Mouse::Other)]);
+    }
+
+    #[test]
+    fn the_wheel_and_the_other_reports() {
+        assert_eq!(
+            mouse_keys(b"\x1b[<65;7;8M\x1b[<64;7;8M"),
+            [
+                Key::Mouse(Mouse::Wheel {
+                    up: false,
+                    col: 6,
+                    row: 7
+                }),
+                Key::Mouse(Mouse::Wheel {
+                    up: true,
+                    col: 6,
+                    row: 7
+                }),
+            ]
+        );
+        assert_eq!(
+            mouse_keys(b"\x1b[<2;7;8M\x1b[<35;7;8M"),
+            [Key::Mouse(Mouse::Other), Key::Mouse(Mouse::Other)]
+        );
+    }
+
+    #[test]
+    fn nothing_of_a_report_is_typed() {
+        // Not exact, too long, of the old form: dropped whole, and the text after it is text.
+        let long = format!("\x1b[<{}Mz", "1;".repeat(500));
+        for report in [
+            "\x1b[<-1;5;5Mz",
+            "\x1b[<0;5Mz",
+            "\x1b[<0;5;5;5Mz",
+            "\x1b[<0;0;5Mz",
+            "\x1b[<0;123456;5Mz",
+            "\x1b[<0;5;5Az",
+            "\x1b[M abz",
+            long.as_str(),
+        ] {
+            assert_eq!(
+                mouse_keys(report.as_bytes()),
+                [Key::Char('z')],
+                "{report:.20?}"
+            );
+        }
+        // A sequence cut by another is dropped as far as it went.
+        assert_eq!(
+            mouse_keys(b"\x1b[<0;5\x1b[Az"),
+            [Key::Named(Named::Up, Mods::default()), Key::Char('z')]
+        );
+    }
+
+    #[test]
+    fn a_long_report_is_dropped_across_reads() {
+        let mut r = Reader::default();
+        assert_eq!(
+            r.feed(
+                &b"\x1b[<"
+                    .iter()
+                    .chain(&[b'7'; 100])
+                    .copied()
+                    .collect::<Vec<u8>>()
+            ),
+            []
+        );
+        assert_eq!(r.feed(&[b'7'; 100]), []);
+        assert_eq!(r.feed(b"7Mz"), [Key::Char('z')]);
+    }
+
+    #[test]
+    fn a_report_does_not_make_the_next_key_an_alt_key() {
+        assert_eq!(keys(b"\x1b\x1b[<0;1;1Ma"), [Key::Char('a')]);
+    }
+
+    const CLICK: &[u8] = b"\x1b[<0;5;5M\x1b[<0;5;5m";
+
+    fn click() -> Key {
+        Key::Mouse(Mouse::Click { col: 4, row: 4 })
+    }
+
+    #[test]
+    fn a_report_after_a_split_escape_is_not_typed() {
+        // The Escape in a read of its own, then the report in the next ones, cut anywhere.
+        for pieces in [
+            &[&b"\x1b"[..], b"[<0;5;5M\x1b[<0;5;5m"][..],
+            &[b"\x1b\x1b", b"[<0;5;5M\x1b[<0;5;5m"],
+            &[b"\x1b\x1b[", b"<0;5;5M\x1b[<0;5;5m"],
+            &[b"\x1b", b"[", b"<0;5;5M\x1b[<0;5;5m"],
+            &[b"\x1b", b"[<", b"0;5;5M\x1b[<0;5;5m"],
+            &[b"\x1b\x1b", b"[", b"<0;5;5M", b"\x1b[<0;5;5m"],
+        ] {
+            let mut r = Reader::default();
+            let got: Vec<Key> = pieces.iter().flat_map(|p| r.feed(p)).collect();
+            assert_eq!(got, [click()], "{pieces:?}");
+            // And the next key is a plain one.
+            assert_eq!(r.feed(b"a"), [Key::Char('a')], "{pieces:?}");
+        }
+    }
+
+    #[test]
+    fn a_report_after_an_unfinished_sequence_is_not_typed() {
+        for start in [
+            "\x1b[", "\x1b[1", "\x1b[1;5", "\x1b[3", "\x1b[?", "\x1bO", "\x1b[M a", "\x1b[M",
+        ] {
+            for split in [false, true] {
+                let mut r = Reader::default();
+                let mut got = r.feed(start.as_bytes());
+                if split {
+                    got.extend(r.feed(&CLICK[..3]));
+                    got.extend(r.feed(&CLICK[3..]));
+                } else {
+                    got.extend(r.feed(CLICK));
+                }
+                assert!(
+                    got.iter().all(|k| !matches!(k, Key::Char(_))),
+                    "{start:?} {split}: {got:?}"
+                );
+                assert_eq!(got.last(), Some(&click()), "{start:?} {split}: {got:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn an_escape_that_ends_a_sequence_starts_the_next() {
+        assert_eq!(
+            keys(b"\x1b[1;5\x1bOA"),
+            [named(Named::Unknown), named(Named::Up)]
+        );
+        assert_eq!(keys(b"\x1bO\x1b[A"), [Key::Meta('o'), named(Named::Up)]);
     }
 }

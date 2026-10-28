@@ -246,6 +246,23 @@ impl Editor {
         }
     }
 
+    /// The wheel: scrolls one row, and takes the cursor to the nearest row left on the screen when
+    /// it would leave it.
+    pub fn wrap_scroll_one(&mut self, up: bool) {
+        let (top, moved) = self.shift(self.top_span(), if up { -1 } else { 1 });
+        if moved == 0 {
+            return;
+        }
+        self.set_top(top);
+        let shown = self.rows_from(top, self.edit_rows());
+        if !shown.contains(&self.cursor_span()) {
+            let edge = if up { shown.last() } else { shown.first() };
+            if let Some(&row) = edge {
+                self.place(row);
+            }
+        }
+    }
+
     /// Puts the cursor's row in the middle of the screen, if it is not on it (`always`: even if
     /// it is).
     pub fn wrap_center(&mut self, always: bool) {

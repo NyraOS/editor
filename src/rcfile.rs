@@ -38,6 +38,7 @@
 //! reports every mistake at once.
 
 use crate::bindings;
+use crate::colours;
 use crate::config::{Options, parse_num};
 use crate::syntax::{self, SyntaxDef};
 use std::borrow::Cow;
@@ -82,6 +83,7 @@ fn flag<'a>(o: &'a mut Options, name: &str) -> Option<&'a mut bool> {
         "constantshow" => &mut o.constantshow,
         "cutfromcursor" => &mut o.cutfromcursor,
         "linenumbers" => &mut o.linenumbers,
+        "mouse" => &mut o.mouse,
         "multibuffer" => &mut o.multibuffer,
         "noconvert" => &mut o.noconvert,
         "nohelp" => &mut o.nohelp,
@@ -112,7 +114,6 @@ const LATER_FLAGS: &[&str] = &[
     "indicator",
     "jumpyscrolling",
     "minibar",
-    "mouse",
     "positionlog",
     "preserve",
     "quickblank",
@@ -589,6 +590,13 @@ impl Reader {
             "backupdir" => o.backupdir = Some(PathBuf::from(arg)),
             "wordchars" => o.wordchars = arg.to_string(),
             "speller" => {}
+            name if colours::NAMES.contains(&name) => {
+                // As in nano, a colour that is not valid leaves the default one.
+                let slot = o.colours.setting(name);
+                if let Some(slot) = slot {
+                    *slot = Some(syntax::parse_hue(arg)?);
+                }
+            }
             _ => return self.not_yet(set, name),
         }
         Ok(())
@@ -834,6 +842,8 @@ fn in_class(set: &[char], c: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::colours::Colours;
+    use crate::syntax::Hue;
 
     /// What the text sets, and the messages.
     fn read(text: &str) -> (Options, Vec<String>) {
@@ -844,6 +854,57 @@ mod tests {
 
     fn mistakes(text: &str) -> Vec<String> {
         read(text).1
+    }
+
+    #[test]
+    fn the_colours_of_the_interface() {
+        let (o, m) = read(
+            "set titlecolor bold,white,red\nset statuscolor ,blue\nset keycolor \"lightgreen\"\n\
+             set functioncolor #f00\nset numbercolor italic,cyan\nset promptcolor yellow\n\
+             set selectedcolor black,white\nset errorcolor normal\nset spotlightcolor magenta,lightcyan\n",
+        );
+        assert!(m.is_empty(), "{m:?}");
+        let c = o.colours;
+        let hue = |fg, bg, bold, italic| {
+            Some(Hue {
+                fg,
+                bg,
+                bold,
+                italic,
+            })
+        };
+        assert_eq!(c.title, hue(Some(7), Some(1), true, false));
+        assert_eq!(c.status, hue(None, Some(4), false, false));
+        assert_eq!(c.key, hue(Some(10), None, false, false));
+        assert_eq!(c.function, hue(Some(196), None, false, false));
+        assert_eq!(c.number, hue(Some(6), None, false, true));
+        assert_eq!(c.prompt, hue(Some(3), None, false, false));
+        assert_eq!(c.selected, hue(Some(0), Some(7), false, false));
+        assert_eq!(c.error, hue(None, None, false, false));
+        assert_eq!(c.spotlight, hue(Some(5), Some(14), false, false));
+        // What is not set is as nano has it.
+        assert_eq!(Options::default().colours, Colours::default());
+    }
+
+    #[test]
+    fn a_colour_that_is_wrong_is_said_and_leaves_the_default() {
+        let (o, m) = read(
+            "set titlecolor nosuch\nset errorcolor red,\nset statuscolor lightnormal\n\
+             set keycolor\nunset functioncolor\nset stripecolor red\n",
+        );
+        let said = [
+            "Error in rc on line 1: Color \"nosuch\" not understood",
+            "Error in rc on line 2: Color \"\" not understood",
+            "Error in rc on line 3: Color 'normal' takes no prefix",
+            "Error in rc on line 4: Option \"keycolor\" requires an argument",
+            "Error in rc on line 5: Cannot unset option \"functioncolor\"",
+            "Error in rc on line 6: Option \"stripecolor\" is not available yet",
+        ];
+        assert_eq!(m, said);
+        // "red," is a background that is not given: nothing of the line is used.
+        assert_eq!(o.colours.error, Colours::default().error);
+        assert_eq!(o.colours.title, Colours::default().title);
+        assert_eq!(o.colours.status, Colours::default().status);
     }
 
     #[test]
@@ -871,7 +932,7 @@ mod tests {
     fn mistakes_are_nanos_and_reading_goes_on() {
         let m = mistakes(
             "frob\nset\nset bogus\nset tabsize\nset tabsize 0\nset tabsize \"4\nunset tabsize\n\
-             set fill x\nset mouse\ncolor red \"x\"\nsyntax\ninclude\nset linenumbers\n",
+             set fill x\nset minibar\ncolor red \"x\"\nsyntax\ninclude\nset linenumbers\n",
         );
         let rest = [
             "Command \"frob\" not understood",
@@ -882,7 +943,7 @@ mod tests {
             "Argument '\"4' has an unterminated \"",
             "Cannot unset option \"tabsize\"",
             "Requested fill size \"x\" is invalid",
-            "Option \"mouse\" is not available yet",
+            "Option \"minibar\" is not available yet",
             "A 'color' command requires a preceding 'syntax' command",
             "Missing syntax name",
             "Error reading : No such file or directory",
@@ -989,10 +1050,10 @@ mod tests {
     #[test]
     fn options_not_available_yet_are_said_once() {
         let m = mistakes(
-            "set showcursor\nset showcursor\nunset minibar\nset stateflags\nset titlecolor red\n\
+            "set showcursor\nset showcursor\nunset minibar\nset stateflags\nset scrollercolor red\n\
              set quotestr \"> \"\nset linenumbers\n",
         );
-        let said: Vec<String> = ["showcursor", "stateflags", "titlecolor", "quotestr"]
+        let said: Vec<String> = ["showcursor", "stateflags", "scrollercolor", "quotestr"]
             .iter()
             .zip([1, 4, 5, 6])
             .map(|(name, n)| {

@@ -332,6 +332,9 @@ fn key(token: &str) -> Result<Vec<u8>, String> {
     if !(1..=200).contains(&count) {
         return Err(bad());
     }
+    if let Some(bytes) = mouse(name) {
+        return bytes.map(|b| b.repeat(count)).map_err(|_| bad());
+    }
     // Modifiers: ^ (Ctrl), M- (Alt), S- (Shift), in any order, before the key.
     let (mut ctrl, mut alt, mut shift) = (false, false, false);
     let mut name = name;
@@ -367,6 +370,35 @@ fn key(token: &str) -> Result<Vec<u8>, String> {
         bytes
     };
     Ok(one.repeat(count))
+}
+
+/// A mouse report as xterm sends it in the SGR mode that ncurses asks for: `{Mouse B X Y M}` is
+/// the report of button code B (0 left, 64 wheel up, 65 wheel down; add 4 for Shift, 8 for Alt, 16
+/// for Ctrl) at column X, row Y, `M` a press and `m` a release. `{Click X Y}` is a press and a
+/// release of the left button. X and Y are counted from 1, as in the report. None: not a mouse key.
+fn mouse(token: &str) -> Option<Result<Vec<u8>, ()>> {
+    let mut words = token.split(' ');
+    let report = |b: &str, x: &str, y: &str, end: &str| {
+        let numbers = [b, x, y].map(|w| w.parse::<u16>().map_err(|_| ()));
+        match (numbers, end) {
+            ([Ok(b), Ok(x), Ok(y)], "M" | "m") => Ok(format!("\x1b[<{b};{x};{y}{end}")),
+            _ => Err(()),
+        }
+    };
+    let both = |x: &str, y: &str| Ok(report("0", x, y, "M")? + &report("0", x, y, "m")?);
+    let bytes = match (
+        words.next()?,
+        words.next(),
+        words.next(),
+        words.next(),
+        words.next(),
+    ) {
+        ("Mouse", Some(b), Some(x), Some(y), Some(end)) => report(b, x, y, end),
+        ("Click", Some(x), Some(y), None, None) => both(x, y),
+        ("Mouse" | "Click", ..) => Err(()),
+        _ => return None,
+    };
+    Some(bytes.map(String::into_bytes))
 }
 
 /// The keys with names, as xterm sends them with the keypad in application mode (which

@@ -1,0 +1,21 @@
+# promptcolor over titlecolor: the search and replace prompts, the question about a match and
+# the one about saving; functioncolor for their help lines.
+size: 60x12
+nanorc: set titlecolor black,yellow
+nanorc: set promptcolor white,blue
+nanorc: set functioncolor green
+args: a.txt
+file a.txt:
+| one
+| two
+keys: {^F}
+keys: tw
+keys: {Enter}
+keys: {^\}
+keys: one
+keys: {Enter}
+keys: X
+keys: {Enter}
+keys: y
+keys: {^X}
+keys: n

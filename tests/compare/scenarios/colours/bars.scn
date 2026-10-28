@@ -1,0 +1,19 @@
+# The title bar, status bar and help lines with colours set in the nanorc: the help screen's
+# lines have the key and function colours too.
+size: 60x12
+nanorc: set titlecolor yellow,blue
+nanorc: set statuscolor bold,green
+nanorc: set keycolor lightmagenta
+nanorc: set functioncolor italic,cyan,black
+nanorc: set errorcolor white,magenta
+args: a.txt
+file a.txt:
+| one
+| two
+keys: {^C}
+keys: {^U}
+differ: rows 0-9: the help text is the editor's own
+keys: {^G}
+differ: none
+keys: {^X}
+keys: {^X}

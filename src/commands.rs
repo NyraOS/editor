@@ -11,6 +11,7 @@ use crate::replace::Replacing;
 use crate::search::{self, Pattern};
 use crate::syntax::{self, Rule};
 mod buffers;
+mod clicks;
 pub use buffers::File;
 
 use std::collections::VecDeque;
@@ -455,6 +456,17 @@ impl Editor {
         self.scroll_to_cursor();
     }
 
+    /// The message on the status bar is worn down by `n` keys, and goes when none is left.
+    pub fn wear_message(&mut self, n: u8) {
+        if let Some(m) = &mut self.message {
+            if m.keys_left <= n || self.opts.constantshow {
+                self.message = None;
+            } else {
+                m.keys_left -= n;
+            }
+        }
+    }
+
     /// One key.
     pub fn key(&mut self, key: Key) {
         let key = match self.bindings.translate(self.slot(), key) {
@@ -488,13 +500,7 @@ impl Editor {
             Key::PasteStart | Key::PasteEnd { .. } => 0,
             _ => 1,
         };
-        if let Some(m) = &mut self.message {
-            if m.keys_left <= n || self.opts.constantshow {
-                self.message = None;
-            } else {
-                m.keys_left -= n;
-            }
-        }
+        self.wear_message(n);
         // The match stays marked while the next search is asked for.
         let asks_search = matches!(
             key,

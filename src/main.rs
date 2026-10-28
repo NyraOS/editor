@@ -3,6 +3,7 @@
 
 mod bindings;
 mod buffer;
+mod colours;
 mod commands;
 mod complete;
 mod config;
@@ -10,6 +11,7 @@ mod config;
 #[allow(dead_code, unused_imports)]
 mod files;
 mod keys;
+mod mouse;
 mod rcfile;
 mod replace;
 mod screen;
@@ -71,13 +73,21 @@ fn run(opts: config::Options) -> io::Result<()> {
     let stop = files::watch_signals()?;
     let (cols, rows) = Terminal::size();
     let mut ed = Editor::open(opts, cols, rows);
-    let mut term = Terminal::start()?;
-    // Restore the terminal if the editor panics, so the shell stays usable.
+    let mut term = Terminal::start(ed.opts.colours, ed.opts.mouse)?;
+    // If the editor panics, the terminal is put back before the message is written, so the
+    // message is readable (the main screen, no raw mode) and the shell stays usable. This runs
+    // before the unwinding, which no `Drop` of the terminal could do in this order.
+    let saved = term.saved();
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = io::Write::write_all(&mut io::stdout(), b"\x1b[0m\x1b[?25h\x1b[?2004l\x1b[?1049l");
+        screen::restore(&saved);
         hook(info);
     }));
+    // For the tests only (never in a release build): a panic on request, to check the hook above.
+    #[cfg(debug_assertions)]
+    if std::env::var_os("NYRA_EDITOR_TEST_PANIC").is_some() {
+        panic!("panic asked for by NYRA_EDITOR_TEST_PANIC");
+    }
     let result = edit(&mut ed, &mut term, &winch, &stop);
     term.stop();
     // The terminal went away, or SIGHUP or SIGTERM came: the changes go to an emergency copy.
@@ -106,6 +116,10 @@ fn edit(
     let mut keys = VecDeque::new();
     while !ed.done && !stop.load(Ordering::Relaxed) {
         if let Some(key) = keys.pop_front() {
+            if let keys::Key::Mouse(mouse) = key {
+                ed.mouse(mouse);
+                continue;
+            }
             if key == keys::Key::Ctrl('L') {
                 term.invalidate();
             }
