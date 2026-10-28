@@ -20,7 +20,7 @@ rustix = { version = "=1.1.5", features = ["event", "fs", "pipe", "process", "ra
 signal-hook = { version = "=0.3.18", default-features = false }
 # Regular expressions (M-R in the search prompts): the extended POSIX ones of nano are translated
 # to it, see docs/REGEX.md. Only what that needs: Unicode case and classes, no performance extras.
-regex = { version = "=1.11.1", default-features = false, features = ["std", "unicode-case", "unicode-perl", "unicode-gencat", "unicode-bool"] }
+regex = { version = "=1.13.1", default-features = false, features = ["std", "unicode-case", "unicode-perl", "unicode-gencat", "unicode-bool"] }
 # How many columns a character takes on the screen.
 unicode-width = { version = "=0.2.2", default-features = false }
 
