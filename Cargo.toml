@@ -17,7 +17,7 @@ ropey = { version = "=1.6.1", default-features = false, features = ["simd"] }
 rustix = { version = "=1.1.5", features = ["event", "fs", "pipe", "process", "rand", "system", "termios"] }
 # SIGWINCH through a pipe; SIGHUP and SIGTERM set a flag, so the editor writes its emergency
 # copies (0.3: the version crossterm uses).
-signal-hook = { version = "=0.3.18", default-features = false }
+signal-hook = { version = "=0.4.5", default-features = false }
 # Regular expressions (M-R in the search prompts): the extended POSIX ones of nano are translated
 # to it, see docs/REGEX.md. Only what that needs: Unicode case and classes, no performance extras.
 regex = { version = "=1.13.1", default-features = false, features = ["std", "unicode-case", "unicode-perl", "unicode-gencat", "unicode-bool"] }
