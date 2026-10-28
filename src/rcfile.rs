@@ -42,6 +42,7 @@ use crate::colours;
 use crate::config::{Options, parse_num};
 use crate::syntax::{self, SyntaxDef};
 use std::borrow::Cow;
+use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -155,8 +156,12 @@ const ARGUMENT_OPTIONS: &[&str] = &[
 /// Reads the nanorc files into `options`. The second result is the message for the status bar
 /// when there were mistakes; the mistakes themselves are already on the standard error.
 pub fn load(options: Options) -> (Options, Option<String>) {
-    let home = home_dir();
-    let xdg = env_path("XDG_CONFIG_HOME");
+    let (env_home, xdg) = environment_dirs(
+        is_privileged(),
+        std::env::var_os("HOME"),
+        env_path("XDG_CONFIG_HOME"),
+    );
+    let home = home_dir(env_home);
     let mut rc = Reader::new(options, home.clone());
     for file in system_files() {
         rc.read_top(&file);
@@ -185,14 +190,33 @@ fn system_files() -> Vec<PathBuf> {
     SYSTEM_FILES.iter().map(PathBuf::from).collect()
 }
 
-/// `$HOME`, or when it is not set, or for root, the home directory of the effective user.
-fn home_dir() -> Option<PathBuf> {
+/// Running as root, or with the rights of another user than the one who started the editor.
+fn is_privileged() -> bool {
     let user = rustix::process::geteuid();
-    let home = match std::env::var_os("HOME") {
-        Some(home) if !user.is_root() => home,
-        _ => {
+    user.is_root() || user != rustix::process::getuid()
+}
+
+/// `$HOME` and `$XDG_CONFIG_HOME`, unless the editor is privileged: a privileged editor must not
+/// take its settings from the environment of whoever started it (`su` can keep that environment).
+fn environment_dirs(
+    privileged: bool,
+    home: Option<OsString>,
+    xdg: Option<PathBuf>,
+) -> (Option<OsString>, Option<PathBuf>) {
+    if privileged {
+        (None, None)
+    } else {
+        (home, xdg)
+    }
+}
+
+/// `$HOME` (given as `env_home`), or when there is none, the home directory of the effective user.
+fn home_dir(env_home: Option<OsString>) -> Option<PathBuf> {
+    let home = match env_home {
+        Some(home) => home,
+        None => {
             let passwd = fs::read_to_string("/etc/passwd").ok()?;
-            passwd_home(&passwd, user.as_raw())?.into()
+            passwd_home(&passwd, rustix::process::geteuid().as_raw())?.into()
         }
     };
     (!home.is_empty()).then(|| PathBuf::from(home))
@@ -1127,6 +1151,23 @@ mod tests {
         );
         assert_eq!(rc.first_file.as_deref(), Some(a.as_str()));
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn privileged_editor_ignores_the_environment() {
+        let home = Some(OsString::from("/caller"));
+        let xdg = Some(PathBuf::from("/caller/xdg"));
+        let normal = environment_dirs(false, home.clone(), xdg.clone());
+        assert_eq!(normal, (home.clone(), xdg.clone()));
+        // Nothing is taken from the environment, so the home comes from the passwd entry and
+        // the file is `<that home>/.config/nano/nanorc`, never one under XDG_CONFIG_HOME.
+        let (env_home, env_xdg) = environment_dirs(true, home, xdg);
+        assert_eq!((env_home, env_xdg.clone()), (None, None));
+        let passwd_home = Path::new("/rhome");
+        assert_eq!(
+            user_file(Some(passwd_home), env_xdg.as_deref()),
+            Some(passwd_home.join(".config/nano/nanorc"))
+        );
     }
 
     #[test]
