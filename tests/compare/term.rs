@@ -55,8 +55,8 @@ impl Term {
         dir: &Path,
         home: &Path,
         rc_sysconfdir: Option<&Path>,
-        cols: u16,
-        rows: u16,
+        env: &[(String, String)],
+        (cols, rows): (u16, u16),
     ) -> io::Result<Self> {
         let flags = OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC;
         let master = openpt(flags)?;
@@ -87,6 +87,7 @@ impl Term {
             .env("LANG", "C.UTF-8")
             .env("LC_ALL", "C.UTF-8")
             .env("TZ", "UTC")
+            .envs(env.iter().map(|(name, value)| (name, value)))
             .stdin(Stdio::from(slave.try_clone()?))
             .stdout(Stdio::from(slave.try_clone()?))
             .stderr(Stdio::from(slave))

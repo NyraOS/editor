@@ -1,0 +1,11 @@
+# NO_COLOR counts when it is set, even to nothing; the replacement question marks the match too.
+env: NO_COLOR
+args: t.txt
+size: 50x12
+file t.txt:
+| find the needle here
+| and a second needle
+keys: {^\}needle{Enter}thread{Enter}
+keys: y
+keys: {^X}
+keys: n

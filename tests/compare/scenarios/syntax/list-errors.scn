@@ -1,0 +1,6 @@
+# The mistakes of the nanorc files do not stop -z.
+nanorc: syntax only "\\.1$"
+nanorc: color red "x"
+nanorc: set nosuchoption
+args: -z
+keys: {Enter}

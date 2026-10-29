@@ -1,0 +1,11 @@
+# With any colour of the interface set in a nanorc, NO_COLOR changes nothing: the error message
+# and the search match keep their default colours.
+env: NO_COLOR=1
+nanorc: set keycolor red
+args: t.txt
+size: 50x12
+file t.txt:
+| find the needle here
+keys: {^F}needle{Enter}
+keys: {^R}nosuchfile{Enter}
+keys: {^X}

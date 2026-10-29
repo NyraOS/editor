@@ -52,8 +52,8 @@ pub fn run(
             &work,
             &home,
             sysconfdir.filter(|_| !scenario.home_files.is_empty()),
-            scenario.cols,
-            scenario.rows,
+            &scenario.env,
+            (scenario.cols, scenario.rows),
         )
         .map_err(|e| format!("{name} ({}): {e}", command.join(" ")))?;
         terms.push(term);

@@ -83,6 +83,7 @@ fn flag<'a>(o: &'a mut Options, name: &str) -> Option<&'a mut bool> {
         "casesensitive" => &mut o.casesensitive,
         "constantshow" => &mut o.constantshow,
         "cutfromcursor" => &mut o.cutfromcursor,
+        "indicator" => &mut o.indicator,
         "linenumbers" => &mut o.linenumbers,
         "mouse" => &mut o.mouse,
         "multibuffer" => &mut o.multibuffer,
@@ -112,7 +113,6 @@ const LATER_FLAGS: &[&str] = &[
     "colonparsing",
     "emptyline",
     "historylog",
-    "indicator",
     "jumpyscrolling",
     "minibar",
     "positionlog",
@@ -154,8 +154,9 @@ const ARGUMENT_OPTIONS: &[&str] = &[
 ];
 
 /// Reads the nanorc files into `options`. The second result is the message for the status bar
-/// when there were mistakes; the mistakes themselves are already on the standard error.
-pub fn load(options: Options) -> (Options, Option<String>) {
+/// when there were mistakes; the mistakes themselves are already on the standard error, unless
+/// `quiet`.
+pub fn load(options: Options, quiet: bool) -> (Options, Option<String>) {
     let (env_home, xdg) = environment_dirs(
         is_privileged(),
         std::env::var_os("HOME"),
@@ -170,7 +171,7 @@ pub fn load(options: Options) -> (Options, Option<String>) {
         rc.read_top(&file);
     }
     let mut stderr = io::stderr();
-    for message in &rc.messages {
+    for message in rc.messages.iter().filter(|_| !quiet) {
         let _ = writeln!(stderr, "{message}");
     }
     let alert = rc.first_file.map(|f| format!("Mistakes in '{f}'"));
@@ -613,13 +614,19 @@ impl Reader {
             }
             "backupdir" => o.backupdir = Some(PathBuf::from(arg)),
             "wordchars" => o.wordchars = arg.to_string(),
+            "guidestripe" => {
+                // An invalid column takes the stripe away, also one set earlier.
+                o.guidestripe = 0;
+                o.guidestripe = parse_num(arg)
+                    .and_then(|n| usize::try_from(n).ok())
+                    .filter(|&n| n > 0)
+                    .ok_or_else(|| format!("Guide column \"{}\" is invalid", shown(arg)))?;
+            }
             "speller" => {}
             name if colours::NAMES.contains(&name) => {
                 // As in nano, a colour that is not valid leaves the default one.
-                let slot = o.colours.setting(name);
-                if let Some(slot) = slot {
-                    *slot = Some(syntax::parse_hue(arg)?);
-                }
+                let hue = syntax::parse_hue(arg)?;
+                o.colours.set(name, hue);
             }
             _ => return self.not_yet(set, name),
         }
@@ -914,7 +921,7 @@ mod tests {
     fn a_colour_that_is_wrong_is_said_and_leaves_the_default() {
         let (o, m) = read(
             "set titlecolor nosuch\nset errorcolor red,\nset statuscolor lightnormal\n\
-             set keycolor\nunset functioncolor\nset stripecolor red\n",
+             set keycolor\nunset functioncolor\nset quotestr red\n",
         );
         let said = [
             "Error in rc on line 1: Color \"nosuch\" not understood",
@@ -922,7 +929,7 @@ mod tests {
             "Error in rc on line 3: Color 'normal' takes no prefix",
             "Error in rc on line 4: Option \"keycolor\" requires an argument",
             "Error in rc on line 5: Cannot unset option \"functioncolor\"",
-            "Error in rc on line 6: Option \"stripecolor\" is not available yet",
+            "Error in rc on line 6: Option \"quotestr\" is not available yet",
         ];
         assert_eq!(m, said);
         // "red," is a background that is not given: nothing of the line is used.
@@ -1074,10 +1081,10 @@ mod tests {
     #[test]
     fn options_not_available_yet_are_said_once() {
         let m = mistakes(
-            "set showcursor\nset showcursor\nunset minibar\nset stateflags\nset scrollercolor red\n\
+            "set showcursor\nset showcursor\nunset minibar\nset stateflags\nset operatingdir red\n\
              set quotestr \"> \"\nset linenumbers\n",
         );
-        let said: Vec<String> = ["showcursor", "stateflags", "scrollercolor", "quotestr"]
+        let said: Vec<String> = ["showcursor", "stateflags", "operatingdir", "quotestr"]
             .iter()
             .zip([1, 4, 5, 6])
             .map(|(name, n)| {

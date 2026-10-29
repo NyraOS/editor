@@ -1,0 +1,7 @@
+# -Y with no syntax defined at all says nothing.
+args: -Y nosuch a.txt
+size: 40x8
+file a.txt:
+| a word here
+keys: {Down}
+keys: {^X}

@@ -1,0 +1,11 @@
+# The stripe on the rows of a wrapped line: a row that goes on has it only when it reaches the
+# column; line numbers shift it.
+args: --guidestripe 25 --softwrap --linenumbers t.txt
+size: 30x12
+file t.txt:
+| a long line that needs more than one row of this narrow screen, and then some
+| short
+| 0123456789012345678901234567890123456789
+keys: {Down*2}
+keys: {End}
+keys: {Up*2}

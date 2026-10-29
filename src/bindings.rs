@@ -218,6 +218,7 @@ const MAIN_KEYS: Defaults = &[
     ("savefile", "", &["^S"]),
     ("complete", "", &["^]"]),
     ("refresh", "", &["^L"]),
+    ("mouse", "", &["M-M"]),
 ];
 
 const HELP_KEYS: Defaults = &[
@@ -643,6 +644,7 @@ fn canonical(slot: usize, function: &str) -> Option<Key> {
         (_, "undo") => Key::Meta('u'),
         (_, "redo") => Key::Meta('e'),
         (_, "refresh") => Key::Ctrl('L'),
+        (_, "mouse") => Key::Meta('m'),
         (_, "left") => plain(Named::Left),
         (_, "right") => plain(Named::Right),
         (_, "up") => plain(Named::Up),

@@ -1,0 +1,15 @@
+# The guide stripe: a cell of the column is inverse, on lines shorter and longer than it, on
+# a tab, a wide character and an empty line, and it stays where it is when the cursor moves.
+args: --guidestripe 10 t.txt
+size: 40x12
+file t.txt:
+| short
+| a line that is longer than the column
+| \tfoo
+| ab日本語cdef
+| 
+| exactly 10
+keys: {Down*2}
+keys: {End}
+keys: {Down}{End}
+keys: {Down*2}

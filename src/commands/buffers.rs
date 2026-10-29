@@ -354,11 +354,28 @@ impl Editor {
         let first = syntax::head(&self.file.buf, 0);
         self.file.syntax = Rc::from(Vec::new());
         let syntaxes = &self.opts.syntaxes;
-        let found = syntax::find(syntaxes, &self.file.name, &first);
-        let Some(index) = found.and_then(|def| syntaxes.iter().position(|d| std::ptr::eq(d, def)))
-        else {
+        // `-Y`: a syntax by its name, `none` for none. One that is not defined is said, and the
+        // file name decides as without it. Without any syntax there is nothing to say.
+        let mut unknown = None;
+        let mut named = None;
+        if let Some(name) = self.opts.syntax.as_deref().filter(|_| !syntaxes.is_empty()) {
+            if name == "none" {
+                return;
+            }
+            named = syntaxes.iter().rev().find(|d| d.name == name);
+            unknown = named
+                .is_none()
+                .then(|| format!("Unknown syntax name: {name}"));
+        }
+        let found = named.or_else(|| syntax::find(syntaxes, &self.file.name, &first));
+        let index = found.and_then(|def| syntaxes.iter().position(|d| std::ptr::eq(d, def)));
+        if let Some(text) = unknown {
+            self.alert(&text);
+        }
+        let Some(index) = index else {
             return;
         };
+        let syntaxes = &self.opts.syntaxes;
         let known = self.compiled.iter().find(|c| c.0 == index);
         let (rules, error) = match known {
             Some((_, rules, error)) => (Rc::clone(rules), error.clone()),
