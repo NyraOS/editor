@@ -1147,7 +1147,6 @@ impl Editor {
         }
     }
 
-    /// M-A: sets the mark, or takes it away.
     /// M-M: the mouse on or off; the terminal is told when the screen is next drawn.
     fn toggle_mouse(&mut self) {
         self.opts.mouse = !self.opts.mouse;
@@ -1159,6 +1158,7 @@ impl Editor {
         self.say(&format!("Mouse support {state}"));
     }
 
+    /// M-A: sets the mark, or takes it away.
     fn toggle_mark(&mut self) {
         if self.file.buf.mark.take().is_some() {
             self.say("Mark Unset");

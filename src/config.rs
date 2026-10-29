@@ -676,7 +676,6 @@ Options:
  -l, --linenumbers       Show line numbers in front of the text
  -q, --indicator         Show a scroll bar in the last column of the text
  -z, --listsyntaxes      List the names of the syntaxes and exit
- -_, --minibar           Show a bar at the bottom instead of the title bar
  -m, --mouse             Use the mouse: click to place the cursor or press a key of the help
                          lines, wheel to scroll
  -t, --saveonexit        Save a modified buffer on exit without asking
@@ -686,7 +685,7 @@ Options:
  -x, --nohelp            Do not show the two help lines
 
 Accepted, with no effect yet: -M, -O, -a, -r, -s, -w.
-Not available yet (refused): -D, -H, -K, -P, -Q, -R, -U, -b, -d, -e, -f, -g, -j,
+Not available yet (refused): -D, -H, -K, -P, -Q, -R, -U, -_, -b, -d, -e, -f, -g, -j,
 -n, -o, -p, -v, -@, -%, -0, and - (standard input).
 ";
 
@@ -885,6 +884,27 @@ mod tests {
                 err(&["-J", bad]),
                 format!("Guide column \"{bad}\" is invalid")
             );
+        }
+    }
+
+    #[test]
+    fn the_help_lists_an_option_as_refused_exactly_when_it_is() {
+        let refused = USAGE.split("Not available yet (refused):").nth(1).unwrap();
+        let working = USAGE.split("Accepted, with no effect yet:").next().unwrap();
+        for o in OPTIONS {
+            let short = format!("-{}", o.short);
+            let long = format!("--{}", o.long);
+            match o.support {
+                Later => assert!(
+                    refused.contains(&format!("{short},")) && !working.contains(&long),
+                    "{long} must be listed as refused only"
+                ),
+                Works => assert!(
+                    !refused.contains(&format!("{short},")),
+                    "{long} works and must not be listed as refused"
+                ),
+                Ignored => {}
+            }
         }
     }
 
