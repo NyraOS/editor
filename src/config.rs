@@ -16,6 +16,13 @@ pub enum Command {
     Edit(Options),
     Version,
     Usage,
+    /// `-z`: print the names of the syntaxes and exit. `-z` reads the nanorc files only when `-I`
+    /// did not come before it, as in nano, which acts on the options in order.
+    ListSyntaxes {
+        rcfiles: bool,
+    },
+    /// The names of the syntaxes of the nanorc files, the last defined first, for `-z`.
+    Syntaxes(Vec<String>),
 }
 
 /// `+/text`: a search to make when the file is open.
@@ -106,6 +113,13 @@ pub struct Options {
     pub regexp: bool,
     /// `-m`: the mouse places the cursor, presses the keys of the help lines and scrolls.
     pub mouse: bool,
+    /// `-J COLUMN`: a stripe at this column (counted from 1), to judge the width of the text; 0:
+    /// none.
+    pub guidestripe: usize,
+    /// `-q`: a scroll bar in the last column of the text.
+    pub indicator: bool,
+    /// `-Y NAME`: the syntax to use for every file, `none` for no syntax.
+    pub syntax: Option<String>,
     /// The colours of the interface, set by the nanorc files.
     pub colours: Colours,
     /// `-/`: the keys of other editors (^X cuts, ^Q exits, ...), before the nanorc's `bind` lines.
@@ -146,6 +160,9 @@ impl Default for Options {
             casesensitive: false,
             regexp: false,
             mouse: false,
+            guidestripe: 0,
+            syntax: None,
+            indicator: false,
             colours: Colours::default(),
             modernbindings: false,
             binds: Vec::new(),
@@ -198,14 +215,14 @@ const OPTIONS: &[Opt] = &[
     opt('@', "colonparsing", false, Later),
     opt('e', "emptyline", false, Later),
     opt('r', "fill", true, Ignored),
-    opt('J', "guidestripe", true, Later),
+    opt('J', "guidestripe", true, Works),
     opt('h', "help", false, Works),
     opt('H', "historylog", false, Later),
     opt('I', "ignorercfiles", false, Works),
-    opt('q', "indicator", false, Later),
+    opt('q', "indicator", false, Works),
     opt('j', "jumpyscrolling", false, Later),
     opt('l', "linenumbers", false, Works),
-    opt('z', "listsyntaxes", false, Later),
+    opt('z', "listsyntaxes", false, Works),
     opt('G', "locking", false, Works),
     opt('F', "multibuffer", false, Works),
     opt('m', "mouse", false, Works),
@@ -225,7 +242,7 @@ const OPTIONS: &[Opt] = &[
     opt('R', "restricted", false, Later),
     opt('d', "rebinddelete", false, Later),
     opt('f', "rcfile", true, Later),
-    opt('Y', "syntax", true, Later),
+    opt('Y', "syntax", true, Works),
     opt('g', "showcursor", false, Later),
     opt('s', "speller", true, Ignored),
     opt('t', "saveonexit", false, Works),
@@ -258,7 +275,7 @@ struct Parsing {
 /// Parses the arguments (without the program name), over the settings of the nanorc files unless
 /// `-I` is given. Err is what to print before exiting with status 1.
 pub fn parse(args: &[String]) -> Result<Command, String> {
-    parse_with(args, || rcfile::load(Options::default()))
+    parse_with(args, |quiet| rcfile::load(Options::default(), quiet))
 }
 
 /// `read_rcfiles` gives the settings the arguments are applied to, and the status bar message
@@ -266,16 +283,27 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
 /// and to fail early on a bad one) and once over its result, so that they win over the files.
 fn parse_with(
     args: &[String],
-    read_rcfiles: impl FnOnce() -> (Options, Option<String>),
+    read_rcfiles: impl FnOnce(bool) -> (Options, Option<String>),
 ) -> Result<Command, String> {
     let first = parse_over(args, Options::default())?;
+    if let Command::ListSyntaxes { rcfiles } = first {
+        let names = if rcfiles {
+            // nano keeps the mistakes of the files for the screen, which `-z` never starts.
+            read_rcfiles(true).0.syntaxes
+        } else {
+            Vec::new()
+        };
+        return Ok(Command::Syntaxes(
+            names.into_iter().rev().map(|s| s.name).collect(),
+        ));
+    }
     let Command::Edit(first) = first else {
         return Ok(first);
     };
     if first.ignorercfiles {
         return Ok(Command::Edit(first));
     }
-    let (base, mistakes) = read_rcfiles();
+    let (base, mistakes) = read_rcfiles(false);
     match parse_over(args, base)? {
         Command::Edit(mut o) => {
             o.problem = mistakes;
@@ -418,10 +446,6 @@ fn apply(p: &mut Parsing, opt: &Opt, value: &str) -> Result<Option<Command>, Str
     let o = &mut p.options;
     match opt.support {
         Later => {
-            // Its argument is still checked, as nano does, so a mistake is reported first.
-            if opt.long == "guidestripe" && number(value, "Guide column")? <= 0 {
-                return Err(format!("Guide column \"{value}\" is invalid"));
-            }
             p.later.get_or_insert_with(|| {
                 format!(
                     "option -{} (--{}) is not available yet",
@@ -440,6 +464,11 @@ fn apply(p: &mut Parsing, opt: &Opt, value: &str) -> Result<Option<Command>, Str
     }
     match opt.long {
         "version" => return Ok(Some(Command::Version)),
+        "listsyntaxes" => {
+            return Ok(Some(Command::ListSyntaxes {
+                rcfiles: !o.ignorercfiles,
+            }));
+        }
         "help" => return Ok(Some(Command::Usage)),
         "tabsize" => {
             o.tabsize = parse_num(value)
@@ -469,12 +498,23 @@ fn apply(p: &mut Parsing, opt: &Opt, value: &str) -> Result<Option<Command>, Str
         "wordbounds" => o.wordbounds = true,
         "afterends" => o.afterends = true,
         "mouse" => o.mouse = true,
+        "syntax" => o.syntax = Some(value.to_string()),
+        "guidestripe" => o.guidestripe = guide_column(value)?,
+        "indicator" => o.indicator = true,
         "ignorercfiles" => o.ignorercfiles = true,
         // Files are always locked.
         "locking" => {}
         other => unreachable!("option {other} is in the table as working, but not handled"),
     }
     Ok(None)
+}
+
+/// The column of the guide stripe, or the message for a bad one.
+fn guide_column(value: &str) -> Result<usize, String> {
+    parse_num(value)
+        .and_then(|n| usize::try_from(n).ok())
+        .filter(|&n| n > 0)
+        .ok_or_else(|| format!("Guide column \"{value}\" is invalid"))
 }
 
 /// A number option's argument, or the message for a bad one.
@@ -577,6 +617,27 @@ fn position(s: &str) -> Option<(i64, i64)> {
     Some((num(line, 1)?, num(col, 1)?))
 }
 
+/// What `-z` prints: the names, a few to a line, as nano lays them out. Nothing when there are
+/// none.
+pub fn syntax_list(names: &[String]) -> String {
+    if names.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("Available syntaxes:\n");
+    let mut width = 0;
+    for name in names {
+        if width > 45 {
+            out.push('\n');
+            width = 0;
+        }
+        out.push(' ');
+        out.push_str(name);
+        width += crate::screen::text_width(name);
+    }
+    out.push('\n');
+    out
+}
+
 pub const USAGE: &str = "\
 Usage: editor [OPTIONS] [[+LINE[,COLUMN] | +/TEXT | +?TEXT] FILE]...
 
@@ -602,15 +663,19 @@ Options:
  -I, --ignorercfiles     Do not read nanorc files
  -L, --nonewlines        Do not add a newline at the end of the file
  -N, --noconvert         Do not convert DOS and Mac line ends
+ -J, --guidestripe=N     Draw a stripe at column N, to judge the width of the text
  -T, --tabsize=N         Make a tab N columns wide (default 8)
  -W, --wordbounds        Let punctuation separate words
  -X, --wordchars=CHARS   Treat these characters as parts of words
+ -Y, --syntax=NAME       Use the syntax NAME (or none) for every file
  -Z, --zap               Backspace and Delete erase the selection
  -c, --constantshow      Show the cursor position all the time
  -h, --help              Show this help and exit
  -i, --autoindent        Start a new line with the blanks of the one before
  -k, --cutfromcursor     Cut from the cursor to the end of the line
  -l, --linenumbers       Show line numbers in front of the text
+ -q, --indicator         Show a scroll bar in the last column of the text
+ -z, --listsyntaxes      List the names of the syntaxes and exit
  -m, --mouse             Use the mouse: click to place the cursor or press a key of the help
                          lines, wheel to scroll
  -t, --saveonexit        Save a modified buffer on exit without asking
@@ -620,17 +685,18 @@ Options:
  -x, --nohelp            Do not show the two help lines
 
 Accepted, with no effect yet: -M, -O, -a, -r, -s, -w.
-Not available yet (refused): -D, -H, -J, -K, -P, -Q, -R, -U, -Y, -b, -d, -e, -f, -g, -j,
--n, -o, -p, -q, -v, -z, -@, -%, -_, -0, and - (standard input).
+Not available yet (refused): -D, -H, -K, -P, -Q, -R, -U, -_, -b, -d, -e, -f, -g, -j,
+-n, -o, -p, -v, -@, -%, -0, and - (standard input).
 ";
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::syntax::SyntaxDef;
 
     fn run(args: &[&str]) -> Result<Command, String> {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        parse_with(&args, || (Options::default(), None))
+        parse_with(&args, |_| (Options::default(), None))
     }
 
     fn edit(args: &[&str]) -> Options {
@@ -651,7 +717,7 @@ mod tests {
 
     #[test]
     fn arguments_win_over_the_nanorc_files() {
-        let rc = || {
+        let rc = |_| {
             let base = Options {
                 tabsize: 3,
                 linenumbers: true,
@@ -785,7 +851,7 @@ mod tests {
     #[test]
     fn what_is_not_available_yet_is_refused_not_ignored() {
         for args in [
-            &["-Y", "sh"][..],
+            &["-D"][..],
             &["-b"],
             &["-%"],
             &["-_"],
@@ -796,8 +862,8 @@ mod tests {
             assert!(err(args).ends_with("is not available yet"), "{args:?}");
         }
         assert_eq!(
-            err(&["-Y", "sh"]),
-            "editor: option -Y (--syntax) is not available yet"
+            err(&["-D"]),
+            "editor: option -D (--boldtext) is not available yet"
         );
         assert!(edit(&["-m"]).mouse && edit(&["--mouse"]).mouse && !edit(&[]).mouse);
         // The first one is the one named; a mistake in an option's argument comes before.
@@ -805,6 +871,76 @@ mod tests {
         assert!(err(&["-b", "-T", "x"]).starts_with("Requested tab size"));
         assert!(edit(&["-/"]).modernbindings);
         assert!(err(&["-"]).contains("standard input"));
+    }
+
+    #[test]
+    fn the_guide_stripe_the_scroll_bar_and_the_syntax() {
+        let o = edit(&["-J", "7", "-q", "-Y", "sh"]);
+        assert_eq!((o.guidestripe, o.indicator), (7, true));
+        assert_eq!(o.syntax.as_deref(), Some("sh"));
+        assert_eq!(edit(&["--guidestripe=3"]).guidestripe, 3);
+        for bad in ["0", "-1", "x", ""] {
+            assert_eq!(
+                err(&["-J", bad]),
+                format!("Guide column \"{bad}\" is invalid")
+            );
+        }
+    }
+
+    #[test]
+    fn the_help_lists_an_option_as_refused_exactly_when_it_is() {
+        let refused = USAGE.split("Not available yet (refused):").nth(1).unwrap();
+        let working = USAGE.split("Accepted, with no effect yet:").next().unwrap();
+        for o in OPTIONS {
+            let short = format!("-{}", o.short);
+            let long = format!("--{}", o.long);
+            match o.support {
+                Later => assert!(
+                    refused.contains(&format!("{short},")) && !working.contains(&long),
+                    "{long} must be listed as refused only"
+                ),
+                Works => assert!(
+                    !refused.contains(&format!("{short},")),
+                    "{long} works and must not be listed as refused"
+                ),
+                Ignored => {}
+            }
+        }
+    }
+
+    #[test]
+    fn the_syntaxes_are_listed_last_defined_first() {
+        let rc = |quiet: bool| {
+            assert!(quiet, "-z keeps the mistakes of the files to itself");
+            let def = |name: &str| SyntaxDef {
+                name: name.into(),
+                files: Vec::new(),
+                headers: Vec::new(),
+                rules: Vec::new(),
+            };
+            let base = Options {
+                syntaxes: vec![def("a"), def("b"), def("a")],
+                ..Options::default()
+            };
+            (base, None)
+        };
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let Ok(Command::Syntaxes(names)) = parse_with(&args(&["-z", "--bogus"]), rc) else {
+            panic!("not a list")
+        };
+        assert_eq!(names, ["a", "b", "a"]);
+        assert_eq!(syntax_list(&names), "Available syntaxes:\n a b a\n");
+        // -I before -z: the files are not read.
+        let Ok(Command::Syntaxes(names)) = parse_with(&args(&["-I", "-z"]), rc) else {
+            panic!("not a list")
+        };
+        assert!(names.is_empty() && syntax_list(&names).is_empty());
+        // A line is ended once the names on it are wider than 45 columns.
+        let long: Vec<String> = ["x".repeat(30), "y".repeat(20), "z".into()].into();
+        assert_eq!(
+            syntax_list(&long),
+            format!("Available syntaxes:\n {} {}\n z\n", long[0], long[1])
+        );
     }
 
     #[test]

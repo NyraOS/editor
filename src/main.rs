@@ -42,6 +42,11 @@ fn main() -> ExitCode {
             );
             return ExitCode::SUCCESS;
         }
+        Ok(Command::Syntaxes(names)) => {
+            print!("{}", config::syntax_list(&names));
+            return ExitCode::SUCCESS;
+        }
+        Ok(Command::ListSyntaxes { .. }) => unreachable!("turned into the names of the syntaxes"),
         Ok(Command::Usage) => {
             print!("{}", config::USAGE);
             return ExitCode::SUCCESS;
@@ -72,6 +77,10 @@ fn run(opts: config::Options) -> io::Result<()> {
     let winch = winch_pipe()?;
     let stop = files::watch_signals()?;
     let (cols, rows) = Terminal::size();
+    let mut opts = opts;
+    if std::env::var_os("NO_COLOR").is_some() {
+        opts.colours.no_colour();
+    }
     let mut ed = Editor::open(opts, cols, rows);
     let mut term = Terminal::start(ed.opts.colours, ed.opts.mouse)?;
     // If the editor panics, the terminal is put back before the message is written, so the
@@ -138,6 +147,7 @@ fn edit(
         if reader.pasting() {
             frame.cursor = None;
         }
+        term.set_mouse(ed.opts.mouse)?;
         term.draw(&frame)?;
         let stdin = io::stdin();
         let mut fds = [

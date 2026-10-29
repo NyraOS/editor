@@ -1,0 +1,5 @@
+# With -I after -z, the nanorc files are read.
+nanorc: syntax only "\\.1$"
+nanorc: color red "x"
+args: -z -I
+keys: {Enter}

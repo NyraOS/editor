@@ -1,0 +1,12 @@
+# stripecolor changes the look of the guide stripe; the selection paints over it.
+nanorc: set guidestripe 6
+nanorc: set stripecolor bold,yellow,blue
+size: 40x10
+args: t.txt
+file t.txt:
+| one two three four
+| five six seven
+| 
+keys: {Down}
+keys: {M-A}{Right*8}
+keys: {Up}

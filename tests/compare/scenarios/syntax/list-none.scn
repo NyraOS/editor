@@ -1,0 +1,3 @@
+# -z with no syntax prints nothing, and exits with status 0.
+args: -z
+keys: {Enter}

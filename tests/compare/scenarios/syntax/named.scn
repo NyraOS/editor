@@ -1,0 +1,11 @@
+# -Y picks a syntax by name for a file that no syntax matches by its name, and none turns the
+# syntax off for one that matches.
+nanorc: syntax red "\\.red$"
+nanorc: color red "word"
+nanorc: syntax green "\\.green$"
+nanorc: color green "word"
+args: -Y green a.red
+size: 40x8
+file a.red:
+| a word here
+keys: {^X}

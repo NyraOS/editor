@@ -7,7 +7,7 @@
 //! rows of a line are worked out when needed, never kept, and never for the whole text.
 
 use crate::buffer::index_at;
-use crate::commands::Editor;
+use crate::commands::{Editor, Mode};
 use crate::screen::width_at;
 
 /// How the rows of a line are cut.
@@ -140,7 +140,7 @@ impl Iterator for Chunks<'_> {
 impl Editor {
     fn rules(&self) -> Rules {
         Rules {
-            width: self.cols.saturating_sub(self.margin()).max(1),
+            width: self.text_width().max(1),
             tabsize: self.opts.tabsize,
             atblanks: self.opts.atblanks,
         }
@@ -188,6 +188,44 @@ impl Editor {
             line += 1;
         }
         rows
+    }
+
+    /// How many lines the screen covers from the top one, for the scroll bar: those that begin
+    /// on it, and the one that goes on below it counts too.
+    fn covered_lines(&self) -> usize {
+        let top = self.top_span();
+        let spans = self.spans_of(top.line);
+        let at = spans.iter().position(|s| s.start == top.start).unwrap_or(0);
+        let (mut line, mut extras) = (top.line, spans.len() - 1 - at);
+        while line + 1 + extras < top.line + self.edit_rows() && line + 1 < self.file.buf.lines() {
+            line += 1;
+            extras += self.spans_of(line).len() - 1;
+        }
+        line + 1 - top.line
+    }
+
+    /// The rows of the thumb of the scroll bar, first and last, as nano works them out: where
+    /// the top line is among the lines, and how much of the text the screen covers. The help
+    /// text has a bar too, over its own lines.
+    pub fn scroll_thumb(&self) -> (usize, usize) {
+        let rows = self.edit_rows();
+        let (top, covered, total, wrapped) = match self.mode {
+            Mode::Help(top) => (top, rows, self.help_lines().len(), false),
+            _ if self.opts.softwrap => (
+                self.top_span().line,
+                self.covered_lines(),
+                self.file.buf.lines(),
+                true,
+            ),
+            _ => (self.file.buf.top, rows, self.file.buf.lines(), false),
+        };
+        let lowest = top * rows / total;
+        let highest = if rows > total && !wrapped {
+            rows
+        } else {
+            lowest + rows * covered / total
+        };
+        (lowest, highest)
     }
 
     /// The rows on the screen.

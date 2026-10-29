@@ -1,0 +1,9 @@
+# NO_COLOR leaves the colours of a syntax alone.
+env: NO_COLOR=1
+nanorc: syntax test "\\.txt$"
+nanorc: color red "needle"
+args: t.txt
+size: 50x8
+file t.txt:
+| find the needle here
+keys: {^X}

@@ -27,6 +27,11 @@ pub const NUMBER: u8 = 7;
 pub const KEY: u8 = 8;
 pub const FUNCTION: u8 = 9;
 pub const SELECTED: u8 = 10;
+/// The guide stripe.
+pub const STRIPE: u8 = 11;
+/// The scroll bar: its track, and its thumb, which is inverse.
+pub const SCROLL: u8 = 12;
+pub const THUMB: u8 = 13;
 
 /// One screen cell. Its text is one character with its combining marks; the right half of a
 /// wide character has no text. The colours of a syntax (`hue`) show only on a plain cell.
@@ -214,6 +219,34 @@ pub fn colour_cells(
             }
         }
         col += w;
+    }
+}
+
+/// The guide stripe: the cell of column `column` (counted from 1, the first column of the line
+/// being 1) takes the look of the stripe, over what was there, also if it is empty or the other
+/// half of a wide character; both halves of a wide one do. `start` is the first column shown; a
+/// row that goes on (`sequel`: where the next one begins) has the stripe only if it reaches it.
+/// The marks of a long line stay as they are.
+fn draw_stripe(cells: &mut [Cell], column: usize, start: usize, sequel: Option<usize>) {
+    if column <= start || column > start + cells.len() || sequel.is_some_and(|end| column > end) {
+        return;
+    }
+    let at = column - start - 1;
+    let first = if cells[at].text.is_empty() {
+        at.saturating_sub(1)
+    } else {
+        at
+    };
+    let last = if cells.get(first + 1).is_some_and(|c| c.text.is_empty()) {
+        first + 1
+    } else {
+        first
+    };
+    for cell in &mut cells[first..=last] {
+        if cell.style != INVERSE {
+            cell.style = STRIPE;
+            cell.hue = Hue::default();
+        }
     }
 }
 
@@ -444,6 +477,8 @@ struct Shown {
     from: (usize, usize),
     /// Whether the line number goes in front (not before the rows a line wraps into).
     numbered: bool,
+    /// Where the next row of the line begins, when the line goes on (soft wrapping).
+    sequel: Option<usize>,
 }
 
 /// Everything on the screen.
@@ -484,7 +519,7 @@ pub fn compose(ed: &Editor) -> Frame {
             ed.file.buf.modified,
         );
         let margin = ed.margin();
-        let width = cols.saturating_sub(margin);
+        let width = ed.text_width();
         let digits = margin.saturating_sub(1);
         // What each row shows: a line, from the screen column `start` to `end`, where in the line
         // that is, and whether a line number goes before it.
@@ -497,6 +532,7 @@ pub fn compose(ed: &Editor) -> Frame {
                     end: s.end.min(s.start + width),
                     from: (s.at, s.at_col),
                     numbered: s.start == 0,
+                    sequel: (!s.last).then_some(s.end),
                 })
                 .collect()
         } else {
@@ -515,6 +551,7 @@ pub fn compose(ed: &Editor) -> Frame {
                             end: start + width,
                             from: (0, 0),
                             numbered: true,
+                            sequel: None,
                         }
                     })
                 })
@@ -538,6 +575,7 @@ pub fn compose(ed: &Editor) -> Frame {
                 end,
                 from,
                 numbered,
+                sequel,
             } = *row_shown;
             if cached.as_ref().is_none_or(|c| c.0 != line) {
                 cached = Some((line, ed.file.buf.line_text(line)));
@@ -551,6 +589,7 @@ pub fn compose(ed: &Editor) -> Frame {
             if let Some(hues) = painted.get(line - first_line) {
                 colour_cells(&mut cells, text, hues, from, (start, end), ed.opts.tabsize);
             }
+            draw_stripe(&mut cells, ed.opts.guidestripe, start, sequel);
             if let Some((_, from, to)) = ed.spot.filter(|s| s.0 == line) {
                 let from = column_of(text, from, ed.opts.tabsize);
                 let to = column_of(text, to, ed.opts.tabsize);
@@ -600,6 +639,20 @@ pub fn compose(ed: &Editor) -> Frame {
         }
         if ed.spot.is_some() {
             cursor = None;
+        }
+    }
+
+    if ed.sidebar() == 1 && !(matches!(ed.mode, Mode::Ask(Question::Locked(..))) && !ed.started) {
+        let (first, last) = ed.scroll_thumb();
+        for r in 0..edit_rows {
+            let style = if (first..=last).contains(&r) {
+                THUMB
+            } else {
+                SCROLL
+            };
+            let row = &mut screen[1 + r];
+            row.resize(cols, Cell::blank());
+            row[cols - 1] = Cell::new(' ', style);
         }
     }
 
@@ -665,6 +718,8 @@ pub struct Terminal {
     colours: Colours,
     /// The rows as the terminal shows them now; empty after a resize or a refresh.
     shown: Vec<Row>,
+    /// Whether the terminal was asked to report the mouse.
+    mouse: bool,
 }
 
 impl Terminal {
@@ -684,6 +739,7 @@ impl Terminal {
             saved,
             colours,
             shown: Vec::new(),
+            mouse,
         })
     }
 
@@ -693,6 +749,17 @@ impl Terminal {
             Ok(w) if w.ws_col > 0 && w.ws_row > 0 => (usize::from(w.ws_col), usize::from(w.ws_row)),
             _ => (80, 24),
         }
+    }
+
+    /// Asks the terminal to report the mouse, or to stop, when that is not so already.
+    pub fn set_mouse(&mut self, on: bool) -> io::Result<()> {
+        if on != self.mouse {
+            self.mouse = on;
+            let mut stdout = io::stdout().lock();
+            stdout.write_all(if on { MOUSE_ON } else { MOUSE_OFF })?;
+            stdout.flush()?;
+        }
+        Ok(())
     }
 
     /// Makes the next draw repaint everything.
@@ -752,6 +819,7 @@ pub fn restore(saved: &Termios) {
 /// the coordinates written in decimal (xterm's modes 1000 and 1006), as nano does. No motion is
 /// reported.
 const MOUSE_ON: &[u8] = b"\x1b[?1006;1000h";
+const MOUSE_OFF: &[u8] = b"\x1b[?1006;1000l";
 
 /// What puts the terminal back as it was: the attributes, the cursor, the mouse reports and the
 /// bracketed paste off, the main screen. The mouse is switched off even when it was never on:
@@ -772,7 +840,14 @@ fn colour_code(out: &mut String, colour: Option<u8>, base: u8) {
 
 /// The parameters of a graphic rendition for a colour from the nanorc: only numbers.
 fn hue_sgr(hue: Hue) -> String {
+    hue_sgr_with(hue, false)
+}
+
+fn hue_sgr_with(hue: Hue, inverse: bool) -> String {
     let mut codes = String::from("\x1b[0");
+    if inverse {
+        codes.push_str(";7");
+    }
     if hue.bold {
         codes.push_str(";1");
     }
@@ -790,6 +865,9 @@ fn hue_sgr(hue: Hue) -> String {
 fn sgr(style: u8, hue: Hue, colours: &Colours) -> String {
     // A part of the interface without a colour of its own is inverse (or plain).
     let part = |own: Option<Hue>| own.map_or_else(|| "\x1b[0;7m".into(), hue_sgr);
+    // The thumb of the scroll bar is inverse over its colour, as nano makes it.
+    let part_inverse =
+        |own: Option<Hue>| own.map_or_else(|| "\x1b[0;7m".into(), |hue| hue_sgr_with(hue, true));
     match style {
         INVERSE => "\x1b[0;7m".into(),
         ERROR => part(colours.error),
@@ -800,6 +878,9 @@ fn sgr(style: u8, hue: Hue, colours: &Colours) -> String {
         NUMBER => part(colours.number),
         KEY => part(colours.key),
         SELECTED => part(colours.selected),
+        STRIPE => part(colours.stripe),
+        SCROLL => colours.scroller.map_or_else(|| "\x1b[0m".into(), hue_sgr),
+        THUMB => part_inverse(colours.scroller),
         FUNCTION => colours.function.map_or_else(|| "\x1b[0m".into(), hue_sgr),
         _ => hue_sgr(hue),
     }
@@ -861,6 +942,28 @@ mod tests {
         assert!(!is_zero_width('a'));
         assert_eq!(control_letter('\x01'), 'A');
         assert_eq!(control_letter('\u{85}'), 'e');
+    }
+
+    #[test]
+    fn the_stripe_takes_both_halves_of_a_wide_character() {
+        let styles = |cells: &[Cell]| -> Vec<u8> { cells.iter().map(|c| c.style).collect() };
+        let mut cells = line_cells("a日b", 0, 6, 8);
+        draw_stripe(&mut cells, 3, 0, None);
+        assert_eq!(styles(&cells), [0, STRIPE, STRIPE, 0, 0, 0]);
+        // The same cell, from its other half.
+        let mut cells = line_cells("a日b", 0, 6, 8);
+        draw_stripe(&mut cells, 2, 0, None);
+        assert_eq!(styles(&cells), [0, STRIPE, STRIPE, 0, 0, 0]);
+        // Past the text it is a blank cell; outside the row, or past where a wrapped row ends,
+        // there is none.
+        let mut cells = line_cells("ab", 0, 6, 8);
+        draw_stripe(&mut cells, 5, 0, None);
+        assert_eq!(styles(&cells), [0, 0, 0, 0, STRIPE, 0]);
+        for (column, start, sequel) in [(7, 0, None), (3, 3, None), (5, 0, Some(4))] {
+            let mut cells = line_cells("ab", start, 6, 8);
+            draw_stripe(&mut cells, column, start, sequel);
+            assert!(cells.iter().all(|c| c.style != STRIPE), "{column}");
+        }
     }
 
     #[test]

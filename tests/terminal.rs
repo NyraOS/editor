@@ -228,6 +228,23 @@ fn the_mouse_is_never_switched_on_unless_asked() {
 }
 
 #[test]
+fn m_m_asks_the_terminal_for_the_mouse_and_stops_asking() {
+    let mut session = Session::start("toggle", &[], "text\n");
+    session.wait_for(b"Read 1 line");
+    session.send(b"\x1bm");
+    session.wait_for(b"Mouse support enabled");
+    session.wait_for(MOUSE_ON);
+    session.send(b"\x1bm");
+    session.wait_for(b"Mouse support disabled");
+    // Written after the first M-M asked for the mouse, so the last word is "off".
+    session.send(b"\x18");
+    let (out, _) = session.finish();
+    let on = last(&out, MOUSE_ON).expect("asked for the mouse");
+    assert!(last(&out, MOUSE_OFF).is_some_and(|off| off > on));
+    assert_restored(&out);
+}
+
+#[test]
 fn the_terminal_is_restored_on_exit() {
     let mut session = Session::start("exit", &["--mouse"], "text\n");
     session.wait_for(MOUSE_ON);

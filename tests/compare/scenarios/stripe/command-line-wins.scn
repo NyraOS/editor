@@ -1,0 +1,9 @@
+# -J overrides the nanorc, and -J with a wide-character line.
+nanorc: set guidestripe 3
+args: -J 5 t.txt
+size: 40x8
+file t.txt:
+| 日本語日本語
+| 12345678
+keys: {Down}
+keys: {Up}

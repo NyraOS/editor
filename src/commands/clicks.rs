@@ -140,7 +140,7 @@ impl Editor {
         let b = &self.file.buf;
         // Below the last line, the click is on the last line, as in nano.
         let line = (b.top + row).min(b.lines() - 1);
-        let width = self.cols.saturating_sub(self.margin());
+        let width = self.text_width();
         let page = page_start(b.column(self.opts.tabsize), width);
         Some((line, page + want, None))
     }

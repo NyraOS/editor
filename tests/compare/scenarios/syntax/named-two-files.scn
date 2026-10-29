@@ -1,0 +1,11 @@
+# The unknown name is said again for each file that is opened; the second buffer shows it.
+nanorc: syntax red "\\.red$"
+nanorc: color red "word"
+args: -Y nosuch a.red b.red
+size: 40x8
+file a.red:
+| a word here
+file b.red:
+| b word here
+keys: {M->}
+keys: {M-<}

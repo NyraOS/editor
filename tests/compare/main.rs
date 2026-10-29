@@ -450,6 +450,14 @@ fn scenario_format() {
         rc.home_files[1],
         (".config/nano/nanorc", b"set c\n".to_vec())
     );
+    let env = scenario::parse("env: NO_COLOR=1\nenv: EMPTY\nkeys: x\n").unwrap();
+    assert_eq!(
+        env.env,
+        [
+            ("NO_COLOR".into(), "1".into()),
+            ("EMPTY".into(), String::new())
+        ]
+    );
     assert_eq!(s.args, ["-l", "notes.txt"]);
     assert_eq!((s.cols, s.rows), (100, 30));
     assert_eq!(
@@ -488,6 +496,8 @@ fn scenario_format() {
         ("args: a\nargs: b\nkeys: a\n", "line 2:"),
         ("differ: rows 1-2\nkeys: a\n", "line 1:"),
         ("bogus: 1\nkeys: a\n", "line 1:"),
+        ("env: TERM=dumb\nkeys: a\n", "line 1:"),
+        ("env: lower=1\nkeys: a\n", "line 1:"),
         ("pending:\nkeys: a\n", "line 1:"),
         ("keys: a\npause: 0\n", "line 2:"),
         ("args: x\n", "no steps"),

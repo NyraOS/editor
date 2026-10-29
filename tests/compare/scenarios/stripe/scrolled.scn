@@ -1,0 +1,10 @@
+# The stripe on a line scrolled sideways, with the marks of a long line over it.
+args: --guidestripe 12 t.txt
+size: 30x10
+file t.txt:
+| 0123456789 0123456789 0123456789 0123456789 0123456789
+| other line
+keys: {End}
+keys: {Down}
+keys: {Up}
+keys: {Home}

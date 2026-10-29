@@ -1,0 +1,15 @@
+# M-M turns the mouse on and off while editing, with a message each time; a click is only
+# heard while it is on, and the setting of -m is turned off by it.
+args: --mouse t.txt
+size: 40x10
+file t.txt:
+| one two three
+| four five six
+keys: {Click 7 2}
+keys: {M-m}
+keys: {Click 3 1}
+keys: {M-m}
+keys: {Click 9 2}
+keys: {M-m}
+keys: {Click 1 2}
+keys: {M-m}

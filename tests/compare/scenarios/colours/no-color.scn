@@ -1,0 +1,11 @@
+# NO_COLOR makes the error messages and the search match inverse instead of coloured.
+env: NO_COLOR=1
+args: t.txt
+size: 50x12
+file t.txt:
+| find the needle here
+| and a second needle
+keys: {^F}needle{Enter}
+keys: {M-W}
+keys: {^R}nosuchfile{Enter}
+keys: {^X}

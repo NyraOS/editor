@@ -1,0 +1,11 @@
+# A guide column that is not a positive number: the message for a nanorc, and the stripe goes
+# away, also the one set before.
+nanorc: set guidestripe 3
+nanorc: set guidestripe 0
+nanorc: set stripecolor nosuchcolour
+nanorc: set stripecolor
+args: t.txt
+size: 40x8
+file t.txt:
+| one two three
+keys: {Down}

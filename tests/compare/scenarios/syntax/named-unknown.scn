@@ -1,0 +1,11 @@
+# -Y with a name that no syntax has: a message, and the file name decides as usual.
+nanorc: syntax red "\\.red$"
+nanorc: color red "word"
+args: -Y nosuch a.red
+size: 40x8
+file a.red:
+| a word here
+keys: {Down}
+keys: x
+keys: {^X}
+keys: n

@@ -1,0 +1,11 @@
+# A file that fits the screen: the thumb covers all the rows, and a new line is not a change of it
+# until the text scrolls.
+args: -q t.txt
+size: 30x12
+file t.txt:
+| one
+| two
+keys: {Down}{End}{Enter}three
+keys: {Enter*10}
+keys: {^X}
+keys: n

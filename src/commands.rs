@@ -415,6 +415,17 @@ impl Editor {
         }
     }
 
+    /// 1 when the scroll bar takes the last column, as in nano: not on a screen too small for it.
+    pub fn sidebar(&self) -> usize {
+        usize::from(self.opts.indicator && self.rows > 5 && self.cols > 9)
+    }
+
+    /// The columns the text has: what is left of the width after the line numbers and the scroll
+    /// bar.
+    pub fn text_width(&self) -> usize {
+        self.cols.saturating_sub(self.margin() + self.sidebar())
+    }
+
     fn say(&mut self, text: &str) {
         self.message = Some(Message {
             text: text.to_string(),
@@ -565,6 +576,7 @@ impl Editor {
             Key::Meta('t') => self.cut_to_end(),
             Key::Meta('6' | '^') => self.copy(chain),
             Key::Meta('a') | Key::Ctrl('^') => self.toggle_mark(),
+            Key::Meta('m') => self.toggle_mouse(),
             Key::Ctrl('U') | Key::Named(F(10), _) => self.paste(),
             Key::Ctrl(']') => self.complete_word(completion),
             Key::Ctrl('G') | Key::Named(F(1), _) => {
@@ -1133,6 +1145,17 @@ impl Editor {
             }
             b.keep_column(self.opts.tabsize);
         }
+    }
+
+    /// M-M: the mouse on or off; the terminal is told when the screen is next drawn.
+    fn toggle_mouse(&mut self) {
+        self.opts.mouse = !self.opts.mouse;
+        let state = if self.opts.mouse {
+            "enabled"
+        } else {
+            "disabled"
+        };
+        self.say(&format!("Mouse support {state}"));
     }
 
     /// M-A: sets the mark, or takes it away.

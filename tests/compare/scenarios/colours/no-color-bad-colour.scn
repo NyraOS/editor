@@ -1,0 +1,9 @@
+# A colour that is not understood sets nothing, so NO_COLOR still applies.
+env: NO_COLOR=1
+nanorc: set keycolor nosuch
+args: t.txt
+size: 50x12
+file t.txt:
+| find the needle here
+keys: {^F}needle{Enter}
+keys: {^X}

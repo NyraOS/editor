@@ -1,0 +1,10 @@
+# Of two syntaxes with the same name, -Y takes the one defined last.
+nanorc: syntax same "\\.1$"
+nanorc: color red "word"
+nanorc: syntax same "\\.2$"
+nanorc: color blue "word"
+args: -Y same a.txt
+size: 40x8
+file a.txt:
+| a word here
+keys: {^X}

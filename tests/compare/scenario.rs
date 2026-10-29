@@ -16,6 +16,8 @@ pub struct Scenario {
     /// Files in the editor's own HOME (`nanorc:` and `xdgrc:` lines). When there are any, the
     /// editors are not given `--ignorercfiles`.
     pub home_files: Vec<(&'static str, Vec<u8>)>,
+    /// Environment variables for both editors, on top of the fixed environment (`env:` lines).
+    pub env: Vec<(String, String)>,
     pub steps: Vec<Step>,
     /// The deliberate differences at the start, before the first step.
     pub differ: Vec<Region>,
@@ -71,6 +73,7 @@ pub fn parse(text: &str) -> Result<Scenario, String> {
         rows: 24,
         files: Vec::new(),
         home_files: Vec::new(),
+        env: Vec::new(),
         steps: Vec::new(),
         differ: Vec::new(),
         pending: None,
@@ -143,6 +146,27 @@ pub fn parse(text: &str) -> Result<Scenario, String> {
                 let bytes = &mut bytes.expect("just added").1;
                 bytes.extend(unescape(value).map_err(err)?);
                 bytes.push(b'\n');
+            }
+            "env" => {
+                let (name, val) = value.split_once('=').unwrap_or((value, ""));
+                let fixed = [
+                    "PATH",
+                    "HOME",
+                    "TERM",
+                    "LANG",
+                    "LC_ALL",
+                    "TZ",
+                    "NYRA_EDITOR_SYSCONFDIR",
+                ];
+                let plain = !name.is_empty()
+                    && name.bytes().all(|b| b.is_ascii_uppercase() || b == b'_')
+                    && !fixed.contains(&name);
+                if !plain {
+                    return Err(err(format!(
+                        "expected NAME=value with a new name, got {value:?}"
+                    )));
+                }
+                s.env.push((name.to_string(), val.to_string()));
             }
             "differ" if value == "none" => differ.clear(),
             "differ" => differ.push(region(value).map_err(err)?),

@@ -1,0 +1,12 @@
+# The toggle can be bound to another key, and its default key unbound.
+nanorc: bind F12 mouse main
+nanorc: unbind M-M main
+args: t.txt
+size: 40x10
+file t.txt:
+| one two three
+| four five six
+keys: {M-m}
+keys: {F12}
+keys: {Click 7 2}
+keys: {F12}

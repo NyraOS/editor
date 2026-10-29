@@ -1,0 +1,13 @@
+# -z lists the names of the syntaxes, the last defined first, a few to a line, and exits.
+nanorc: syntax first "\\.1$"
+nanorc: color red "x"
+nanorc: syntax second-one "\\.2$"
+nanorc: color red "x"
+nanorc: syntax a-rather-long-syntax-name-for-the-line "\\.3$"
+nanorc: color red "x"
+nanorc: syntax fourth "\\.4$"
+nanorc: color red "x"
+nanorc: syntax first "\\.5$"
+nanorc: color blue "x"
+args: --listsyntaxes
+keys: {Enter}

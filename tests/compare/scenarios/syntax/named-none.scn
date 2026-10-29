@@ -1,0 +1,8 @@
+# -Y none: no syntax, whatever the name of the file says.
+nanorc: syntax red "\\.red$"
+nanorc: color red "word"
+args: --syntax=none a.red
+size: 40x8
+file a.red:
+| a word here
+keys: {^X}
